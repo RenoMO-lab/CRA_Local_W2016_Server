@@ -1,4 +1,4 @@
-name: Deploy Worker
+name: Deploy to Windows Server
 
 on:
   push:
@@ -9,26 +9,12 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          bun-version: 1.2.15
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build assets
-        run: bun run build
-
-      - name: Apply D1 migrations
-        run: npx wrangler d1 migrations apply request-navigator
-
-      - name: Deploy Worker
-        run: npx wrangler deploy
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || '22' }}
+          script: powershell -NoProfile -ExecutionPolicy Bypass -File "C:\apps\CRA_Local\deploy\deploy.ps1"

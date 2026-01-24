@@ -1,92 +1,145 @@
-# Welcome to your Lovable project
-
-## Project info
-
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
-
-## How can I edit this code?
-
-There are several ways of editing your application.
-
-**Use Lovable**
-
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
-
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Cloudflare Workers + D1 (shared requests)
-
-This app can use a Cloudflare Worker with D1 for shared requests across devices.
-
-1) Create a D1 database:
-```sh
-npx wrangler d1 create request-navigator
-```
-2) Copy the returned database ID into `wrangler.jsonc` under `d1_databases[0].database_id`.
-3) Apply migrations:
-```sh
-npx wrangler d1 migrations apply request-navigator
-```
-4) Deploy:
-```sh
-npx wrangler deploy
-```
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
 # CRA_Local
+
+Production-ready Vite + React + TypeScript SPA with a Node API server and SQL Server backend.
+
+## Table of contents
+
+- Overview
+- Architecture
+- Prerequisites
+- Configuration
+- Local development
+- Migrations
+- Build and run
+- Deployment (Windows + NSSM)
+- CI/CD (GitHub Actions + SSH)
+- Troubleshooting
+
+## Overview
+
+This repo hosts a single application that serves the frontend and the API on the same host/port. The API mirrors the former Cloudflare Worker routes and uses SQL Server as the datastore.
+
+## Architecture
+
+- Frontend: Vite + React SPA
+- Backend: Node.js (Express) API under `/api`
+- Database: SQL Server (SQL login)
+- Static assets: built to `dist/` and served by Node
+
+## Prerequisites
+
+- Node.js 20 LTS
+- Bun (recommended) or npm
+- SQL Server (local instance)
+- Git
+
+## Configuration
+
+Copy the template and edit values:
+
+```sh
+copy .env.example .env
+```
+
+Environment variables:
+
+```
+HOST=0.0.0.0
+PORT=3000
+VITE_API_PROXY=http://localhost:3000
+DB_SERVER=localhost
+DB_INSTANCE=
+DB_PORT=1433
+DB_NAME=request_navigator
+DB_USER=your_sql_login
+DB_PASSWORD=your_sql_password
+DB_ENCRYPT=false
+DB_TRUST_CERT=true
+```
+
+Notes:
+- Do not commit `.env`.
+- `DB_INSTANCE` is optional for named instances.
+- Use `DB_TRUST_CERT=true` for local dev only.
+
+## Local development
+
+Bun (recommended):
+
+```sh
+bun install
+bun run migrate
+bun run dev
+bun run dev:api
+```
+
+Open `http://localhost:8080`.
+
+Npm alternative:
+
+```sh
+npm install
+npm run migrate
+npm run dev
+npm run dev:api
+```
+
+## Migrations
+
+SQL Server migrations live in `server/db/migrations/`.
+Run them with:
+
+```sh
+bun run migrate
+```
+
+The migration runner tracks applied files in `dbo.schema_migrations`.
+
+## Build and run
+
+```sh
+bun install
+bun run migrate
+bun run build
+bun run start
+```
+
+Open `http://localhost:3000`.
+
+## Deployment (Windows + NSSM)
+
+1) Copy the app to `C:\apps\CRA_Local`
+2) Create `.env` with production values
+3) Run migrations and build
+4) Install service:
+
+```sh
+nssm install CRA_Local "C:\Program Files\nodejs\node.exe" "C:\apps\CRA_Local\server\index.js"
+nssm set CRA_Local AppDirectory "C:\apps\CRA_Local"
+nssm start CRA_Local
+```
+
+## CI/CD (GitHub Actions + SSH)
+
+Workflow: `CRA_Local/.github/workflows/deploy.yml`
+
+Secrets required:
+- `DEPLOY_HOST`
+- `DEPLOY_USER`
+- `DEPLOY_KEY` (private key)
+- `DEPLOY_PORT` (optional, defaults to 22)
+
+Server setup:
+- Install OpenSSH Server
+- Create a deploy user
+- Add public key to `C:\Users\deploy\.ssh\authorized_keys`
+- Install Git, Node 20 LTS, NSSM
+
+Deploy script: `CRA_Local/deploy/deploy.ps1`
+
+## Troubleshooting
+
+- API errors on load: check `.env` and SQL Server connectivity.
+- `login failed`: verify SQL login permissions and database name.
+- Port conflicts: update `PORT` (API) and `VITE_API_PROXY`.
+
