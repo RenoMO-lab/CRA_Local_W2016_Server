@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileText, Plus, Settings, LogOut, ChevronLeft, Menu, Users, ClipboardList, BarChart3, Languages, Tags, MessageCircle, LifeBuoy, MoreVertical } from 'lucide-react';
+import { LayoutDashboard, FileText, Plus, Settings, LogOut, ChevronLeft, Menu, Users, BarChart3, Languages, Tags, MessageCircle, LifeBuoy, MoreVertical } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { cn } from '@/lib/utils';
@@ -52,11 +52,6 @@ const Sidebar: React.FC<SidebarProps> = ({
     path: '/performance',
     labelKey: 'performance' as const,
     icon: BarChart3,
-    roles: ['sales', 'design', 'costing', 'admin']
-  }, {
-    path: '/test',
-    labelKey: 'test' as const,
-    icon: ClipboardList,
     roles: ['sales', 'design', 'costing', 'admin']
   }, {
     path: '/settings',

@@ -31,7 +31,6 @@ const MobileTopNav: React.FC = () => {
     { path: '/requests/new', labelKey: 'newRequest' as const, roles: ['sales', 'admin'] },
     { path: '/price-list', labelKey: 'priceList' as const, roles: ['sales', 'admin'] },
     { path: '/performance', labelKey: 'performance' as const, roles: ['sales', 'design', 'costing', 'admin'] },
-    { path: '/test', labelKey: 'test' as const, roles: ['sales', 'design', 'costing', 'admin'] },
     { path: '/settings', labelKey: 'settings' as const, roles: ['admin'] },
   ];
 
