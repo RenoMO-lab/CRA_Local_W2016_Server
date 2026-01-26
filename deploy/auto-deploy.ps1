@@ -61,7 +61,10 @@ try {
   if (-not (Test-Path $khDir)) {
     New-Item -ItemType Directory -Force -Path $khDir | Out-Null
   }
-  $env:GIT_SSH_COMMAND = "ssh -i $SshKeyPath -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$KnownHostsPath"
+  Get-ChildItem -Path $AppPath -Filter "C*known_hosts" -File -ErrorAction SilentlyContinue | Remove-Item -Force
+  $sshKey = $SshKeyPath -replace '\\', '/'
+  $knownHosts = $KnownHostsPath -replace '\\', '/'
+  $env:GIT_SSH_COMMAND = "ssh -i `"$sshKey`" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=`"$knownHosts`""
 
   Set-Location $AppPath
 
