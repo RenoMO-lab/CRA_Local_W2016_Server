@@ -2,7 +2,9 @@ param(
   [string]$AppPath = "C:\apps\CRA_Local",
   [string]$Branch = "main",
   [string]$LogDir = "C:\apps\CRA_Local\deploy\logs",
-  [string]$DeployScript = "C:\apps\CRA_Local\deploy\deploy.ps1"
+  [string]$DeployScript = "C:\apps\CRA_Local\deploy\deploy.ps1",
+  [string]$SshKeyPath = "C:\Users\Administrator\.ssh\github_actions",
+  [string]$KnownHostsPath = "C:\ProgramData\ssh\known_hosts"
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,6 +52,16 @@ try {
     Write-Log "git not found in PATH." "ERROR"
     return
   }
+
+  if (-not (Test-Path $SshKeyPath)) {
+    Write-Log "SSH key not found: $SshKeyPath" "ERROR"
+    return
+  }
+  $khDir = Split-Path $KnownHostsPath
+  if (-not (Test-Path $khDir)) {
+    New-Item -ItemType Directory -Force -Path $khDir | Out-Null
+  }
+  $env:GIT_SSH_COMMAND = "ssh -i $SshKeyPath -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$KnownHostsPath"
 
   Set-Location $AppPath
 
