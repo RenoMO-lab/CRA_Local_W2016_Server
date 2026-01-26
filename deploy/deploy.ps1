@@ -15,7 +15,13 @@ if (Test-Path $backupScript) {
 }
 
 git fetch --prune
-git checkout main 2>$null
+$currentBranch = git rev-parse --abbrev-ref HEAD
+if ($LASTEXITCODE -ne 0) {
+  throw "git rev-parse failed"
+}
+if ($currentBranch -ne "main") {
+  git checkout main --quiet
+}
 git pull --ff-only
 
 if (Get-Command bun -ErrorAction SilentlyContinue) {
