@@ -1,5 +1,10 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { getPool, sql } from "./db.js";
 
 const ADMIN_LIST_CATEGORIES = new Set([
@@ -51,6 +56,61 @@ const getClientKey = (req) => {
   }
   const ip = req.socket.remoteAddress ?? "unknown";
   return `ip:${ip}`;
+};
+
+const execFileAsync = promisify(execFile);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const REPO_ROOT = path.resolve(__dirname, "..");
+const DEFAULT_LOG_LINES = 200;
+const MAX_LOG_LINES = 1000;
+const LOG_PATH = path.join(REPO_ROOT, "deploy", "logs", "auto-deploy.log");
+
+const clampLineCount = (value) => {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (Number.isNaN(parsed)) {
+    return DEFAULT_LOG_LINES;
+  }
+  return Math.min(Math.max(parsed, 50), MAX_LOG_LINES);
+};
+
+const readLogTail = async (filePath, maxLines) => {
+  try {
+    const handle = await fs.open(filePath, "r");
+    try {
+      const { size } = await handle.stat();
+      if (!size) {
+        return "";
+      }
+      const bytesToRead = Math.min(size, 256 * 1024);
+      const buffer = Buffer.alloc(bytesToRead);
+      await handle.read(buffer, 0, bytesToRead, size - bytesToRead);
+      const text = buffer.toString("utf8");
+      const lines = text.split(/\r?\n/);
+      return lines.slice(-maxLines).join("\n").trimEnd();
+    } finally {
+      await handle.close();
+    }
+  } catch (error) {
+    return null;
+  }
+};
+
+const getGitInfo = async () => {
+  try {
+    const { stdout } = await execFileAsync("git", [
+      "-C",
+      REPO_ROOT,
+      "log",
+      "-1",
+      "--pretty=format:%H%n%s%n%an%n%ad",
+      "--date=iso-strict",
+    ]);
+    const [hash, message, author, date] = stdout.trim().split("\n");
+    return { hash, message, author, date };
+  } catch (error) {
+    return null;
+  }
 };
 
 const checkRateLimit = async (pool, req) => {
@@ -194,6 +254,26 @@ export const apiRouter = (() => {
         );
 
       res.json(recordset.map((row) => ({ id: row.id, value: row.value })));
+    })
+  );
+
+  router.get(
+    "/admin/deploy-info",
+    asyncHandler(async (req, res) => {
+      const lines = clampLineCount(req.query.lines);
+      const [gitInfo, logContent] = await Promise.all([
+        getGitInfo(),
+        readLogTail(LOG_PATH, lines),
+      ]);
+
+      res.json({
+        git: gitInfo ?? { hash: "", message: "", author: "", date: "" },
+        log: {
+          lines,
+          content: logContent ?? "",
+          available: logContent !== null,
+        },
+      });
     })
   );
 

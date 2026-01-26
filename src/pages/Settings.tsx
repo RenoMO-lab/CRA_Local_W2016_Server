@@ -44,7 +44,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle } from 'lucide-react';
+import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, RefreshCw } from 'lucide-react';
 import { ROLE_CONFIG, UserRole } from '@/types';
 import { cn } from '@/lib/utils';
 import ListManager from '@/components/settings/ListManager';
@@ -62,6 +62,20 @@ interface FeedbackItem {
   userEmail: string;
   userRole: string;
   createdAt: string;
+}
+
+interface DeployInfo {
+  git: {
+    hash: string;
+    message: string;
+    author: string;
+    date: string;
+  };
+  log: {
+    lines: number;
+    content: string;
+    available: boolean;
+  };
 }
 
 const Settings: React.FC = () => {
@@ -105,12 +119,36 @@ const Settings: React.FC = () => {
   const [newUserForm, setNewUserForm] = useState({ name: '', email: '', role: 'sales' as UserRole, password: '' });
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
+  const [deployInfo, setDeployInfo] = useState<DeployInfo | null>(null);
+  const [isDeployLoading, setIsDeployLoading] = useState(false);
+  const [hasDeployError, setHasDeployError] = useState(false);
   const severityLabels: Record<string, string> = {
     low: t.feedback.severityLow,
     medium: t.feedback.severityMedium,
     high: t.feedback.severityHigh,
     critical: t.feedback.severityCritical,
   };
+
+  const loadDeployInfo = async () => {
+    setIsDeployLoading(true);
+    setHasDeployError(false);
+    try {
+      const res = await fetch('/api/admin/deploy-info?lines=200');
+      if (!res.ok) throw new Error(`Failed to load deploy info: ${res.status}`);
+      const data = await res.json();
+      setDeployInfo(data);
+    } catch (error) {
+      console.error('Failed to load deploy info:', error);
+      setDeployInfo(null);
+      setHasDeployError(true);
+    } finally {
+      setIsDeployLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDeployInfo();
+  }, []);
 
   useEffect(() => {
     const loadFeedback = async () => {
@@ -416,6 +454,10 @@ const Settings: React.FC = () => {
           <TabsTrigger value="feedback" className="data-[state=active]:bg-background">
             <MessageCircle size={16} className="mr-2" />
             {t.settings.feedbackTab}
+          </TabsTrigger>
+          <TabsTrigger value="deployments" className="data-[state=active]:bg-background">
+            <Server size={16} className="mr-2" />
+            {t.settings.deploymentsTab}
           </TabsTrigger>
         </TabsList>
 
@@ -844,6 +886,58 @@ const Settings: React.FC = () => {
                     </Table>
                   </div>
                 </>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="deployments" className="space-y-6">
+          <div className="bg-card rounded-lg border border-border p-4 md:p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <h3 className="text-lg font-semibold text-foreground">{t.settings.deployTitle}</h3>
+                <p className="text-sm text-muted-foreground">{t.settings.deployDescription}</p>
+              </div>
+              <Button variant="outline" onClick={loadDeployInfo} disabled={isDeployLoading}>
+                <RefreshCw size={16} className="mr-2" />
+                {isDeployLoading ? t.common.loading : t.settings.deployRefresh}
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-4">
+              <h4 className="text-base font-semibold text-foreground">{t.settings.deployCommitTitle}</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <span className="text-muted-foreground">{t.settings.deployHash}</span>
+                  <span className="font-mono text-right break-all">{deployInfo?.git?.hash || '-'}</span>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <span className="text-muted-foreground">{t.settings.deployMessage}</span>
+                  <span className="text-right">{deployInfo?.git?.message || '-'}</span>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <span className="text-muted-foreground">{t.settings.deployAuthor}</span>
+                  <span className="text-right">{deployInfo?.git?.author || '-'}</span>
+                </div>
+                <div className="flex items-start justify-between gap-4">
+                  <span className="text-muted-foreground">{t.settings.deployDate}</span>
+                  <span className="text-right">
+                    {deployInfo?.git?.date ? format(new Date(deployInfo.git.date), 'MMM d, yyyy HH:mm') : '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-4">
+              <h4 className="text-base font-semibold text-foreground">{t.settings.deployLogTitle}</h4>
+              {hasDeployError ? (
+                <p className="text-sm text-destructive">{t.settings.deployLoadError}</p>
+              ) : (
+                <pre className="text-xs font-mono whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 max-h-96 overflow-auto">
+                  {isDeployLoading ? t.common.loading : (deployInfo?.log?.content || t.settings.deployLogEmpty)}
+                </pre>
               )}
             </div>
           </div>
