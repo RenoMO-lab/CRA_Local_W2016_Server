@@ -19,6 +19,18 @@ function Write-Log {
   Add-Content -Path $script:LogFile -Value $line -Encoding ASCII
 }
 
+function Get-RemoteHash {
+  param(
+    [string]$BranchName
+  )
+  $remoteLine = git ls-remote origin "refs/heads/$BranchName" 2>&1
+  if ($LASTEXITCODE -ne 0 -or -not $remoteLine) {
+    Write-Log ("git ls-remote failed: {0}" -f ($remoteLine -join " ")) "ERROR"
+    return $null
+  }
+  return ($remoteLine -split '\s+')[0]
+}
+
 if (-not (Test-Path $LogDir)) {
   New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 }
@@ -90,15 +102,21 @@ try {
     return
   }
 
-  $fetchOutput = git fetch --prune origin 2>&1
-  if ($LASTEXITCODE -ne 0) {
-    Write-Log ("git fetch failed: {0}" -f ($fetchOutput -join " ")) "ERROR"
-    return
-  }
-
   $remoteUrl = git remote get-url origin 2>$null
   if ($remoteUrl) {
     Write-Log "Origin: $remoteUrl"
+  }
+  if ($remoteUrl -and $remoteUrl -match "github.com") {
+    $dnsCheck = Resolve-DnsName github.com -ErrorAction SilentlyContinue
+    if (-not $dnsCheck) {
+      Write-Log "DNS resolution failed for github.com. Fix DNS/network to reach GitHub." "ERROR"
+      return
+    }
+    $tcpCheck = Test-NetConnection github.com -Port 22 -InformationLevel Quiet
+    if (-not $tcpCheck) {
+      Write-Log "Cannot reach github.com:22. Check firewall/NAT." "ERROR"
+      return
+    }
   }
 
   $local = git rev-parse "refs/heads/$Branch" 2>$null
@@ -106,9 +124,9 @@ try {
     Write-Log "Local branch '$Branch' not found." "ERROR"
     return
   }
-  $remote = git rev-parse "refs/remotes/origin/$Branch" 2>$null
-  if ($LASTEXITCODE -ne 0 -or -not $remote) {
-    Write-Log "Remote branch 'origin/$Branch' not found." "ERROR"
+  $remote = Get-RemoteHash -BranchName $Branch
+  if (-not $remote) {
+    Write-Log "Unable to resolve remote hash for '$Branch'. Check DNS/SSH access to GitHub." "ERROR"
     return
   }
 
