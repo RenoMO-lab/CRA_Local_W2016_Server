@@ -2,12 +2,16 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { CustomerRequest, RequestProduct, RequestStatus } from '@/types';
 import { useAuth } from './AuthContext';
 
+type RequestUpdatePayload = Partial<CustomerRequest> & {
+  historyEvent?: 'edited';
+};
+
 interface RequestContextType {
   requests: CustomerRequest[];
   isLoading: boolean;
   getRequestById: (id: string) => CustomerRequest | undefined;
   createRequest: (request: Omit<CustomerRequest, 'id' | 'createdAt' | 'updatedAt' | 'history' | 'createdBy' | 'createdByName'>) => Promise<CustomerRequest>;
-  updateRequest: (id: string, updates: Partial<CustomerRequest>) => Promise<void>;
+  updateRequest: (id: string, updates: RequestUpdatePayload) => Promise<void>;
   updateStatus: (id: string, status: RequestStatus, comment?: string) => Promise<void>;
   deleteRequest: (id: string) => Promise<void>;
 }
@@ -182,16 +186,21 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return revived;
   }, [user]);
 
-  const updateRequest = useCallback(async (id: string, updates: Partial<CustomerRequest>) => {
+  const updateRequest = useCallback(async (id: string, updates: RequestUpdatePayload) => {
+    const payload = {
+      ...updates,
+      editedBy: user?.id || '',
+      editedByName: user?.name || '',
+    };
     const updated = await fetchJson<CustomerRequest>(`${API_BASE}/${id}`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(updates),
+      body: JSON.stringify(payload),
     });
 
     const revived = reviveRequest(updated);
     setRequests(prev => prev.map(r => (r.id === id ? revived : r)));
-  }, []);
+  }, [user]);
 
   const updateStatus = useCallback(async (id: string, status: RequestStatus, comment?: string) => {
     const updated = await fetchJson<CustomerRequest>(`${API_BASE}/${id}/status`, {

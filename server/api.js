@@ -837,11 +837,17 @@ export const apiRouter = (() => {
       }
 
       const nowIso = new Date().toISOString();
+      const historyEvent = body.historyEvent;
+      const editedBy = body.editedBy;
+      const editedByName = body.editedByName;
       const merged = {
         ...existing,
         ...body,
         updatedAt: nowIso,
       };
+      delete merged.historyEvent;
+      delete merged.editedBy;
+      delete merged.editedByName;
 
       if (!Array.isArray(body.products) && hasLegacyProductUpdates(body)) {
         const existingProducts = Array.isArray(existing.products) ? existing.products : [];
@@ -853,7 +859,29 @@ export const apiRouter = (() => {
         }
       }
 
-      const updated = normalizeRequestData(merged, nowIso);
+      const baseHistory = Array.isArray(merged.history)
+        ? [...merged.history]
+        : Array.isArray(existing.history)
+          ? [...existing.history]
+          : [];
+
+      if (historyEvent === "edited") {
+        baseHistory.push({
+          id: `h-${Date.now()}`,
+          status: "edited",
+          timestamp: nowIso,
+          userId: editedBy ?? "",
+          userName: editedByName ?? "",
+        });
+      }
+
+      const updated = normalizeRequestData(
+        {
+          ...merged,
+          history: baseHistory,
+        },
+        nowIso
+      );
 
       if (Array.isArray(updated.products) && updated.products.length) {
         Object.assign(updated, syncLegacyFromProduct(updated, updated.products[0]));

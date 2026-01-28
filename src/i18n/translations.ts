@@ -82,6 +82,7 @@ export const translations = {
     statuses: {
       draft: 'Draft',
       submitted: 'Submitted',
+      edited: 'Edited',
       under_review: 'Under Review',
       clarification_needed: 'Clarification Needed',
       feasibility_confirmed: 'Feasibility Confirmed',
@@ -678,6 +679,7 @@ export const translations = {
     statuses: {
       draft: 'Brouillon',
       submitted: 'Soumis',
+      edited: 'Modifiée',
       under_review: 'En cours de revue',
       clarification_needed: 'Clarification requise',
       feasibility_confirmed: 'Faisabilité confirmée',
@@ -1274,6 +1276,7 @@ export const translations = {
     statuses: {
       draft: '草稿',
       submitted: '已提交',
+      edited: '已编辑',
       under_review: '审核中',
       clarification_needed: '需要澄清',
       feasibility_confirmed: '可行性已确认',

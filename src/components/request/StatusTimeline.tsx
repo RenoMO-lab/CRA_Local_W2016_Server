@@ -1,6 +1,6 @@
 import React from 'react';
 import { format } from 'date-fns';
-import { Check, Clock, AlertCircle, MessageSquare, DollarSign, CheckCircle } from 'lucide-react';
+import { Check, Clock, AlertCircle, MessageSquare, DollarSign, CheckCircle, Pencil } from 'lucide-react';
 import { StatusHistoryEntry, RequestStatus, STATUS_CONFIG } from '@/types';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/context/LanguageContext';
@@ -15,6 +15,8 @@ const getStatusIcon = (status: RequestStatus) => {
       return Clock;
     case 'submitted':
       return Check;
+    case 'edited':
+      return Pencil;
     case 'under_review':
       return Clock;
     case 'clarification_needed':

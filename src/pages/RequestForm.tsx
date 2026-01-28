@@ -539,7 +539,10 @@ const RequestForm: React.FC = () => {
         });
         navigate(`/requests/${newRequest.id}/edit`);
       } else if (existingRequest) {
-        await updateRequest(existingRequest.id, prepareRequestPayload(formData));
+        await updateRequest(existingRequest.id, {
+          ...prepareRequestPayload(formData),
+          historyEvent: 'edited',
+        });
         toast({
           title: t.request.draftSaved,
           description: t.request.draftSavedDesc,
@@ -594,13 +597,27 @@ const RequestForm: React.FC = () => {
         });
         showSubmitConfirmation();
       } else if (existingRequest) {
-        await updateRequest(existingRequest.id, prepareRequestPayload({ ...formData, status: 'submitted' }));
-        await updateStatus(existingRequest.id, 'submitted');
-        toast({
-          title: t.request.requestSubmitted,
-          description: t.request.requestSubmittedDesc,
-        });
-        showSubmitConfirmation();
+        const isResubmission =
+          existingRequest.status === 'draft' || existingRequest.status === 'clarification_needed';
+
+        if (isResubmission) {
+          await updateRequest(existingRequest.id, prepareRequestPayload({ ...formData, status: 'submitted' }));
+          await updateStatus(existingRequest.id, 'submitted');
+          toast({
+            title: t.request.requestSubmitted,
+            description: t.request.requestSubmittedDesc,
+          });
+          showSubmitConfirmation();
+        } else {
+          await updateRequest(existingRequest.id, {
+            ...prepareRequestPayload(formData),
+            historyEvent: 'edited',
+          });
+          toast({
+            title: t.request.statusUpdated,
+            description: t.request.draftSavedDesc,
+          });
+        }
       }
     } catch (error) {
       toast({
