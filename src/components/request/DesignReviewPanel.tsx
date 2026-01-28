@@ -14,6 +14,7 @@ interface DesignReviewPanelProps {
   onUpdateStatus: (status: RequestStatus, data?: { comment?: string; message?: string; date?: Date }) => void;
   isUpdating: boolean;
   showActions?: boolean;
+  forceEnableActions?: boolean;
 }
 
 const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
@@ -21,6 +22,7 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
   onUpdateStatus,
   isUpdating,
   showActions = true,
+  forceEnableActions = false,
 }) => {
   const [clarificationComment, setClarificationComment] = useState('');
   const [acceptanceMessage, setAcceptanceMessage] = useState('');
@@ -48,9 +50,9 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
     setShowAcceptanceForm(false);
   };
 
-  const canSetUnderReview = request.status === 'submitted';
-  const canRequestClarification = request.status === 'submitted' || request.status === 'under_review';
-  const canAccept = request.status === 'submitted' || request.status === 'under_review';
+  const canSetUnderReview = forceEnableActions || request.status === 'submitted';
+  const canRequestClarification = forceEnableActions || request.status === 'submitted' || request.status === 'under_review';
+  const canAccept = forceEnableActions || request.status === 'submitted' || request.status === 'under_review';
   const isAccepted = ['feasibility_confirmed', 'design_result', 'in_costing', 'costing_complete', 'closed'].includes(request.status);
   const statusLabel = t.statuses[request.status as keyof typeof t.statuses] || request.status;
   const hasReviewNotes = Boolean(

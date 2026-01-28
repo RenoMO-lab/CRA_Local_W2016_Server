@@ -17,7 +17,7 @@ import ClarificationPanel from '@/components/request/ClarificationPanel';
 import StatusTimeline from '@/components/request/StatusTimeline';
 import DesignResultSection from '@/components/request/DesignResultSection';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { ArrowLeft, CheckCircle, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 type FormStep = 'chapters' | 'product' | 'review';
@@ -1194,6 +1194,7 @@ const RequestForm: React.FC = () => {
               onUpdateStatus={handleDesignStatusUpdate}
               isUpdating={isUpdating}
               showActions={showDesignPanel}
+              forceEnableActions={isAdminEdit}
             />
           )}
 
@@ -1325,6 +1326,7 @@ const RequestForm: React.FC = () => {
                   className="bg-primary hover:bg-primary/90 text-primary-foreground"
                 >
                   {t.common.next}
+                  <ArrowRight size={16} className="ml-2" />
                 </Button>
               )}
 
@@ -1357,6 +1359,7 @@ const RequestForm: React.FC = () => {
                     className="bg-primary hover:bg-primary/90 text-primary-foreground"
                   >
                     {currentProductIndex < products.length - 1 ? t.request.nextProduct : t.request.reviewAndSubmit}
+                    <ArrowRight size={16} className="ml-2" />
                   </Button>
                 </>
               )}
