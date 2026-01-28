@@ -1172,7 +1172,7 @@ const RequestForm: React.FC = () => {
                 );
               })}
 
-              {existingRequest && (
+              {existingRequest && user?.role !== 'design' && (
                 <div className="bg-card rounded-lg border border-border p-4 md:p-6">
                   <DesignResultSection
                     comments={existingRequest.designResultComments ?? ''}
