@@ -25,7 +25,11 @@ const StudsPcdBlock: React.FC<StudsPcdBlockProps> = ({
   const { t, translateOption } = useLanguage();
   const fieldId = (suffix: string) => (idPrefix ? `${idPrefix}-${suffix}` : suffix);
   const mode = formData.studsPcdMode || 'standard';
-  const standardSelections = formData.studsPcdStandardSelections || [];
+  const standardSelections = Array.isArray(formData.studsPcdStandardSelections)
+    ? formData.studsPcdStandardSelections
+    : formData.studsPcdStandardSelections
+      ? [String(formData.studsPcdStandardSelections)]
+      : [];
 
   const handleModeChange = (newMode: StudsPcdMode) => {
     onChange('studsPcdMode', newMode);
@@ -38,11 +42,10 @@ const StudsPcdBlock: React.FC<StudsPcdBlockProps> = ({
   };
 
   const handleStandardSelectionChange = (optionId: string, checked: boolean) => {
-    if (checked) {
-      onChange('studsPcdStandardSelections', [...standardSelections, optionId]);
-    } else {
-      onChange('studsPcdStandardSelections', standardSelections.filter(id => id !== optionId));
-    }
+    const next = checked
+      ? Array.from(new Set([...standardSelections, optionId]))
+      : standardSelections.filter(id => id !== optionId);
+    onChange('studsPcdStandardSelections', next);
   };
 
   return (

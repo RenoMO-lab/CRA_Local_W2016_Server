@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useRequests } from '@/context/RequestContext';
@@ -151,6 +151,8 @@ const RequestForm: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [showSubmitSuccess, setShowSubmitSuccess] = useState(false);
+  const submitRedirectRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!existingRequest) {
@@ -211,6 +213,14 @@ const RequestForm: React.FC = () => {
     });
   }, [products.length]);
 
+  useEffect(() => {
+    return () => {
+      if (submitRedirectRef.current) {
+        window.clearTimeout(submitRedirectRef.current);
+      }
+    };
+  }, []);
+
   // If we have an ID but no request found, redirect to dashboard
   if (id && isLoading && !existingRequest) {
     return (
@@ -230,6 +240,18 @@ const RequestForm: React.FC = () => {
             <ArrowLeft size={16} className="mr-2" />
             {t.request.backToDashboard}
           </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (showSubmitSuccess) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="bg-card border border-border rounded-xl p-6 md:p-10 text-center space-y-3 shadow-sm">
+          <h2 className="text-lg md:text-2xl font-semibold text-foreground">{t.request.requestSubmitted}</h2>
+          <p className="text-sm md:text-base text-muted-foreground">{t.request.requestSubmittedDesc}</p>
+          <p className="text-xs md:text-sm text-muted-foreground">{t.request.submissionRedirecting}</p>
         </div>
       </div>
     );
@@ -531,6 +553,16 @@ const RequestForm: React.FC = () => {
     }
   };
 
+  const showSubmitConfirmation = () => {
+    if (submitRedirectRef.current) {
+      window.clearTimeout(submitRedirectRef.current);
+    }
+    setShowSubmitSuccess(true);
+    submitRedirectRef.current = window.setTimeout(() => {
+      navigate('/dashboard');
+    }, 3000);
+  };
+
   const handleSubmit = async () => {
     if (!validateForSubmit()) {
       toast({
@@ -557,7 +589,7 @@ const RequestForm: React.FC = () => {
           title: t.request.requestSubmitted,
           description: `${t.dashboard.requests} ${newRequest.id} ${t.request.requestSubmittedDesc}`,
         });
-        navigate('/dashboard');
+        showSubmitConfirmation();
       } else if (existingRequest) {
         await updateRequest(existingRequest.id, prepareRequestPayload({ ...formData, status: 'submitted' }));
         await updateStatus(existingRequest.id, 'submitted');
@@ -565,7 +597,7 @@ const RequestForm: React.FC = () => {
           title: t.request.requestSubmitted,
           description: t.request.requestSubmittedDesc,
         });
-        navigate('/dashboard');
+        showSubmitConfirmation();
       }
     } catch (error) {
       toast({
@@ -658,7 +690,7 @@ const RequestForm: React.FC = () => {
         title: t.request.requestSubmitted,
         description: t.request.requestSubmittedDesc,
       });
-      navigate('/dashboard');
+      showSubmitConfirmation();
     } catch (error) {
       toast({
         title: t.request.error,

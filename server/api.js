@@ -270,8 +270,12 @@ const checkRateLimit = async (pool, req) => {
 };
 
 const generateRequestId = async (pool) => {
-  const year = new Date().getFullYear().toString().slice(-2);
-  const counterName = `request_${year}`;
+  const now = new Date();
+  const year = now.getFullYear().toString().slice(-2);
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const dateStamp = `${year}${month}${day}`;
+  const counterName = `request_${dateStamp}`;
 
   const transaction = new sql.Transaction(pool);
   await transaction.begin();
@@ -292,7 +296,7 @@ const generateRequestId = async (pool) => {
     if (!value) {
       throw new Error("Failed to generate request id");
     }
-    return `CRA${year}${String(value).padStart(4, "0")}`;
+    return `CRA${dateStamp}${String(value).padStart(2, "0")}`;
   } catch (error) {
     await transaction.rollback();
     throw error;
