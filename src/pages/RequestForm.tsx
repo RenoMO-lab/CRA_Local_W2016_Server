@@ -155,7 +155,9 @@ const RequestForm: React.FC = () => {
   const [showSubmitSuccess, setShowSubmitSuccess] = useState(false);
   const [designResultComments, setDesignResultComments] = useState('');
   const [designResultAttachments, setDesignResultAttachments] = useState<Attachment[]>([]);
+  const [designResultDirty, setDesignResultDirty] = useState(false);
   const submitRedirectRef = useRef<number | null>(null);
+  const designResultRequestIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!existingRequest) {
@@ -176,15 +178,31 @@ const RequestForm: React.FC = () => {
     if (!existingRequest) {
       setDesignResultComments('');
       setDesignResultAttachments([]);
+      setDesignResultDirty(false);
+      designResultRequestIdRef.current = null;
       return;
     }
-    setDesignResultComments(existingRequest.designResultComments ?? '');
-    setDesignResultAttachments(
-      Array.isArray(existingRequest.designResultAttachments)
-        ? existingRequest.designResultAttachments
-        : []
-    );
-  }, [existingRequest?.designResultComments, existingRequest?.designResultAttachments, existingRequest?.id]);
+
+    const requestChanged = designResultRequestIdRef.current !== existingRequest.id;
+    if (requestChanged) {
+      designResultRequestIdRef.current = existingRequest.id;
+      setDesignResultDirty(false);
+    }
+
+    if (requestChanged || !designResultDirty) {
+      setDesignResultComments(existingRequest.designResultComments ?? '');
+      setDesignResultAttachments(
+        Array.isArray(existingRequest.designResultAttachments)
+          ? existingRequest.designResultAttachments
+          : []
+      );
+    }
+  }, [
+    existingRequest?.id,
+    existingRequest?.designResultComments,
+    existingRequest?.designResultAttachments,
+    designResultDirty,
+  ]);
 
   // Determine form mode
   const mode: FormMode = useMemo(() => {
@@ -762,6 +780,7 @@ const RequestForm: React.FC = () => {
         designResultAttachments: payload.attachments,
       });
       await updateStatus(existingRequest.id, 'design_result');
+      setDesignResultDirty(false);
       toast({
         title: t.request.statusUpdated,
         description: t.request.draftSavedDesc,
@@ -1194,8 +1213,14 @@ const RequestForm: React.FC = () => {
                   : Array.isArray(existingRequest.designResultAttachments)
                     ? existingRequest.designResultAttachments
                     : []}
-                onCommentsChange={canEditDesignResult ? setDesignResultComments : undefined}
-                onAttachmentsChange={canEditDesignResult ? setDesignResultAttachments : undefined}
+                onCommentsChange={canEditDesignResult ? (value) => {
+                  setDesignResultComments(value);
+                  setDesignResultDirty(true);
+                } : undefined}
+                onAttachmentsChange={canEditDesignResult ? (files) => {
+                  setDesignResultAttachments(files);
+                  setDesignResultDirty(true);
+                } : undefined}
                 isReadOnly={!canEditDesignResult}
                 showEmptyState={true}
               />
