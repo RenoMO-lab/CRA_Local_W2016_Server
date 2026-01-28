@@ -17,7 +17,7 @@ import ClarificationPanel from '@/components/request/ClarificationPanel';
 import StatusTimeline from '@/components/request/StatusTimeline';
 import DesignResultSection from '@/components/request/DesignResultSection';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { ArrowLeft, CheckCircle, Save } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 type FormStep = 'chapters' | 'product' | 'review';
@@ -153,6 +153,8 @@ const RequestForm: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [showSubmitSuccess, setShowSubmitSuccess] = useState(false);
+  const [designResultComments, setDesignResultComments] = useState('');
+  const [designResultAttachments, setDesignResultAttachments] = useState<Attachment[]>([]);
   const submitRedirectRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -169,6 +171,20 @@ const RequestForm: React.FC = () => {
       setLoadedRequestId(existingRequest.id);
     }
   }, [existingRequest, loadedRequestId]);
+
+  useEffect(() => {
+    if (!existingRequest) {
+      setDesignResultComments('');
+      setDesignResultAttachments([]);
+      return;
+    }
+    setDesignResultComments(existingRequest.designResultComments ?? '');
+    setDesignResultAttachments(
+      Array.isArray(existingRequest.designResultAttachments)
+        ? existingRequest.designResultAttachments
+        : []
+    );
+  }, [existingRequest?.designResultComments, existingRequest?.designResultAttachments, existingRequest?.id]);
 
   // Determine form mode
   const mode: FormMode = useMemo(() => {
@@ -731,6 +747,11 @@ const RequestForm: React.FC = () => {
   
   const showClarificationPanel = (user?.role === 'sales' || user?.role === 'admin') && 
     existingRequest?.status === 'clarification_needed';
+  const canEditDesignResult = Boolean(
+    user?.role === 'design' &&
+    existingRequest &&
+    ['feasibility_confirmed', 'design_result'].includes(existingRequest.status)
+  );
 
   const handleDesignResultSave = async (payload: { comments: string; attachments: Attachment[] }) => {
     if (!existingRequest) return;
@@ -1160,7 +1181,6 @@ const RequestForm: React.FC = () => {
             <DesignReviewPanel
               request={existingRequest}
               onUpdateStatus={handleDesignStatusUpdate}
-              onSaveDesignResult={handleDesignResultSave}
               isUpdating={isUpdating}
             />
           )}
@@ -1168,13 +1188,32 @@ const RequestForm: React.FC = () => {
           {existingRequest && (
             <div className="bg-card rounded-lg border border-border p-6 space-y-4">
               <DesignResultSection
-                comments={existingRequest.designResultComments ?? ''}
-                attachments={Array.isArray(existingRequest.designResultAttachments)
-                  ? existingRequest.designResultAttachments
-                  : []}
-                isReadOnly={true}
+                comments={canEditDesignResult ? designResultComments : (existingRequest.designResultComments ?? '')}
+                attachments={canEditDesignResult
+                  ? designResultAttachments
+                  : Array.isArray(existingRequest.designResultAttachments)
+                    ? existingRequest.designResultAttachments
+                    : []}
+                onCommentsChange={canEditDesignResult ? setDesignResultComments : undefined}
+                onAttachmentsChange={canEditDesignResult ? setDesignResultAttachments : undefined}
+                isReadOnly={!canEditDesignResult}
                 showEmptyState={true}
               />
+              {canEditDesignResult && (
+                <div className="flex justify-end">
+                  <Button
+                    onClick={() => handleDesignResultSave({
+                      comments: designResultComments,
+                      attachments: designResultAttachments,
+                    })}
+                    disabled={isUpdating}
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                  >
+                    {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
+                    {t.panels.saveDesignResult}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 

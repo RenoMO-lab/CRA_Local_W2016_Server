@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -6,22 +6,18 @@ import { Label } from '@/components/ui/label';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar as CalendarIcon, CheckCircle, AlertCircle, Clock, Loader2 } from 'lucide-react';
-import { Attachment, CustomerRequest, RequestStatus } from '@/types';
+import { CustomerRequest, RequestStatus } from '@/types';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/context/LanguageContext';
-import DesignResultSection from '@/components/request/DesignResultSection';
-
 interface DesignReviewPanelProps {
   request: CustomerRequest;
   onUpdateStatus: (status: RequestStatus, data?: { comment?: string; message?: string; date?: Date }) => void;
-  onSaveDesignResult: (payload: { comments: string; attachments: Attachment[] }) => void | Promise<void>;
   isUpdating: boolean;
 }
 
 const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
   request,
   onUpdateStatus,
-  onSaveDesignResult,
   isUpdating,
 }) => {
   const [clarificationComment, setClarificationComment] = useState('');
@@ -29,16 +25,7 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
   const [expectedDate, setExpectedDate] = useState<Date>();
   const [showClarificationForm, setShowClarificationForm] = useState(false);
   const [showAcceptanceForm, setShowAcceptanceForm] = useState(false);
-  const [designResultComments, setDesignResultComments] = useState(request.designResultComments || '');
-  const [designResultAttachments, setDesignResultAttachments] = useState<Attachment[]>(
-    Array.isArray(request.designResultAttachments) ? request.designResultAttachments : []
-  );
   const { t } = useLanguage();
-
-  useEffect(() => {
-    setDesignResultComments(request.designResultComments || '');
-    setDesignResultAttachments(Array.isArray(request.designResultAttachments) ? request.designResultAttachments : []);
-  }, [request.designResultComments, request.designResultAttachments]);
 
   const handleSetUnderReview = () => {
     onUpdateStatus('under_review');
@@ -59,17 +46,15 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
     setShowAcceptanceForm(false);
   };
 
-  const handleSaveDesignResult = () => {
-    onSaveDesignResult({
-      comments: designResultComments.trim(),
-      attachments: designResultAttachments,
-    });
-  };
-
   const canSetUnderReview = request.status === 'submitted';
   const canRequestClarification = request.status === 'submitted' || request.status === 'under_review';
   const canAccept = request.status === 'submitted' || request.status === 'under_review';
   const isAccepted = ['feasibility_confirmed', 'design_result', 'in_costing', 'costing_complete', 'closed'].includes(request.status);
+  const hasReviewNotes = Boolean(
+    request.clarificationComment ||
+    request.acceptanceMessage ||
+    request.expectedDesignReplyDate
+  );
   const canSaveDesignResult = ['submitted', 'under_review', 'feasibility_confirmed', 'design_result'].includes(request.status);
 
   return (
@@ -213,6 +198,36 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
               {t.panels.confirmAcceptance}
             </Button>
           </div>
+        </div>
+      )}
+
+      {hasReviewNotes && (
+        <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
+          <p className="text-sm font-semibold text-foreground">{t.panels.previousComments}</p>
+          {request.clarificationComment && (
+            <div className="text-sm text-foreground">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                {t.panels.lastClarification}
+              </span>
+              <p className="mt-1 whitespace-pre-line">{request.clarificationComment}</p>
+            </div>
+          )}
+          {request.acceptanceMessage && (
+            <div className="text-sm text-foreground">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                {t.panels.lastAcceptance}
+              </span>
+              <p className="mt-1 whitespace-pre-line">{request.acceptanceMessage}</p>
+            </div>
+          )}
+          {request.expectedDesignReplyDate && (
+            <div className="text-sm text-foreground">
+              <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                {t.panels.expectedReplyDateLabel}
+              </span>
+              <p className="mt-1">{format(new Date(request.expectedDesignReplyDate), 'PPP')}</p>
+            </div>
+          )}
         </div>
       )}
 
