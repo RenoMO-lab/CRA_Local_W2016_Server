@@ -16,7 +16,7 @@ import CostingPanel from '@/components/request/CostingPanel';
 import ClarificationPanel from '@/components/request/ClarificationPanel';
 import StatusTimeline from '@/components/request/StatusTimeline';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 type FormStep = 'chapters' | 'product' | 'review';
@@ -247,8 +247,11 @@ const RequestForm: React.FC = () => {
 
   if (showSubmitSuccess) {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="bg-card border border-border rounded-xl p-6 md:p-10 text-center space-y-3 shadow-sm">
+      <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-primary/10 via-background to-background">
+        <div className="bg-card/90 border border-primary/20 rounded-2xl p-8 md:p-12 text-center space-y-4 shadow-lg backdrop-blur">
+          <div className="mx-auto h-14 w-14 md:h-16 md:w-16 rounded-full bg-primary/10 flex items-center justify-center">
+            <CheckCircle className="h-8 w-8 md:h-9 md:w-9 text-primary" />
+          </div>
           <h2 className="text-lg md:text-2xl font-semibold text-foreground">{t.request.requestSubmitted}</h2>
           <p className="text-sm md:text-base text-muted-foreground">{t.request.requestSubmittedDesc}</p>
           <p className="text-xs md:text-sm text-muted-foreground">{t.request.submissionRedirecting}</p>
@@ -822,7 +825,7 @@ const RequestForm: React.FC = () => {
         </div>
       </div>
 
-      <div className="relative rounded-lg border border-border bg-gradient-to-br from-primary/5 via-card to-card p-4 md:p-6 shadow-sm">
+      <div className="relative bg-card rounded-lg border border-border p-4 md:p-6">
         <div className="relative">
           <div
             className="absolute top-1/2 h-[2px] -translate-y-1/2 rounded-full bg-muted"
@@ -874,7 +877,7 @@ const RequestForm: React.FC = () => {
         {/* Main Form */}
         <div className={existingRequest ? "lg:col-span-2 space-y-4 md:space-y-8" : "space-y-4 md:space-y-8"}>
           {currentStep === 'chapters' && (
-            <div className="rounded-lg border border-border bg-gradient-to-br from-primary/5 via-card to-card p-4 md:p-6 space-y-6 md:space-y-8 shadow-sm">
+            <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-6 md:space-y-8">
               <SectionGeneralInfo
                 formData={formData}
                 onChange={handleChange}
@@ -906,7 +909,7 @@ const RequestForm: React.FC = () => {
           )}
 
           {currentStep === 'product' && (
-            <div className="rounded-lg border border-border bg-gradient-to-br from-primary/5 via-card to-card p-4 md:p-6 space-y-6 md:space-y-8 shadow-sm">
+            <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-6 md:space-y-8">
               {(() => {
                 const product = products[currentProductIndex] ?? getInitialProduct();
                 const productLabel = `${t.request.productLabel} ${currentProductIndex + 1}`;
@@ -976,7 +979,7 @@ const RequestForm: React.FC = () => {
 
           {currentStep === 'review' && (
             <div className="space-y-4 md:space-y-8">
-              <div className="rounded-lg border border-border bg-gradient-to-br from-primary/5 via-card to-card p-4 md:p-6 shadow-sm">
+              <div className="bg-card rounded-lg border border-border p-4 md:p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h2 className="text-base md:text-lg font-semibold text-foreground">{t.request.reviewSummaryTitle}</h2>
@@ -1008,7 +1011,7 @@ const RequestForm: React.FC = () => {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-border bg-gradient-to-br from-primary/5 via-card to-card p-4 md:p-6 space-y-6 md:space-y-8 shadow-sm">
+              <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-6 md:space-y-8">
                 <SectionGeneralInfo
                   formData={formData}
                   onChange={handleChange}
@@ -1041,7 +1044,7 @@ const RequestForm: React.FC = () => {
               {products.map((product, index) => {
                 const productLabel = `${t.request.productLabel} ${index + 1}`;
                 return (
-                  <div key={`review-product-${index}`} className="rounded-lg border border-border bg-gradient-to-br from-primary/5 via-card to-card p-4 md:p-6 space-y-4 md:space-y-6 shadow-sm">
+                  <div key={`review-product-${index}`} className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-4 md:space-y-6">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-semibold text-foreground">{productLabel}</p>
                       {isEditable && (
