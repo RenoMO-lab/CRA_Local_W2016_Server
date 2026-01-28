@@ -414,7 +414,7 @@ export const translations = {
 
     // Panels
     panels: {
-      designReview: 'Design Review',
+      designReview: 'Request Review',
       costingPanel: 'Costing',
       clarification: 'Clarification',
       clarificationComment: 'Clarification Comment',
@@ -429,10 +429,11 @@ export const translations = {
       costingNotes: 'Costing Notes',
       sellingPrice: 'Selling Price',
       margin: 'Margin',
-      designReviewActions: 'Design Review Actions',
+      designReviewActions: 'Request Review Actions',
       updateStatusDesc: 'Update the status of this request',
       setUnderReview: 'Set Under Review',
       acceptApplication: 'Accept Application',
+      applicationAccepted: 'Application Accepted',
       clarificationRequired: 'Clarification Comment (Required)',
       describeClarification: 'Describe what needs clarification...',
       acceptanceRequired: 'Acceptance Message (Required)',
@@ -1039,6 +1040,7 @@ export const translations = {
       updateStatusDesc: 'Mettre à jour le statut de cette demande',
       setUnderReview: 'Mettre en revue',
       acceptApplication: 'Accepter la demande',
+      applicationAccepted: 'Demande acceptée',
       clarificationRequired: 'Commentaire de clarification (requis)',
       describeClarification: 'Décrivez ce qui nécessite une clarification...',
       acceptanceRequired: 'Message d’acceptation (requis)',
@@ -1645,6 +1647,7 @@ export const translations = {
       updateStatusDesc: '更新此请求的状态',
       setUnderReview: '设为审核中',
       acceptApplication: '接受申请',
+      applicationAccepted: '申请已接受',
       clarificationRequired: '澄清意见（必填）',
       describeClarification: '描述需要澄清的内容...',
       acceptanceRequired: '接受说明（必填）',

@@ -1165,6 +1165,19 @@ const RequestForm: React.FC = () => {
             />
           )}
 
+          {existingRequest && (
+            <div className="bg-card rounded-lg border border-border p-6 space-y-4">
+              <DesignResultSection
+                comments={existingRequest.designResultComments ?? ''}
+                attachments={Array.isArray(existingRequest.designResultAttachments)
+                  ? existingRequest.designResultAttachments
+                  : []}
+                isReadOnly={true}
+                showEmptyState={true}
+              />
+            </div>
+          )}
+
           {showCostingPanel && existingRequest && (
             <CostingPanel
               request={existingRequest}

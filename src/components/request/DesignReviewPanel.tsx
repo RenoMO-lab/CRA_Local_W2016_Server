@@ -69,6 +69,7 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
   const canSetUnderReview = request.status === 'submitted';
   const canRequestClarification = request.status === 'submitted' || request.status === 'under_review';
   const canAccept = request.status === 'submitted' || request.status === 'under_review';
+  const isAccepted = ['feasibility_confirmed', 'design_result', 'in_costing', 'costing_complete', 'closed'].includes(request.status);
   const canSaveDesignResult = ['submitted', 'under_review', 'feasibility_confirmed', 'design_result'].includes(request.status);
 
   return (
@@ -107,18 +108,29 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
           {t.panels.requestClarification}
         </Button>
 
-        <Button
-          variant="outline"
-          onClick={() => {
-            setShowAcceptanceForm(!showAcceptanceForm);
-            setShowClarificationForm(false);
-          }}
-          disabled={!canAccept || isUpdating}
-          className={cn("justify-start", showAcceptanceForm && "ring-2 ring-success")}
-        >
-          <CheckCircle size={16} className="mr-2 text-success" />
-          {t.panels.acceptApplication}
-        </Button>
+        {isAccepted ? (
+          <Button
+            variant="outline"
+            disabled
+            className="justify-start border-success/40 text-success"
+          >
+            <CheckCircle size={16} className="mr-2 text-success" />
+            {t.panels.applicationAccepted}
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowAcceptanceForm(!showAcceptanceForm);
+              setShowClarificationForm(false);
+            }}
+            disabled={!canAccept || isUpdating}
+            className={cn("justify-start", showAcceptanceForm && "ring-2 ring-success")}
+          >
+            <CheckCircle size={16} className="mr-2 text-success" />
+            {t.panels.acceptApplication}
+          </Button>
+        )}
       </div>
 
       {/* Clarification Form */}
@@ -204,26 +216,6 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
         </div>
       )}
 
-      <div className="rounded-lg border border-border bg-muted/30 p-4 md:p-5 space-y-4">
-        <DesignResultSection
-          comments={designResultComments}
-          attachments={designResultAttachments}
-          onCommentsChange={setDesignResultComments}
-          onAttachmentsChange={setDesignResultAttachments}
-          isReadOnly={false}
-          showEmptyState={false}
-        />
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSaveDesignResult}
-            disabled={isUpdating || !canSaveDesignResult}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
-          >
-            {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
-            {t.panels.saveDesignResult}
-          </Button>
-        </div>
-      </div>
     </div>
   );
 };
