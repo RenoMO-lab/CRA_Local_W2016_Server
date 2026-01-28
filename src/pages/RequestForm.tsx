@@ -757,8 +757,9 @@ const RequestForm: React.FC = () => {
     }
   };
 
-  const showDesignPanel = user?.role === 'design' && existingRequest &&
-    ['submitted', 'under_review', 'feasibility_confirmed', 'design_result'].includes(existingRequest.status);
+  const isAdminEdit = user?.role === 'admin' && isEditMode;
+  const showDesignPanel = (user?.role === 'design' || isAdminEdit) && existingRequest &&
+    (isAdminEdit || ['submitted', 'under_review', 'feasibility_confirmed', 'design_result'].includes(existingRequest.status));
   
   const showCostingPanel = user?.role === 'costing' && existingRequest &&
     ['feasibility_confirmed', 'design_result', 'in_costing'].includes(existingRequest.status);
@@ -766,9 +767,10 @@ const RequestForm: React.FC = () => {
   const showClarificationPanel = (user?.role === 'sales' || user?.role === 'admin') && 
     existingRequest?.status === 'clarification_needed';
   const canEditDesignResult = Boolean(
-    user?.role === 'design' &&
-    existingRequest &&
-    ['feasibility_confirmed', 'design_result'].includes(existingRequest.status)
+    existingRequest && (
+      (user?.role === 'design' && ['feasibility_confirmed', 'design_result'].includes(existingRequest.status)) ||
+      isAdminEdit
+    )
   );
 
   const handleDesignResultSave = async (payload: { comments: string; attachments: Attachment[] }) => {
@@ -1195,7 +1197,7 @@ const RequestForm: React.FC = () => {
             />
           )}
 
-          {existingRequest && user?.role === 'design' && (
+          {existingRequest && (user?.role === 'design' || isAdminEdit) && (
             <div className="bg-card rounded-lg border border-border p-6 space-y-4">
               <DesignResultSection
                 comments={canEditDesignResult ? designResultComments : (existingRequest.designResultComments ?? '')}
@@ -1233,7 +1235,7 @@ const RequestForm: React.FC = () => {
             </div>
           )}
 
-          {existingRequest && user?.role !== 'design' && (
+          {existingRequest && user?.role !== 'design' && !isAdminEdit && (
             <div className="bg-card rounded-lg border border-border p-4 md:p-6">
               <DesignResultSection
                 comments={existingRequest.designResultComments ?? ''}
