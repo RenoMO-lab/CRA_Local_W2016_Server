@@ -763,6 +763,7 @@ const RequestForm: React.FC = () => {
   
   const showCostingPanel = user?.role === 'costing' && existingRequest &&
     ['feasibility_confirmed', 'design_result', 'in_costing'].includes(existingRequest.status);
+  const showCostingSummary = existingRequest?.status === 'costing_complete';
   
   const showClarificationPanel = (user?.role === 'sales' || user?.role === 'admin') && 
     existingRequest?.status === 'clarification_needed';
@@ -1249,7 +1250,7 @@ const RequestForm: React.FC = () => {
             </div>
           )}
 
-          {showCostingPanel && existingRequest && (
+          {(existingRequest && (showCostingPanel || showCostingSummary || isAdminEdit)) && (
             <CostingPanel
               request={existingRequest}
               onUpdateStatus={handleCostingStatusUpdate}
@@ -1257,6 +1258,8 @@ const RequestForm: React.FC = () => {
                 await updateRequest(existingRequest.id, data);
               }}
               isUpdating={isUpdating}
+              readOnly={!showCostingPanel && !isAdminEdit}
+              forceEnableActions={isAdminEdit}
             />
           )}
         </div>

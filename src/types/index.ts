@@ -150,6 +150,11 @@ export interface CustomerRequest {
   costingNotes?: string;
   sellingPrice?: number;
   calculatedMargin?: number;
+  incoterm?: string;
+  incotermOther?: string;
+  vatMode?: 'with' | 'without';
+  vatRate?: number | null;
+  costingAttachments?: Attachment[];
 }
 
 export interface ReferenceProduct {

@@ -137,6 +137,9 @@ const normalizeRequestData = (data, nowIso) => {
   const designResultAttachments = Array.isArray(data.designResultAttachments)
     ? data.designResultAttachments
     : [];
+  const costingAttachments = Array.isArray(data.costingAttachments)
+    ? data.costingAttachments
+    : [];
   const productsPayload = Array.isArray(data.products) ? data.products : [];
   const products = productsPayload.length
     ? productsPayload.map(normalizeProduct)
@@ -148,6 +151,11 @@ const normalizeRequestData = (data, nowIso) => {
     attachments,
     designResultComments: typeof data.designResultComments === "string" ? data.designResultComments : "",
     designResultAttachments,
+    incoterm: typeof data.incoterm === "string" ? data.incoterm : "",
+    incotermOther: typeof data.incotermOther === "string" ? data.incotermOther : "",
+    vatMode: data.vatMode === "with" ? "with" : "without",
+    vatRate: typeof data.vatRate === "number" ? data.vatRate : null,
+    costingAttachments,
     products,
     createdAt: data.createdAt ?? nowIso,
     updatedAt: data.updatedAt ?? nowIso,
