@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+ï»¿import React, { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,7 @@ interface CostingPanelProps {
   onUpdateCostingData: (data: {
     costingNotes?: string;
     sellingPrice?: number;
+    sellingCurrency?: 'USD' | 'EUR' | 'RMB';
     calculatedMargin?: number;
     incoterm?: string;
     incotermOther?: string;
@@ -43,6 +44,9 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
   const [costingNotes, setCostingNotes] = useState(request.costingNotes || '');
   const [sellingPrice, setSellingPrice] = useState<string>(
     request.sellingPrice?.toString() || ''
+  );
+  const [sellingCurrency, setSellingCurrency] = useState<'USD' | 'EUR' | 'RMB'>(
+    request.sellingCurrency || 'EUR'
   );
   const [calculatedMargin, setCalculatedMargin] = useState<string>(
     request.calculatedMargin?.toString() || ''
@@ -118,6 +122,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
     onUpdateCostingData({
       costingNotes,
       sellingPrice: priceValue,
+      sellingCurrency,
       calculatedMargin: marginValue,
       incoterm,
       incotermOther,
@@ -125,12 +130,16 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
       vatRate: vatMode === 'with' ? parseFloat(vatRate) : null,
       costingAttachments,
     });
-    onUpdateStatus('costing_complete', `${t.panels.sellingPrice}: €${priceValue.toFixed(2)}, ${t.panels.margin}: ${marginValue.toFixed(1)}%`);
+    onUpdateStatus(
+      'costing_complete',
+      `${t.panels.sellingPrice}: ${sellingCurrency} ${priceValue.toFixed(2)}, ${t.panels.margin}: ${marginValue.toFixed(1)}%`
+    );
   };
 
   const handleSaveNotes = () => {
     onUpdateCostingData({
       costingNotes,
+      sellingCurrency,
       incoterm,
       incotermOther,
       vatMode,
@@ -163,14 +172,21 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
         </div>
       </div>
 
-      {!readOnly && canSetInCosting && (
+      {!readOnly && (canSetInCosting || request.status === 'in_costing') && (
         <Button
           variant="outline"
           onClick={handleSetInCosting}
-          disabled={isUpdating}
-          className="w-full justify-start"
+          disabled={isUpdating || request.status === 'in_costing'}
+          className={`w-full justify-start ${
+            request.status === 'in_costing'
+              ? 'bg-success/10 text-success border-success/30'
+              : ''
+          }`}
         >
-          <DollarSign size={16} className="mr-2 text-info" />
+          <DollarSign
+            size={16}
+            className={`mr-2 ${request.status === 'in_costing' ? 'text-success' : 'text-info'}`}
+          />
           {t.panels.setInCosting}
         </Button>
       )}
@@ -181,19 +197,38 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
             <div className="space-y-2">
               <Label htmlFor="sellingPrice" className="text-sm font-medium flex items-center gap-2">
                 <DollarSign size={14} className="text-success" />
-                {t.panels.sellingPrice} (€) *
+                {t.panels.sellingPrice} *
               </Label>
-              <Input
-                id="sellingPrice"
-                type="number"
-                min="0"
-                step="0.01"
-                value={sellingPrice}
-                onChange={(e) => setSellingPrice(e.target.value)}
-                placeholder={`${t.common.add} ${t.panels.sellingPrice.toLowerCase()}...`}
-                className="bg-background"
-                disabled={readOnly}
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="sellingPrice"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={sellingPrice}
+                  onChange={(e) => setSellingPrice(e.target.value)}
+                  placeholder={`${t.common.add} ${t.panels.sellingPrice.toLowerCase()}...`}
+                  className="bg-background flex-1"
+                  disabled={readOnly}
+                />
+                <div className="min-w-[130px]">
+                  <Label className="sr-only">{t.panels.currency}</Label>
+                  <Select
+                    value={sellingCurrency}
+                    onValueChange={(value) => setSellingCurrency(value as 'USD' | 'EUR' | 'RMB')}
+                    disabled={readOnly}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder={t.panels.selectCurrency} />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border border-border">
+                      <SelectItem value="USD">{t.panels.currencyUsd}</SelectItem>
+                      <SelectItem value="EUR">{t.panels.currencyEur}</SelectItem>
+                      <SelectItem value="RMB">{t.panels.currencyRmb}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="calculatedMargin" className="text-sm font-medium flex items-center gap-2">
@@ -367,7 +402,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
           <p className="text-sm font-medium text-success">{t.panels.costingCompleted}</p>
           {request.sellingPrice && (
             <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.sellingPrice}:</span> €{request.sellingPrice.toFixed(2)}
+              <span className="text-muted-foreground">{t.panels.sellingPrice}:</span> {request.sellingCurrency ?? 'EUR'} {request.sellingPrice.toFixed(2)}
             </p>
           )}
           {request.calculatedMargin !== undefined && (
@@ -429,3 +464,4 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
 };
 
 export default CostingPanel;
+

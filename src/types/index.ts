@@ -149,6 +149,7 @@ export interface CustomerRequest {
   // Costing
   costingNotes?: string;
   sellingPrice?: number;
+  sellingCurrency?: 'USD' | 'EUR' | 'RMB';
   calculatedMargin?: number;
   incoterm?: string;
   incotermOther?: string;

@@ -153,6 +153,7 @@ const normalizeRequestData = (data, nowIso) => {
     designResultAttachments,
     incoterm: typeof data.incoterm === "string" ? data.incoterm : "",
     incotermOther: typeof data.incotermOther === "string" ? data.incotermOther : "",
+    sellingCurrency: typeof data.sellingCurrency === "string" ? data.sellingCurrency : "EUR",
     vatMode: data.vatMode === "with" ? "with" : "without",
     vatRate: typeof data.vatRate === "number" ? data.vatRate : null,
     costingAttachments,
