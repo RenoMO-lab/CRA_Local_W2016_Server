@@ -15,6 +15,7 @@ interface DesignReviewPanelProps {
   isUpdating: boolean;
   showActions?: boolean;
   forceEnableActions?: boolean;
+  variant?: 'card' | 'embedded';
 }
 
 const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
@@ -23,6 +24,7 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
   isUpdating,
   showActions = true,
   forceEnableActions = false,
+  variant = 'card',
 }) => {
   const [clarificationComment, setClarificationComment] = useState('');
   const [acceptanceMessage, setAcceptanceMessage] = useState('');
@@ -62,8 +64,8 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
   );
   const canSaveDesignResult = ['submitted', 'under_review', 'feasibility_confirmed', 'design_result'].includes(request.status);
 
-  return (
-    <div className="bg-card rounded-lg border border-border p-6 space-y-6">
+  const content = (
+    <>
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="w-10 h-10 rounded-lg bg-warning/10 text-warning flex items-center justify-center">
           <Clock size={20} />
@@ -248,7 +250,16 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
           )}
         </div>
       )}
+    </>
+  );
 
+  if (variant === 'embedded') {
+    return <div className="space-y-6">{content}</div>;
+  }
+
+  return (
+    <div className="bg-card rounded-lg border border-border p-6 space-y-6">
+      {content}
     </div>
   );
 };

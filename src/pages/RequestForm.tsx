@@ -17,7 +17,7 @@ import ClarificationPanel from '@/components/request/ClarificationPanel';
 import StatusTimeline from '@/components/request/StatusTimeline';
 import DesignResultSection from '@/components/request/DesignResultSection';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { ArrowLeft, ArrowRight, CheckCircle, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle, ClipboardCheck, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 type FormStep = 'chapters' | 'product' | 'review';
@@ -758,6 +758,7 @@ const RequestForm: React.FC = () => {
   };
 
   const isAdminEdit = user?.role === 'admin' && isEditMode;
+  const isDesignRole = user?.role === 'design';
   const showDesignPanel = (user?.role === 'design' || isAdminEdit) && existingRequest &&
     (isAdminEdit || ['submitted', 'under_review', 'feasibility_confirmed', 'design_result'].includes(existingRequest.status));
   
@@ -1189,7 +1190,7 @@ const RequestForm: React.FC = () => {
             />
           )}
 
-          {existingRequest && (
+          {existingRequest && !(isDesignRole || isAdminEdit) && (
             <DesignReviewPanel
               request={existingRequest}
               onUpdateStatus={handleDesignStatusUpdate}
@@ -1199,45 +1200,66 @@ const RequestForm: React.FC = () => {
             />
           )}
 
-          {existingRequest && (user?.role === 'design' || isAdminEdit) && (
-            <div className="bg-card rounded-lg border border-border p-6 space-y-4">
-              <DesignResultSection
-                comments={canEditDesignResult ? designResultComments : (existingRequest.designResultComments ?? '')}
-                attachments={canEditDesignResult
-                  ? designResultAttachments
-                  : Array.isArray(existingRequest.designResultAttachments)
-                    ? existingRequest.designResultAttachments
-                    : []}
-                onCommentsChange={canEditDesignResult ? (value) => {
-                  setDesignResultComments(value);
-                  setDesignResultDirty(true);
-                } : undefined}
-                onAttachmentsChange={canEditDesignResult ? (files) => {
-                  setDesignResultAttachments(files);
-                  setDesignResultDirty(true);
-                } : undefined}
-                isReadOnly={!canEditDesignResult}
-                showEmptyState={true}
-              />
-              {canEditDesignResult && (
-                <div className="flex justify-end">
-                  <Button
-                    onClick={() => handleDesignResultSave({
-                      comments: designResultComments,
-                      attachments: designResultAttachments,
-                    })}
-                    disabled={isUpdating}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                  >
-                    {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
-                    {t.panels.saveDesignResult}
-                  </Button>
+          {existingRequest && (isDesignRole || isAdminEdit) && (
+            <div className="bg-card rounded-lg border border-border p-6 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                  <ClipboardCheck size={20} />
                 </div>
-              )}
+                <div>
+                  <h3 className="font-semibold text-foreground">{t.panels.designAction}</h3>
+                  <p className="text-sm text-muted-foreground">{t.panels.designActionDesc}</p>
+                </div>
+              </div>
+
+              <DesignReviewPanel
+                request={existingRequest}
+                onUpdateStatus={handleDesignStatusUpdate}
+                isUpdating={isUpdating}
+                showActions={showDesignPanel}
+                forceEnableActions={isAdminEdit}
+                variant="embedded"
+              />
+
+              <div className="border-t border-border/60 pt-6 space-y-4">
+                <DesignResultSection
+                  comments={canEditDesignResult ? designResultComments : (existingRequest.designResultComments ?? '')}
+                  attachments={canEditDesignResult
+                    ? designResultAttachments
+                    : Array.isArray(existingRequest.designResultAttachments)
+                      ? existingRequest.designResultAttachments
+                      : []}
+                  onCommentsChange={canEditDesignResult ? (value) => {
+                    setDesignResultComments(value);
+                    setDesignResultDirty(true);
+                  } : undefined}
+                  onAttachmentsChange={canEditDesignResult ? (files) => {
+                    setDesignResultAttachments(files);
+                    setDesignResultDirty(true);
+                  } : undefined}
+                  isReadOnly={!canEditDesignResult}
+                  showEmptyState={true}
+                />
+                {canEditDesignResult && (
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={() => handleDesignResultSave({
+                        comments: designResultComments,
+                        attachments: designResultAttachments,
+                      })}
+                      disabled={isUpdating}
+                      className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                    >
+                      {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
+                      {t.panels.saveDesignResult}
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
-          {existingRequest && user?.role !== 'design' && !isAdminEdit && (
+          {existingRequest && !isDesignRole && !isAdminEdit && (
             <div className="bg-card rounded-lg border border-border p-4 md:p-6">
               <DesignResultSection
                 comments={existingRequest.designResultComments ?? ''}
