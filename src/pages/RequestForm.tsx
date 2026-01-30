@@ -391,12 +391,16 @@ const RequestForm: React.FC = () => {
 
   const getProductErrors = (index: number) => {
     const prefix = `product_${index}_`;
-    return Object.keys(errors).reduce<Record<string, string>>((acc, key) => {
+    const productErrors = Object.keys(errors).reduce<Record<string, string>>((acc, key) => {
       if (key.startsWith(prefix)) {
         acc[key.slice(prefix.length)] = errors[key];
       }
       return acc;
     }, {});
+    if (errors.repeatability) {
+      productErrors.repeatability = errors.repeatability;
+    }
+    return productErrors;
   };
 
   const buildChapterErrors = (): Record<string, string> => {
@@ -418,9 +422,6 @@ const RequestForm: React.FC = () => {
     }
     if (formData.country === 'China' && !formData.city?.trim()) {
       newErrors.city = t.request.city + ' ' + t.common.required.toLowerCase();
-    }
-    if (!formData.repeatability) {
-      newErrors.repeatability = t.request.repeatability + ' ' + t.common.required.toLowerCase();
     }
     if (!formData.expectedDeliverySelections?.length) {
       newErrors.expectedDeliverySelections = t.request.expectedDelivery + ' ' + t.common.required.toLowerCase();
@@ -526,6 +527,9 @@ const RequestForm: React.FC = () => {
     const product = products[index] ?? getInitialProduct();
     const productErrors = buildProductErrors(product, index);
     const prefix = `product_${index}_`;
+    const repeatabilityError = !formData.repeatability
+      ? t.request.repeatability + ' ' + t.common.required.toLowerCase()
+      : null;
     setErrors(prev => {
       const next = { ...prev };
       Object.keys(next).forEach((key) => {
@@ -533,9 +537,14 @@ const RequestForm: React.FC = () => {
           delete next[key];
         }
       });
+      if (repeatabilityError) {
+        next.repeatability = repeatabilityError;
+      } else {
+        delete next.repeatability;
+      }
       return { ...next, ...productErrors };
     });
-    return Object.keys(productErrors).length === 0;
+    return Object.keys(productErrors).length === 0 && !repeatabilityError;
   };
 
   const validateForSubmit = (): boolean => {
@@ -544,7 +553,13 @@ const RequestForm: React.FC = () => {
       ...acc,
       ...buildProductErrors(product, index),
     }), {});
+    const repeatabilityError = !formData.repeatability
+      ? t.request.repeatability + ' ' + t.common.required.toLowerCase()
+      : null;
     const newErrors = { ...chapterErrors, ...productErrors };
+    if (repeatabilityError) {
+      newErrors.repeatability = repeatabilityError;
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -1002,7 +1017,6 @@ const RequestForm: React.FC = () => {
                 isReadOnly={isReadOnly}
                 errors={errors}
                 countryOptions={countries.map(c => c.value)}
-                repeatabilityOptions={repeatabilityTypes.map((r) => r.value)}
               />
 
               <SectionExpectedDelivery
@@ -1069,6 +1083,10 @@ const RequestForm: React.FC = () => {
                       onChange={(field, value) => handleProductChange(currentProductIndex, field, value)}
                       isReadOnly={isReadOnly}
                       errors={productErrors}
+                      repeatabilityValue={formData.repeatability}
+                      onRepeatabilityChange={(value) => handleChange('repeatability', value)}
+                      repeatabilityOptions={repeatabilityTypes.map((r) => r.value)}
+                      repeatabilityError={productErrors.repeatability}
                       configurationTypeOptions={configurationTypes.map((c) => c.value)}
                       axleLocationOptions={axleLocations.map((a) => a.value)}
                       articulationTypeOptions={articulationTypes.map((a) => a.value)}
@@ -1141,7 +1159,6 @@ const RequestForm: React.FC = () => {
                   isReadOnly={true}
                   errors={{}}
                   countryOptions={countries.map(c => c.value)}
-                  repeatabilityOptions={repeatabilityTypes.map((r) => r.value)}
                 />
 
                 <SectionExpectedDelivery
@@ -1189,6 +1206,8 @@ const RequestForm: React.FC = () => {
                       onChange={(field, value) => handleProductChange(index, field, value)}
                       isReadOnly={true}
                       errors={{}}
+                      repeatabilityValue={formData.repeatability}
+                      repeatabilityOptions={repeatabilityTypes.map((r) => r.value)}
                       configurationTypeOptions={configurationTypes.map((c) => c.value)}
                       axleLocationOptions={axleLocations.map((a) => a.value)}
                       articulationTypeOptions={articulationTypes.map((a) => a.value)}

@@ -17,6 +17,10 @@ interface SectionTechnicalInfoProps {
   onChange: (field: keyof RequestProduct, value: any) => void;
   isReadOnly: boolean;
   errors?: Record<string, string>;
+  repeatabilityValue?: string;
+  onRepeatabilityChange?: (value: string) => void;
+  repeatabilityOptions?: string[];
+  repeatabilityError?: string;
   configurationTypeOptions?: string[];
   axleLocationOptions?: string[];
   articulationTypeOptions?: string[];
@@ -41,6 +45,10 @@ const SectionTechnicalInfo: React.FC<SectionTechnicalInfoProps> = ({
   configurationTypeOptions = [],
   axleLocationOptions = [],
   articulationTypeOptions = [],
+  repeatabilityValue = '',
+  onRepeatabilityChange,
+  repeatabilityOptions = [],
+  repeatabilityError,
   brakeTypeOptions = [],
   brakeSizeOptions = [],
   brakePowerTypeOptions = [],
@@ -63,6 +71,7 @@ const SectionTechnicalInfo: React.FC<SectionTechnicalInfoProps> = ({
   const brakeTypeValue = String(formData.brakeType ?? '').toLowerCase();
   const isBrakeNA = brakeTypeValue === 'na' || brakeTypeValue === 'n/a' || brakeTypeValue === 'n.a';
 
+  const hasRepeatabilityOptions = repeatabilityOptions.length > 0;
   const hasConfigurationOptions = configurationTypeOptions.length > 0;
   const hasAxleLocationOptions = axleLocationOptions.length > 0;
   const hasArticulationOptions = articulationTypeOptions.length > 0;
@@ -91,6 +100,65 @@ const SectionTechnicalInfo: React.FC<SectionTechnicalInfoProps> = ({
         </span>
         {title ?? t.request.technicalInfo}
       </h3>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
+        {/* Repeatability */}
+        <div className="space-y-2">
+          <Label htmlFor={fieldId('repeatability')} className="text-sm font-medium">
+            {t.request.repeatability} <span className="text-destructive">*</span>
+          </Label>
+          {hasRepeatabilityOptions ? (
+            <Select
+              value={repeatabilityValue || ''}
+              onValueChange={(value) => onRepeatabilityChange?.(value)}
+              disabled={isReadOnly}
+            >
+              <SelectTrigger className={repeatabilityError ? 'border-destructive' : ''}>
+                <SelectValue placeholder={t.request.selectRepeatability} />
+              </SelectTrigger>
+              <SelectContent className="z-50 bg-card border border-border">
+                {repeatabilityOptions.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {translateOption(option)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Input
+              id={fieldId('repeatability')}
+              value={repeatabilityValue || ''}
+              onChange={(e) => onRepeatabilityChange?.(e.target.value)}
+              placeholder={t.request.selectRepeatability}
+              disabled={isReadOnly}
+              className={repeatabilityError ? 'border-destructive' : ''}
+            />
+          )}
+          {repeatabilityError && (
+            <p className="text-xs text-destructive">{repeatabilityError}</p>
+          )}
+        </div>
+
+        {/* Quantity */}
+        <div className="space-y-2">
+          <Label htmlFor={fieldId('quantity')} className="text-sm font-medium">
+            {t.request.quantity} <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id={fieldId('quantity')}
+            type="number"
+            min="0"
+            value={formData.quantity ?? ''}
+            onChange={(e) => onChange('quantity', e.target.value ? parseInt(e.target.value) : null)}
+            placeholder={t.request.quantityExample}
+            disabled={isReadOnly}
+            className={errors.quantity ? 'border-destructive' : ''}
+          />
+          {errors.quantity && (
+            <p className="text-xs text-destructive">{errors.quantity}</p>
+          )}
+        </div>
+      </div>
       
       {/* Product Type Section - 3 Sub-fields (Configuration Type first) */}
       <div className="bg-muted/30 rounded-lg p-3 md:p-4 border border-border/50">
@@ -363,25 +431,6 @@ const SectionTechnicalInfo: React.FC<SectionTechnicalInfoProps> = ({
           )}
         </div>
 
-        {/* Quantity */}
-        <div className="space-y-2">
-          <Label htmlFor={fieldId('quantity')} className="text-sm font-medium">
-            {t.request.quantity} <span className="text-destructive">*</span>
-          </Label>
-          <Input
-            id={fieldId('quantity')}
-            type="number"
-            min="0"
-            value={formData.quantity ?? ''}
-            onChange={(e) => onChange('quantity', e.target.value ? parseInt(e.target.value) : null)}
-            placeholder={t.request.quantityExample}
-            disabled={isReadOnly}
-            className={errors.quantity ? 'border-destructive' : ''}
-          />
-          {errors.quantity && (
-            <p className="text-xs text-destructive">{errors.quantity}</p>
-          )}
-        </div>
       </div>
 
       {/* Studs/PCD Block */}

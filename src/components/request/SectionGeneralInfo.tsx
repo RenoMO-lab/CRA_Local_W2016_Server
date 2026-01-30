@@ -17,7 +17,6 @@ interface SectionGeneralInfoProps {
   isReadOnly: boolean;
   errors?: Record<string, string>;
   countryOptions?: string[];
-  repeatabilityOptions?: string[];
 }
 
 const SectionGeneralInfo: React.FC<SectionGeneralInfoProps> = ({
@@ -26,13 +25,11 @@ const SectionGeneralInfo: React.FC<SectionGeneralInfoProps> = ({
   isReadOnly,
   errors = {},
   countryOptions = [],
-  repeatabilityOptions = [],
 }) => {
   const { t, translateOption } = useLanguage();
   const showCountryOther = formData.country === 'other';
   const showCity = formData.country === 'China';
   const hasCountryOptions = countryOptions.length > 0;
-  const hasRepeatabilityOptions = repeatabilityOptions.length > 0;
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -143,43 +140,6 @@ const SectionGeneralInfo: React.FC<SectionGeneralInfoProps> = ({
             )}
           </div>
         )}
-
-        {/* Repeatability */}
-        <div className="space-y-2">
-          <Label htmlFor="repeatability" className="text-sm font-medium">
-            {t.request.repeatability} <span className="text-destructive">*</span>
-          </Label>
-          {hasRepeatabilityOptions ? (
-            <Select
-              value={formData.repeatability || ''}
-              onValueChange={(value) => onChange('repeatability', value)}
-              disabled={isReadOnly}
-            >
-              <SelectTrigger className={errors.repeatability ? 'border-destructive' : ''}>
-                <SelectValue placeholder={t.request.selectRepeatability} />
-              </SelectTrigger>
-              <SelectContent className="z-50 bg-card border border-border">
-                {repeatabilityOptions.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {translateOption(option)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              id="repeatability"
-              value={formData.repeatability || ''}
-              onChange={(e) => onChange('repeatability', e.target.value)}
-              placeholder={t.request.selectRepeatability}
-              disabled={isReadOnly}
-              className={errors.repeatability ? 'border-destructive' : ''}
-            />
-          )}
-          {errors.repeatability && (
-            <p className="text-xs text-destructive">{errors.repeatability}</p>
-          )}
-        </div>
 
         {/* Country Other - shown when "Other" is selected */}
         {showCountryOther && hasCountryOptions && (

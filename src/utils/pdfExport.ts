@@ -387,9 +387,6 @@ export const generateRequestPDF = async (request: CustomerRequest): Promise<void
   if (request.country === 'China' && request.city) {
     drawFieldLine(t.request.city, request.city);
   }
-  drawFieldLine(t.request.repeatability, translateOption(request.repeatability));
-  y += 6;
-
   // Expected Delivery Section
   drawSectionTitle(t.request.expectedDelivery);
   drawFieldLine(
@@ -431,9 +428,10 @@ export const generateRequestPDF = async (request: CustomerRequest): Promise<void
     drawSubsectionTitle(t.pdf.axlePerformanceTitle);
     drawFieldGrid(
       [
+        { label: t.request.repeatability, value: translateOption(request.repeatability) },
+        { label: t.request.quantity, value: product.quantity },
         { label: t.request.productType, value: getProductTypeLabel(product, translateOption) },
         { label: t.pdf.loadsKgLabel, value: product.loadsKg },
-        { label: t.request.quantity, value: product.quantity },
         { label: t.pdf.speedsKmhLabel, value: product.speedsKmh },
       ],
       2
