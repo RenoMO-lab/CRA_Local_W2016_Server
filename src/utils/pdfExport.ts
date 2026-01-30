@@ -154,9 +154,9 @@ const buildLegacyProduct = (request: CustomerRequest): RequestProduct => ({
   attachments: Array.isArray(request.attachments) ? request.attachments : [],
 });
 
-export const generateRequestPDF = async (request: CustomerRequest): Promise<void> => {
+export const generateRequestPDF = async (request: CustomerRequest, languageOverride?: Language): Promise<void> => {
   const pdf = new jsPDF('p', 'mm', 'a4');
-  const language = getPdfLanguage();
+  const language = languageOverride ?? getPdfLanguage();
   const t = translations[language];
   const locale = getPdfLocale(language);
   const translateOption = (value: string) => {
@@ -491,16 +491,57 @@ export const generateRequestPDF = async (request: CustomerRequest): Promise<void
     drawParagraph(request.designNotes);
   }
 
+  // Design Result
+  const designAttachments = Array.isArray(request.designResultAttachments)
+    ? request.designResultAttachments
+    : [];
+  const designAttachmentNames = designAttachments.map((file) => file.filename).filter(Boolean);
+  if (request.designResultComments || designAttachmentNames.length) {
+    drawSectionTitle(t.panels.designResult);
+    if (request.designResultComments) {
+      drawSubsectionTitle(t.panels.designResultComments);
+      drawParagraph(request.designResultComments);
+    }
+    if (designAttachmentNames.length) {
+      drawSubsectionTitle(t.panels.designResultUploads);
+      drawParagraph(designAttachmentNames.join('; '));
+    }
+  }
+
   // Costing Information
-  if (request.sellingPrice || request.costingNotes || request.deliveryLeadtime) {
+  const costingAttachments = Array.isArray(request.costingAttachments)
+    ? request.costingAttachments
+    : [];
+  const costingAttachmentNames = costingAttachments.map((file) => file.filename).filter(Boolean);
+  const incotermValue = request.incoterm === 'other' ? request.incotermOther : request.incoterm;
+  if (
+    request.sellingPrice ||
+    request.costingNotes ||
+    request.deliveryLeadtime ||
+    incotermValue ||
+    request.vatMode ||
+    costingAttachmentNames.length
+  ) {
     drawSectionTitle(t.pdf.costingInformationTitle);
+    const sellingCurrency = request.sellingCurrency ?? 'EUR';
     drawFieldGrid([
-      request.sellingPrice ? { label: t.panels.sellingPrice, value: `€${request.sellingPrice.toFixed(2)}` } : null,
+      request.sellingPrice ? { label: t.panels.sellingPrice, value: `${sellingCurrency} ${request.sellingPrice.toFixed(2)}` } : null,
       request.calculatedMargin ? { label: t.panels.margin, value: `${request.calculatedMargin.toFixed(1)}%` } : null,
       request.deliveryLeadtime ? { label: t.panels.deliveryLeadtime, value: request.deliveryLeadtime } : null,
+      incotermValue ? { label: t.panels.incoterm, value: incotermValue } : null,
+      request.vatMode ? {
+        label: t.panels.vatMode,
+        value: request.vatMode === 'with'
+          ? `${t.panels.withVat}${request.vatRate !== null ? ` (${request.vatRate}%)` : ''}`
+          : t.panels.withoutVat,
+      } : null,
     ].filter(Boolean) as { label: string; value: string | number | null | undefined }[]);
     if (request.costingNotes) {
       drawParagraph(request.costingNotes);
+    }
+    if (costingAttachmentNames.length) {
+      drawSubsectionTitle(t.panels.costingAttachments);
+      drawParagraph(costingAttachmentNames.join('; '));
     }
   }
 

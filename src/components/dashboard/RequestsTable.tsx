@@ -6,6 +6,13 @@ import { CustomerRequest, UserRole, RequestProduct, AXLE_LOCATIONS, ARTICULATION
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -32,6 +39,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useLanguage } from '@/context/LanguageContext';
+import { Language } from '@/i18n/translations';
 import { toast } from 'sonner';
 interface RequestsTableProps {
   requests: CustomerRequest[];
@@ -41,8 +49,9 @@ interface RequestsTableProps {
 
 const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDelete }) => {
   const navigate = useNavigate();
-  const { t, translateOption } = useLanguage();
+  const { t, translateOption, language } = useLanguage();
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pdfLanguage, setPdfLanguage] = useState<Language>(language);
 
   const getPrimaryProduct = (request: CustomerRequest): Partial<RequestProduct> => {
     if (request.products && request.products.length) {
@@ -121,10 +130,10 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
     navigate(`/requests/${id}/edit`);
   };
 
-  const handleDownloadPDF = async (request: CustomerRequest) => {
+  const handleDownloadPDF = async (request: CustomerRequest, lang: Language) => {
     try {
       const { generateRequestPDF } = await import('@/utils/pdfExport');
-      await generateRequestPDF(request);
+      await generateRequestPDF(request, lang);
       toast.success(`${t.common.pdfDownloaded} ${request.id}`);
     } catch (error) {
       console.error('Failed to generate PDF:', error);
@@ -193,10 +202,24 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                   {t.table.edit}
                 </Button>
               )}
-              <Button size="sm" variant="outline" onClick={() => handleDownloadPDF(request)}>
-                <Download size={14} className="mr-2" />
-                {t.table.download}
-              </Button>
+              <div className="flex items-center gap-2">
+                <div className="w-[70px]">
+                  <Select value={pdfLanguage} onValueChange={(value) => setPdfLanguage(value as Language)}>
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border border-border">
+                      <SelectItem value="en">EN</SelectItem>
+                      <SelectItem value="fr">FR</SelectItem>
+                      <SelectItem value="zh">ZH</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => handleDownloadPDF(request, pdfLanguage)}>
+                  <Download size={14} className="mr-2" />
+                  {t.table.download}
+                </Button>
+              </div>
               {canDelete(request) && onDelete && (
                 <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onDelete(request.id)}>
                   <Trash2 size={14} />
@@ -243,39 +266,53 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                   <StatusBadge status={request.status} />
                 </TableCell>
                 <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                        <MoreHorizontal size={16} />
+                  <div className="flex items-center justify-end gap-2">
+                    <div className="inline-flex items-center gap-2">
+                      <div className="w-[70px]">
+                        <Select value={pdfLanguage} onValueChange={(value) => setPdfLanguage(value as Language)}>
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-card border border-border">
+                            <SelectItem value="en">EN</SelectItem>
+                            <SelectItem value="fr">FR</SelectItem>
+                            <SelectItem value="zh">ZH</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => handleDownloadPDF(request, pdfLanguage)}>
+                        <Download size={14} />
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-40 bg-card border border-border shadow-lg">
-                      <DropdownMenuItem onClick={() => handleView(request.id)} className="cursor-pointer">
-                        <Eye size={14} className="mr-2" />
-                        {t.table.view}
-                      </DropdownMenuItem>
-                      {canEdit(request) && (
-                        <DropdownMenuItem onClick={() => handleEdit(request.id)} className="cursor-pointer">
-                          <Edit size={14} className="mr-2" />
-                          {t.table.edit}
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                          <MoreHorizontal size={16} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-40 bg-card border border-border shadow-lg">
+                        <DropdownMenuItem onClick={() => handleView(request.id)} className="cursor-pointer">
+                          <Eye size={14} className="mr-2" />
+                          {t.table.view}
                         </DropdownMenuItem>
-                      )}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => handleDownloadPDF(request)} className="cursor-pointer">
-                        <Download size={14} className="mr-2" />
-                        {t.table.download}
-                      </DropdownMenuItem>
-                      {canDelete(request) && onDelete && (
-                        <DropdownMenuItem
-                          onClick={() => setPendingDeleteId(request.id)}
-                          className="cursor-pointer text-destructive focus:text-destructive"
-                        >
-                          <Trash2 size={14} className="mr-2" />
-                          {t.table.delete}
-                        </DropdownMenuItem>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                        {canEdit(request) && (
+                          <DropdownMenuItem onClick={() => handleEdit(request.id)} className="cursor-pointer">
+                            <Edit size={14} className="mr-2" />
+                            {t.table.edit}
+                          </DropdownMenuItem>
+                        )}
+                        {canDelete(request) && onDelete && (
+                          <DropdownMenuItem
+                            onClick={() => setPendingDeleteId(request.id)}
+                            className="cursor-pointer text-destructive focus:text-destructive"
+                          >
+                            <Trash2 size={14} className="mr-2" />
+                            {t.table.delete}
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
