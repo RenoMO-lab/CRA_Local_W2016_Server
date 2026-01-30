@@ -587,6 +587,42 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     }
   }
 
+  // Sales Follow-up
+  const salesAttachments = Array.isArray(request.salesAttachments)
+    ? request.salesAttachments
+    : [];
+  const salesAttachmentNames = salesAttachments.map((file) => file.filename).filter(Boolean);
+  const salesIncotermValue = request.salesIncoterm === 'other' ? request.salesIncotermOther : request.salesIncoterm;
+  const hasSalesData =
+    request.salesFinalPrice ||
+    request.salesFeedbackComment ||
+    salesIncotermValue ||
+    salesAttachmentNames.length ||
+    (request.salesVatMode === 'with' && request.salesVatRate !== null);
+
+  if (hasSalesData) {
+    drawSectionTitle(t.panels.salesFollowup);
+    const salesCurrency = request.salesCurrency ?? 'EUR';
+    drawFieldGrid([
+      request.salesFinalPrice ? { label: t.panels.salesFinalPrice, value: `${salesCurrency} ${request.salesFinalPrice.toFixed(2)}` } : null,
+      salesIncotermValue ? { label: t.panels.incoterm, value: salesIncotermValue } : null,
+      request.salesVatMode ? {
+        label: t.panels.vatMode,
+        value: request.salesVatMode === 'with'
+          ? `${t.panels.withVat}${request.salesVatRate !== null ? ` (${request.salesVatRate}%)` : ''}`
+          : t.panels.withoutVat,
+      } : null,
+    ].filter(Boolean) as { label: string; value: string | number | null | undefined }[]);
+    if (request.salesFeedbackComment) {
+      drawSubsectionTitle(t.panels.salesFeedback);
+      drawParagraph(request.salesFeedbackComment);
+    }
+    if (salesAttachmentNames.length) {
+      drawSubsectionTitle(t.panels.salesAttachments);
+      drawParagraph(salesAttachmentNames.join('; '));
+    }
+  }
+
   // Status History Section
   if (request.history && request.history.length > 0) {
     drawSectionTitle(t.pdf.statusHistoryTitle);

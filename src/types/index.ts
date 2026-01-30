@@ -10,6 +10,9 @@ export type RequestStatus =
   | 'feasibility_confirmed'
   | 'in_costing'
   | 'costing_complete'
+  | 'sales_followup'
+  | 'gm_approval_pending'
+  | 'gm_approved'
   | 'closed';
 
 export type BrakeType = 'drum' | 'disk' | 'na';
@@ -169,6 +172,16 @@ export interface CustomerRequest {
   vatRate?: number | null;
   deliveryLeadtime?: string;
   costingAttachments?: Attachment[];
+
+  // Sales Follow-up
+  salesFinalPrice?: number | null;
+  salesCurrency?: 'USD' | 'EUR' | 'RMB';
+  salesIncoterm?: string;
+  salesIncotermOther?: string;
+  salesVatMode?: 'with' | 'without';
+  salesVatRate?: number | null;
+  salesFeedbackComment?: string;
+  salesAttachments?: Attachment[];
 }
 
 export interface ReferenceProduct {
@@ -231,6 +244,9 @@ export const STATUS_CONFIG: Record<RequestStatus, { label: string; color: string
   feasibility_confirmed: { label: 'Feasibility Confirmed', color: 'text-success', bgColor: 'bg-success/10' },
   in_costing: { label: 'In Costing', color: 'text-info', bgColor: 'bg-info/10' },
   costing_complete: { label: 'Costing Complete', color: 'text-success', bgColor: 'bg-success/10' },
+  sales_followup: { label: 'Sales Follow-up', color: 'text-info', bgColor: 'bg-info/10' },
+  gm_approval_pending: { label: 'GM Approval Pending', color: 'text-warning', bgColor: 'bg-warning/10' },
+  gm_approved: { label: 'Approved', color: 'text-success', bgColor: 'bg-success/10' },
   closed: { label: 'Closed', color: 'text-muted-foreground', bgColor: 'bg-muted' },
 };
 

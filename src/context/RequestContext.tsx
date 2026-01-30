@@ -115,6 +115,16 @@ const reviveRequest = (r: any): CustomerRequest => {
     costingAttachments: Array.isArray(r?.costingAttachments)
       ? r.costingAttachments.map(reviveAttachment)
       : [],
+    salesFinalPrice: typeof r?.salesFinalPrice === 'number' ? r.salesFinalPrice : null,
+    salesCurrency: r?.salesCurrency ?? 'EUR',
+    salesIncoterm: r?.salesIncoterm ?? '',
+    salesIncotermOther: r?.salesIncotermOther ?? '',
+    salesVatMode: r?.salesVatMode === 'with' ? 'with' : 'without',
+    salesVatRate: typeof r?.salesVatRate === 'number' ? r.salesVatRate : null,
+    salesFeedbackComment: r?.salesFeedbackComment ?? '',
+    salesAttachments: Array.isArray(r?.salesAttachments)
+      ? r.salesAttachments.map(reviveAttachment)
+      : [],
     history: Array.isArray(r?.history)
       ? r.history.map((h: any) => ({
           ...h,

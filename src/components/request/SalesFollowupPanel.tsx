@@ -1,11 +1,11 @@
-﻿import React, { useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DollarSign, CheckCircle, Loader2, TrendingUp, Upload, File, Eye, Download, X } from 'lucide-react';
 import { Attachment, CustomerRequest, RequestStatus } from '@/types';
 import { useLanguage } from '@/context/LanguageContext';
+import { DollarSign, CheckCircle, Loader2, Upload, File, Eye, Download, X, ShieldCheck } from 'lucide-react';
 import {
   Select,
   SelectContent,
@@ -14,57 +14,56 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-interface CostingPanelProps {
+interface SalesFollowupPanelProps {
   request: CustomerRequest;
-  onUpdateStatus: (status: RequestStatus, notes?: string) => void | Promise<void>;
-  onUpdateCostingData: (data: {
-    costingNotes?: string;
-    sellingPrice?: number;
-    sellingCurrency?: 'USD' | 'EUR' | 'RMB';
-    calculatedMargin?: number;
-    incoterm?: string;
-    incotermOther?: string;
-    vatMode?: 'with' | 'without';
-    vatRate?: number | null;
-    deliveryLeadtime?: string;
-    costingAttachments?: Attachment[];
+  onUpdateStatus: (status: RequestStatus, comment?: string) => void | Promise<void>;
+  onUpdateSalesData: (data: {
+    salesFinalPrice?: number;
+    salesCurrency?: 'USD' | 'EUR' | 'RMB';
+    salesIncoterm?: string;
+    salesIncotermOther?: string;
+    salesVatMode?: 'with' | 'without';
+    salesVatRate?: number | null;
+    salesFeedbackComment?: string;
+    salesAttachments?: Attachment[];
   }) => void | Promise<void>;
   isUpdating: boolean;
   readOnly?: boolean;
   forceEnableActions?: boolean;
+  isAdmin?: boolean;
 }
 
-const CostingPanel: React.FC<CostingPanelProps> = ({
+const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   request,
   onUpdateStatus,
-  onUpdateCostingData,
+  onUpdateSalesData,
   isUpdating,
   readOnly = false,
   forceEnableActions = false,
+  isAdmin = false,
 }) => {
-  const [costingNotes, setCostingNotes] = useState(request.costingNotes || '');
-  const [sellingPrice, setSellingPrice] = useState<string>(
-    request.sellingPrice?.toString() || ''
+  const { t } = useLanguage();
+  const [salesFinalPrice, setSalesFinalPrice] = useState<string>(
+    request.salesFinalPrice?.toString() || ''
   );
-  const [sellingCurrency, setSellingCurrency] = useState<'USD' | 'EUR' | 'RMB'>(
-    request.sellingCurrency || 'EUR'
+  const [salesCurrency, setSalesCurrency] = useState<'USD' | 'EUR' | 'RMB'>(
+    request.salesCurrency || 'EUR'
   );
-  const [calculatedMargin, setCalculatedMargin] = useState<string>(
-    request.calculatedMargin?.toString() || ''
+  const [salesIncoterm, setSalesIncoterm] = useState<string>(request.salesIncoterm || '');
+  const [salesIncotermOther, setSalesIncotermOther] = useState<string>(request.salesIncotermOther || '');
+  const [salesVatMode, setSalesVatMode] = useState<'with' | 'without'>(request.salesVatMode || 'without');
+  const [salesVatRate, setSalesVatRate] = useState<string>(
+    typeof request.salesVatRate === 'number' ? request.salesVatRate.toString() : ''
   );
-  const [incoterm, setIncoterm] = useState<string>(request.incoterm || '');
-  const [incotermOther, setIncotermOther] = useState<string>(request.incotermOther || '');
-  const [vatMode, setVatMode] = useState<'with' | 'without'>(request.vatMode || 'without');
-  const [vatRate, setVatRate] = useState<string>(
-    typeof request.vatRate === 'number' ? request.vatRate.toString() : ''
+  const [salesFeedbackComment, setSalesFeedbackComment] = useState<string>(
+    request.salesFeedbackComment || ''
   );
-  const [deliveryLeadtime, setDeliveryLeadtime] = useState<string>(request.deliveryLeadtime || '');
-  const [costingAttachments, setCostingAttachments] = useState<Attachment[]>(
-    Array.isArray(request.costingAttachments) ? request.costingAttachments : []
+  const [salesAttachments, setSalesAttachments] = useState<Attachment[]>(
+    Array.isArray(request.salesAttachments) ? request.salesAttachments : []
   );
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [approvalComment, setApprovalComment] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { t } = useLanguage();
 
   const readAsDataUrl = (file: File, index: number) =>
     new Promise<Attachment>((resolve, reject) => {
@@ -88,7 +87,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
     const maxSize = 10 * 1024 * 1024;
     const tooLarge = Array.from(files).find((f) => f.size > maxSize);
     if (tooLarge) {
-      setUploadError(t.panels.costingUploadError);
+      setUploadError(t.panels.salesUploadError);
       return;
     }
     setUploadError(null);
@@ -96,130 +95,122 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
       const newAttachments = await Promise.all(
         Array.from(files).map((file, index) => readAsDataUrl(file, index))
       );
-      setCostingAttachments((prev) => [...prev, ...newAttachments]);
+      setSalesAttachments((prev) => [...prev, ...newAttachments]);
     } catch {
-      setUploadError(t.panels.costingUploadError);
+      setUploadError(t.panels.salesUploadError);
     }
   };
 
   const removeAttachment = (id: string) => {
-    setCostingAttachments((prev) => prev.filter((a) => a.id !== id));
+    setSalesAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
-  const handleSetInCosting = () => {
-    onUpdateStatus('in_costing');
+  const handleStartFollowup = async () => {
+    await onUpdateStatus('sales_followup');
   };
 
-  const handleSubmitCosting = () => {
-    const priceValue = parseFloat(sellingPrice);
-    const marginValue = parseFloat(calculatedMargin);
-
-    if (isNaN(priceValue) || priceValue <= 0) {
-      return;
-    }
-    if (isNaN(marginValue)) {
-      return;
-    }
-
-    onUpdateCostingData({
-      costingNotes,
-      sellingPrice: priceValue,
-      sellingCurrency,
-      calculatedMargin: marginValue,
-      incoterm,
-      incotermOther,
-      vatMode,
-      vatRate: vatMode === 'with' ? parseFloat(vatRate) : null,
-      deliveryLeadtime,
-      costingAttachments,
+  const handleSaveDraft = async () => {
+    await onUpdateSalesData({
+      salesFinalPrice: salesFinalPrice ? parseFloat(salesFinalPrice) : undefined,
+      salesCurrency,
+      salesIncoterm,
+      salesIncotermOther,
+      salesVatMode,
+      salesVatRate: salesVatMode === 'with' ? parseFloat(salesVatRate) : null,
+      salesFeedbackComment,
+      salesAttachments,
     });
-    onUpdateStatus(
-      'costing_complete',
-      `${t.panels.sellingPrice}: ${sellingCurrency} ${priceValue.toFixed(2)}, ${t.panels.margin}: ${marginValue.toFixed(1)}%`
+  };
+
+  const handleSubmitForApproval = async () => {
+    const priceValue = parseFloat(salesFinalPrice);
+    if (isNaN(priceValue) || priceValue <= 0) return;
+    await onUpdateSalesData({
+      salesFinalPrice: priceValue,
+      salesCurrency,
+      salesIncoterm,
+      salesIncotermOther,
+      salesVatMode,
+      salesVatRate: salesVatMode === 'with' ? parseFloat(salesVatRate) : null,
+      salesFeedbackComment,
+      salesAttachments,
+    });
+    await onUpdateStatus(
+      'gm_approval_pending',
+      salesFeedbackComment?.trim() ? salesFeedbackComment.trim() : undefined
     );
   };
 
-  const handleSaveNotes = () => {
-    onUpdateCostingData({
-      costingNotes,
-      sellingCurrency,
-      incoterm,
-      incotermOther,
-      vatMode,
-      vatRate: vatMode === 'with' ? parseFloat(vatRate) : null,
-      deliveryLeadtime,
-      costingAttachments,
-    });
+  const handleApproveDeal = () => {
+    onUpdateStatus('gm_approved', approvalComment?.trim() || undefined);
   };
 
-  const canSetInCosting = forceEnableActions || ['feasibility_confirmed', 'design_result'].includes(request.status);
-  const canComplete = forceEnableActions || request.status === 'in_costing';
-  const vatRateValid = vatMode === 'without' || (vatRate !== '' && !isNaN(parseFloat(vatRate)));
-  const isValidSubmission =
-    sellingPrice &&
-    parseFloat(sellingPrice) > 0 &&
-    calculatedMargin &&
-    !isNaN(parseFloat(calculatedMargin)) &&
-    vatRateValid;
+  const canStartFollowup = forceEnableActions || request.status === 'costing_complete';
+  const canEditSales = forceEnableActions || ['sales_followup', 'gm_approval_pending'].includes(request.status);
+  const canSubmitForApproval = canEditSales && request.status !== 'gm_approval_pending';
+  const canApprove = isAdmin && (forceEnableActions || request.status === 'gm_approval_pending');
+  const vatRateValid = salesVatMode === 'without' || (salesVatRate !== '' && !isNaN(parseFloat(salesVatRate)));
+  const isValidSubmission = salesFinalPrice && parseFloat(salesFinalPrice) > 0 && vatRateValid;
+  const incotermDisplay = salesIncoterm === 'other' ? salesIncotermOther : salesIncoterm;
 
-  const incotermDisplay = incoterm === 'other' ? incotermOther : incoterm;
+  const showEditor = !readOnly && canEditSales && request.status !== 'gm_approved';
+  const hasSalesData = Boolean(
+    request.salesFinalPrice ||
+      request.salesFeedbackComment ||
+      (Array.isArray(request.salesAttachments) && request.salesAttachments.length) ||
+      request.salesIncoterm ||
+      (request.salesVatMode === 'with' && request.salesVatRate !== null)
+  );
 
   return (
     <div className="bg-card rounded-lg border border-border p-6 space-y-6">
       <div className="flex items-center gap-2">
-        <div className="w-10 h-10 rounded-lg bg-success/10 text-success flex items-center justify-center">
+        <div className="w-10 h-10 rounded-lg bg-info/10 text-info flex items-center justify-center">
           <DollarSign size={20} />
         </div>
         <div>
-          <h3 className="font-semibold text-foreground">{t.panels.costingActions}</h3>
-          <p className="text-sm text-muted-foreground">{t.panels.manageCostingProcess}</p>
+          <h3 className="font-semibold text-foreground">{t.panels.salesFollowup}</h3>
+          <p className="text-sm text-muted-foreground">{t.panels.salesFollowupDesc}</p>
         </div>
       </div>
 
-      {!readOnly && (canSetInCosting || request.status === 'in_costing') && (
+      {!readOnly && canStartFollowup && (
         <Button
           variant="outline"
-          onClick={handleSetInCosting}
-          disabled={isUpdating || request.status === 'in_costing'}
-          className={`w-full justify-start ${
-            request.status === 'in_costing'
-              ? 'bg-success/10 text-success border-success/30'
-              : ''
-          }`}
+          onClick={handleStartFollowup}
+          disabled={isUpdating || request.status === 'sales_followup'}
+          className="w-full justify-start"
         >
-          <DollarSign
-            size={16}
-            className={`mr-2 ${request.status === 'in_costing' ? 'text-success' : 'text-info'}`}
-          />
-          {t.panels.setInCosting}
+          <DollarSign size={16} className="mr-2 text-info" />
+          {t.panels.startSalesFollowup}
         </Button>
       )}
 
-      {!readOnly && canComplete && (
+      {showEditor && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="sellingPrice" className="text-sm font-medium flex items-center gap-2">
-                <DollarSign size={14} className="text-success" />
-                {t.panels.sellingPrice} *
+              <Label htmlFor="salesFinalPrice" className="text-sm font-medium flex items-center gap-2">
+                <DollarSign size={14} className="text-info" />
+                {t.panels.salesFinalPrice} *
               </Label>
               <div className="flex gap-2">
                 <Input
-                  id="sellingPrice"
+                  id="salesFinalPrice"
                   type="number"
                   min="0"
                   step="0.01"
-                  value={sellingPrice}
-                  onChange={(e) => setSellingPrice(e.target.value)}
-                  placeholder={`${t.common.add} ${t.panels.sellingPrice.toLowerCase()}...`}
+                  value={salesFinalPrice}
+                  onChange={(e) => setSalesFinalPrice(e.target.value)}
+                  placeholder={`${t.common.add} ${t.panels.salesFinalPrice.toLowerCase()}...`}
                   className="bg-background flex-1"
                   disabled={readOnly}
                 />
                 <div className="min-w-[130px]">
                   <Label className="sr-only">{t.panels.currency}</Label>
                   <Select
-                    value={sellingCurrency}
-                    onValueChange={(value) => setSellingCurrency(value as 'USD' | 'EUR' | 'RMB')}
+                    value={salesCurrency}
+                    onValueChange={(value) => setSalesCurrency(value as 'USD' | 'EUR' | 'RMB')}
                     disabled={readOnly}
                   >
                     <SelectTrigger className="w-full">
@@ -234,28 +225,12 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
                 </div>
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="calculatedMargin" className="text-sm font-medium flex items-center gap-2">
-                <TrendingUp size={14} className="text-info" />
-                {t.panels.margin} (%) *
-              </Label>
-              <Input
-                id="calculatedMargin"
-                type="number"
-                step="0.1"
-                value={calculatedMargin}
-                onChange={(e) => setCalculatedMargin(e.target.value)}
-                placeholder={`${t.common.add} ${t.panels.margin.toLowerCase()}...`}
-                className="bg-background"
-                disabled={readOnly}
-              />
-            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-sm font-medium">{t.panels.incoterm}</Label>
-              <Select value={incoterm} onValueChange={(value) => setIncoterm(value)} disabled={readOnly}>
+              <Select value={salesIncoterm} onValueChange={(value) => setSalesIncoterm(value)} disabled={readOnly}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder={t.panels.selectIncoterm} />
                 </SelectTrigger>
@@ -265,10 +240,10 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
                   <SelectItem value="other">{t.common.other}</SelectItem>
                 </SelectContent>
               </Select>
-              {incoterm === 'other' && (
+              {salesIncoterm === 'other' && (
                 <Input
-                  value={incotermOther}
-                  onChange={(e) => setIncotermOther(e.target.value)}
+                  value={salesIncotermOther}
+                  onChange={(e) => setSalesIncotermOther(e.target.value)}
                   placeholder={t.panels.enterIncoterm}
                   disabled={readOnly}
                   className="bg-background"
@@ -277,7 +252,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
             </div>
             <div className="space-y-2">
               <Label className="text-sm font-medium">{t.panels.vatMode}</Label>
-              <Select value={vatMode} onValueChange={(value) => setVatMode(value as 'with' | 'without')} disabled={readOnly}>
+              <Select value={salesVatMode} onValueChange={(value) => setSalesVatMode(value as 'with' | 'without')} disabled={readOnly}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder={t.panels.selectVatMode} />
                 </SelectTrigger>
@@ -286,13 +261,13 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
                   <SelectItem value="without">{t.panels.withoutVat}</SelectItem>
                 </SelectContent>
               </Select>
-              {vatMode === 'with' && (
+              {salesVatMode === 'with' && (
                 <Input
                   type="number"
                   step="0.1"
                   min="0"
-                  value={vatRate}
-                  onChange={(e) => setVatRate(e.target.value)}
+                  value={salesVatRate}
+                  onChange={(e) => setSalesVatRate(e.target.value)}
                   placeholder={t.panels.enterVatRate}
                   disabled={readOnly}
                   className="bg-background"
@@ -301,19 +276,8 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">{t.panels.deliveryLeadtime}</Label>
-            <Input
-              value={deliveryLeadtime}
-              onChange={(e) => setDeliveryLeadtime(e.target.value)}
-              placeholder={t.panels.enterDeliveryLeadtime}
-              disabled={readOnly}
-              className="bg-background"
-            />
-          </div>
-
           <div className="space-y-3">
-            <Label className="text-sm font-medium">{t.panels.costingAttachments}</Label>
+            <Label className="text-sm font-medium">{t.panels.salesAttachments}</Label>
             <input
               ref={fileInputRef}
               type="file"
@@ -330,14 +294,12 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
               disabled={readOnly}
             >
               <Upload size={16} className="mr-2" />
-              {t.panels.uploadCostingDocs}
+              {t.panels.salesUploadDocs}
             </Button>
-            {uploadError && (
-              <p className="text-xs text-destructive">{uploadError}</p>
-            )}
-            {costingAttachments.length > 0 && (
+            {uploadError && <p className="text-xs text-destructive">{uploadError}</p>}
+            {salesAttachments.length > 0 && (
               <div className="space-y-2">
-                {costingAttachments.map((attachment) => (
+                {salesAttachments.map((attachment) => (
                   <div
                     key={attachment.id}
                     className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2"
@@ -381,17 +343,17 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
           </div>
 
           <div className="space-y-3">
-            <Label className="text-sm font-medium">{t.panels.costingNotesInternal}</Label>
+            <Label className="text-sm font-medium">{t.panels.salesFeedback}</Label>
             <Textarea
-              value={costingNotes}
-              onChange={(e) => setCostingNotes(e.target.value)}
-              placeholder={t.panels.addCostingNotes}
+              value={salesFeedbackComment}
+              onChange={(e) => setSalesFeedbackComment(e.target.value)}
+              placeholder={t.panels.salesFeedback}
               rows={4}
               disabled={readOnly}
             />
             <Button
               variant="outline"
-              onClick={handleSaveNotes}
+              onClick={handleSaveDraft}
               disabled={isUpdating || readOnly}
               size="sm"
             >
@@ -401,55 +363,46 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
           </div>
 
           <Button
-            onClick={handleSubmitCosting}
-            disabled={!isValidSubmission || isUpdating}
-            className="w-full bg-success hover:bg-success/90 text-success-foreground"
+            onClick={handleSubmitForApproval}
+            disabled={!isValidSubmission || isUpdating || !canSubmitForApproval}
+            className="w-full bg-info hover:bg-info/90 text-info-foreground"
           >
             {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
             <CheckCircle size={16} className="mr-2" />
-            {t.panels.submitCostingComplete}
+            {t.panels.submitForApproval}
           </Button>
         </>
       )}
 
-      {['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved'].includes(request.status) && (
-        <div className="p-4 bg-success/10 rounded-lg border border-success/20 space-y-2">
-          <p className="text-sm font-medium text-success">{t.panels.costingCompleted}</p>
-          {request.sellingPrice && (
+      {!showEditor && hasSalesData && (
+        <div className="p-4 bg-muted/40 rounded-lg border border-border space-y-2">
+          {request.salesFinalPrice && (
             <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.sellingPrice}:</span> {request.sellingCurrency ?? 'EUR'} {request.sellingPrice.toFixed(2)}
+              <span className="text-muted-foreground">{t.panels.salesFinalPrice}:</span> {request.salesCurrency ?? 'EUR'} {request.salesFinalPrice.toFixed(2)}
             </p>
           )}
-          {request.calculatedMargin !== undefined && (
-            <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.margin}:</span> {request.calculatedMargin.toFixed(1)}%
-            </p>
-          )}
-          {request.incoterm && (
+          {request.salesIncoterm && (
             <p className="text-sm text-foreground">
               <span className="text-muted-foreground">{t.panels.incoterm}:</span> {incotermDisplay}
             </p>
           )}
-          <p className="text-sm text-foreground">
-            <span className="text-muted-foreground">{t.panels.vatMode}:</span> {request.vatMode === 'with' ? t.panels.withVat : t.panels.withoutVat}
-            {request.vatMode === 'with' && request.vatRate !== null && (
-              <> ({request.vatRate}%)</>
-            )}
-          </p>
-          {request.deliveryLeadtime && (
+          {request.salesVatMode && (
             <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.deliveryLeadtime}:</span> {request.deliveryLeadtime}
+              <span className="text-muted-foreground">{t.panels.vatMode}:</span> {request.salesVatMode === 'with' ? t.panels.withVat : t.panels.withoutVat}
+              {request.salesVatMode === 'with' && request.salesVatRate !== null && (
+                <> ({request.salesVatRate}%)</>
+              )}
             </p>
           )}
-          {request.costingNotes && (
+          {request.salesFeedbackComment && (
             <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.costingNotes}:</span> {request.costingNotes}
+              <span className="text-muted-foreground">{t.panels.salesFeedback}:</span> {request.salesFeedbackComment}
             </p>
           )}
-          {Array.isArray(request.costingAttachments) && request.costingAttachments.length > 0 && (
+          {Array.isArray(request.salesAttachments) && request.salesAttachments.length > 0 && (
             <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">{t.panels.costingAttachments}</p>
-              {request.costingAttachments.map((attachment) => (
+              <p className="text-sm font-medium text-foreground">{t.panels.salesAttachments}</p>
+              {request.salesAttachments.map((attachment) => (
                 <div key={attachment.id} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2">
                   <div className="flex min-w-0 flex-1 items-center gap-2">
                     <File size={16} className="text-primary" />
@@ -479,9 +432,39 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
           )}
         </div>
       )}
+
+      {canApprove && (
+        <div className="border-t border-border/60 pt-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={18} className="text-warning" />
+            <div>
+              <h4 className="text-sm font-semibold text-foreground">{t.panels.gmApproval}</h4>
+              <p className="text-xs text-muted-foreground">{t.panels.gmApprovalDesc}</p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">{t.panels.gmApprovalComment}</Label>
+            <Textarea
+              value={approvalComment}
+              onChange={(e) => setApprovalComment(e.target.value)}
+              placeholder={t.panels.gmApprovalComment}
+              rows={3}
+              disabled={isUpdating}
+            />
+          </div>
+          <Button
+            onClick={handleApproveDeal}
+            disabled={isUpdating}
+            className="w-full bg-success hover:bg-success/90 text-success-foreground"
+          >
+            {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
+            <CheckCircle size={16} className="mr-2" />
+            {t.panels.approveDeal}
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
 
-export default CostingPanel;
-
+export default SalesFollowupPanel;

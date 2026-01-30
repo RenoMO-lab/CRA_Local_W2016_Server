@@ -123,7 +123,10 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
 
   const canEdit = (request: CustomerRequest) => {
     if (userRole === 'admin') return true;
-    if (userRole === 'sales' && (request.status === 'draft' || request.status === 'clarification_needed')) {
+    if (
+      userRole === 'sales' &&
+      ['draft', 'clarification_needed', 'costing_complete', 'sales_followup', 'gm_approval_pending'].includes(request.status)
+    ) {
       return true;
     }
     return false;

@@ -29,6 +29,12 @@ const getStatusIcon = (status: RequestStatus) => {
       return DollarSign;
     case 'costing_complete':
       return CheckCircle;
+    case 'sales_followup':
+      return DollarSign;
+    case 'gm_approval_pending':
+      return Clock;
+    case 'gm_approved':
+      return CheckCircle;
     case 'closed':
       return Check;
     default:

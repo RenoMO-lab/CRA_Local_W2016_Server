@@ -169,6 +169,9 @@ const normalizeRequestData = (data, nowIso) => {
   const costingAttachments = Array.isArray(data.costingAttachments)
     ? data.costingAttachments
     : [];
+  const salesAttachments = Array.isArray(data.salesAttachments)
+    ? data.salesAttachments
+    : [];
   const productsPayload = Array.isArray(data.products) ? data.products : [];
   const products = productsPayload.length
     ? productsPayload.map(normalizeProduct)
@@ -188,6 +191,14 @@ const normalizeRequestData = (data, nowIso) => {
     vatRate: typeof data.vatRate === "number" ? data.vatRate : null,
     deliveryLeadtime: typeof data.deliveryLeadtime === "string" ? data.deliveryLeadtime : "",
     costingAttachments,
+    salesFinalPrice: typeof data.salesFinalPrice === "number" ? data.salesFinalPrice : null,
+    salesCurrency: typeof data.salesCurrency === "string" ? data.salesCurrency : "EUR",
+    salesIncoterm: typeof data.salesIncoterm === "string" ? data.salesIncoterm : "",
+    salesIncotermOther: typeof data.salesIncotermOther === "string" ? data.salesIncotermOther : "",
+    salesVatMode: data.salesVatMode === "with" ? "with" : "without",
+    salesVatRate: typeof data.salesVatRate === "number" ? data.salesVatRate : null,
+    salesFeedbackComment: typeof data.salesFeedbackComment === "string" ? data.salesFeedbackComment : "",
+    salesAttachments,
     products,
     createdAt: data.createdAt ?? nowIso,
     updatedAt: data.updatedAt ?? nowIso,

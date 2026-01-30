@@ -16,6 +16,7 @@ import CostingPanel from '@/components/request/CostingPanel';
 import ClarificationPanel from '@/components/request/ClarificationPanel';
 import StatusTimeline from '@/components/request/StatusTimeline';
 import DesignResultSection from '@/components/request/DesignResultSection';
+import SalesFollowupPanel from '@/components/request/SalesFollowupPanel';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { ArrowLeft, ArrowRight, CheckCircle, ClipboardCheck, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -804,12 +805,27 @@ const RequestForm: React.FC = () => {
 
   const isAdminEdit = user?.role === 'admin' && isEditMode;
   const isDesignRole = user?.role === 'design';
+  const isSalesRole = user?.role === 'sales';
   const showDesignPanel = (user?.role === 'design' || isAdminEdit) && existingRequest &&
     (isAdminEdit || ['submitted', 'under_review', 'feasibility_confirmed', 'design_result'].includes(existingRequest.status));
   
   const showCostingPanel = user?.role === 'costing' && existingRequest &&
     ['feasibility_confirmed', 'design_result', 'in_costing'].includes(existingRequest.status);
-  const showCostingSummary = existingRequest?.status === 'costing_complete';
+  const showCostingSummary = existingRequest
+    ? ['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved'].includes(existingRequest.status)
+    : false;
+
+  const salesStatuses = ['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved'];
+  const showSalesPanel = existingRequest
+    ? salesStatuses.includes(existingRequest.status) &&
+      (existingRequest.status !== 'costing_complete' || isSalesRole || isAdminEdit)
+    : false;
+  const canEditSalesPanel = Boolean(
+    existingRequest && (
+      (isSalesRole && isEditMode && existingRequest.status !== 'gm_approved') ||
+      isAdminEdit
+    )
+  );
   
   const showClarificationPanel = (user?.role === 'sales' || user?.role === 'admin') && 
     existingRequest?.status === 'clarification_needed';
@@ -833,6 +849,30 @@ const RequestForm: React.FC = () => {
       toast({
         title: t.request.statusUpdated,
         description: t.request.draftSavedDesc,
+      });
+    } catch (error) {
+      toast({
+        title: t.request.error,
+        description: t.request.failedSubmit,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleSalesStatusUpdate = async (status: RequestStatus, comment?: string) => {
+    if (!existingRequest) return;
+
+    setIsUpdating(true);
+    try {
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      await updateStatus(existingRequest.id, status, comment);
+
+      toast({
+        title: t.request.statusUpdated,
+        description: `${t.common.status}: ${t.statuses[status as keyof typeof t.statuses] || status}`,
       });
     } catch (error) {
       toast({
@@ -1341,6 +1381,20 @@ const RequestForm: React.FC = () => {
               isUpdating={isUpdating}
               readOnly={!showCostingPanel && !isAdminEdit}
               forceEnableActions={isAdminEdit}
+            />
+          )}
+
+          {existingRequest && showSalesPanel && (
+            <SalesFollowupPanel
+              request={existingRequest}
+              onUpdateStatus={handleSalesStatusUpdate}
+              onUpdateSalesData={async (data) => {
+                await updateRequest(existingRequest.id, data);
+              }}
+              isUpdating={isUpdating}
+              readOnly={!canEditSalesPanel}
+              forceEnableActions={isAdminEdit}
+              isAdmin={user?.role === 'admin'}
             />
           )}
         </div>

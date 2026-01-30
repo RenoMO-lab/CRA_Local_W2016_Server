@@ -55,7 +55,16 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
   const canSetUnderReview = forceEnableActions || request.status === 'submitted';
   const canRequestClarification = forceEnableActions || request.status === 'submitted' || request.status === 'under_review';
   const canAccept = forceEnableActions || request.status === 'submitted' || request.status === 'under_review';
-  const isAccepted = ['feasibility_confirmed', 'design_result', 'in_costing', 'costing_complete', 'closed'].includes(request.status);
+  const isAccepted = [
+    'feasibility_confirmed',
+    'design_result',
+    'in_costing',
+    'costing_complete',
+    'sales_followup',
+    'gm_approval_pending',
+    'gm_approved',
+    'closed',
+  ].includes(request.status);
   const statusLabel = t.statuses[request.status as keyof typeof t.statuses] || request.status;
   const hasReviewNotes = Boolean(
     request.clarificationComment ||
