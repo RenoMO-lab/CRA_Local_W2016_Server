@@ -260,6 +260,7 @@ const Settings: React.FC = () => {
       'clarificationComment',
       'clarificationResponse',
       'costingNotes',
+      'deliveryLeadtime',
       'sellingPrice',
       'calculatedMargin',
       'history',

@@ -186,6 +186,7 @@ const normalizeRequestData = (data, nowIso) => {
     sellingCurrency: typeof data.sellingCurrency === "string" ? data.sellingCurrency : "EUR",
     vatMode: data.vatMode === "with" ? "with" : "without",
     vatRate: typeof data.vatRate === "number" ? data.vatRate : null,
+    deliveryLeadtime: typeof data.deliveryLeadtime === "string" ? data.deliveryLeadtime : "",
     costingAttachments,
     products,
     createdAt: data.createdAt ?? nowIso,

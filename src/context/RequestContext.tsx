@@ -110,6 +110,7 @@ const reviveRequest = (r: any): CustomerRequest => {
     incotermOther: r?.incotermOther ?? '',
     vatMode: r?.vatMode ?? 'without',
     vatRate: typeof r?.vatRate === 'number' ? r.vatRate : null,
+    deliveryLeadtime: r?.deliveryLeadtime ?? '',
     sellingCurrency: r?.sellingCurrency ?? 'EUR',
     costingAttachments: Array.isArray(r?.costingAttachments)
       ? r.costingAttachments.map(reviveAttachment)

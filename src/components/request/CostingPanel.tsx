@@ -26,6 +26,7 @@ interface CostingPanelProps {
     incotermOther?: string;
     vatMode?: 'with' | 'without';
     vatRate?: number | null;
+    deliveryLeadtime?: string;
     costingAttachments?: Attachment[];
   }) => void | Promise<void>;
   isUpdating: boolean;
@@ -57,6 +58,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
   const [vatRate, setVatRate] = useState<string>(
     typeof request.vatRate === 'number' ? request.vatRate.toString() : ''
   );
+  const [deliveryLeadtime, setDeliveryLeadtime] = useState<string>(request.deliveryLeadtime || '');
   const [costingAttachments, setCostingAttachments] = useState<Attachment[]>(
     Array.isArray(request.costingAttachments) ? request.costingAttachments : []
   );
@@ -128,6 +130,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
       incotermOther,
       vatMode,
       vatRate: vatMode === 'with' ? parseFloat(vatRate) : null,
+      deliveryLeadtime,
       costingAttachments,
     });
     onUpdateStatus(
@@ -144,6 +147,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
       incotermOther,
       vatMode,
       vatRate: vatMode === 'with' ? parseFloat(vatRate) : null,
+      deliveryLeadtime,
       costingAttachments,
     });
   };
@@ -297,6 +301,17 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
             </div>
           </div>
 
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">{t.panels.deliveryLeadtime}</Label>
+            <Input
+              value={deliveryLeadtime}
+              onChange={(e) => setDeliveryLeadtime(e.target.value)}
+              placeholder={t.panels.enterDeliveryLeadtime}
+              disabled={readOnly}
+              className="bg-background"
+            />
+          </div>
+
           <div className="space-y-3">
             <Label className="text-sm font-medium">{t.panels.costingAttachments}</Label>
             <input
@@ -421,6 +436,11 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
               <> ({request.vatRate}%)</>
             )}
           </p>
+          {request.deliveryLeadtime && (
+            <p className="text-sm text-foreground">
+              <span className="text-muted-foreground">{t.panels.deliveryLeadtime}:</span> {request.deliveryLeadtime}
+            </p>
+          )}
           {request.costingNotes && (
             <p className="text-sm text-foreground">
               <span className="text-muted-foreground">{t.panels.costingNotes}:</span> {request.costingNotes}

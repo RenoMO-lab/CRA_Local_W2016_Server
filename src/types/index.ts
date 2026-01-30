@@ -167,6 +167,7 @@ export interface CustomerRequest {
   incotermOther?: string;
   vatMode?: 'with' | 'without';
   vatRate?: number | null;
+  deliveryLeadtime?: string;
   costingAttachments?: Attachment[];
 }
 

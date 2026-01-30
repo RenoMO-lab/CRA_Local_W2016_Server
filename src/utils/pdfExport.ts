@@ -492,11 +492,12 @@ export const generateRequestPDF = async (request: CustomerRequest): Promise<void
   }
 
   // Costing Information
-  if (request.sellingPrice || request.costingNotes) {
+  if (request.sellingPrice || request.costingNotes || request.deliveryLeadtime) {
     drawSectionTitle(t.pdf.costingInformationTitle);
     drawFieldGrid([
       request.sellingPrice ? { label: t.panels.sellingPrice, value: `€${request.sellingPrice.toFixed(2)}` } : null,
       request.calculatedMargin ? { label: t.panels.margin, value: `${request.calculatedMargin.toFixed(1)}%` } : null,
+      request.deliveryLeadtime ? { label: t.panels.deliveryLeadtime, value: request.deliveryLeadtime } : null,
     ].filter(Boolean) as { label: string; value: string | number | null | undefined }[]);
     if (request.costingNotes) {
       drawParagraph(request.costingNotes);
