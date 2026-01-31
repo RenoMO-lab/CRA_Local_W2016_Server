@@ -179,6 +179,7 @@ const RequestForm: React.FC = () => {
   const [designResultAttachments, setDesignResultAttachments] = useState<Attachment[]>([]);
   const [designResultDirty, setDesignResultDirty] = useState(false);
   const [designPreviewAttachment, setDesignPreviewAttachment] = useState<Attachment | null>(null);
+  const [designPreviewUrl, setDesignPreviewUrl] = useState('');
   const submitRedirectRef = useRef<number | null>(null);
   const designResultRequestIdRef = useRef<string | null>(null);
 
@@ -297,6 +298,77 @@ const RequestForm: React.FC = () => {
 
     return url;
   };
+
+  const dataUrlToBlob = (dataUrl: string) => {
+    const [meta, base64] = dataUrl.split(',');
+    if (!base64) {
+      return new Blob();
+    }
+    const match = /data:(.*?);base64/.exec(meta || '');
+    const mime = match?.[1] || 'application/octet-stream';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mime });
+  };
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    if (!designPreviewAttachment) {
+      setDesignPreviewUrl('');
+      return () => {};
+    }
+
+    const rawUrl = designPreviewAttachment.url ?? '';
+    if (!rawUrl) {
+      setDesignPreviewUrl('');
+      return () => {};
+    }
+
+    if (
+      rawUrl.startsWith('http://') ||
+      rawUrl.startsWith('https://') ||
+      rawUrl.startsWith('blob:') ||
+      rawUrl.startsWith('/')
+    ) {
+      setDesignPreviewUrl(rawUrl);
+      return () => {};
+    }
+
+    let dataUrl = rawUrl;
+    if (!rawUrl.startsWith('data:')) {
+      const ext = designPreviewAttachment.filename?.split('.').pop()?.toLowerCase() ?? '';
+      const imageTypes: Record<string, string> = {
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        gif: 'image/gif',
+        webp: 'image/webp',
+        bmp: 'image/bmp',
+      };
+      const mime =
+        ext === 'pdf'
+          ? 'application/pdf'
+          : imageTypes[ext] || 'application/octet-stream';
+      dataUrl = `data:${mime};base64,${rawUrl}`;
+    }
+
+    try {
+      const blob = dataUrlToBlob(dataUrl);
+      objectUrl = URL.createObjectURL(blob);
+      setDesignPreviewUrl(objectUrl);
+    } catch {
+      setDesignPreviewUrl(dataUrl);
+    }
+
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [designPreviewAttachment]);
 
   const [currentStep, setCurrentStep] = useState<FormStep>(() => (isReadOnly ? 'review' : 'chapters'));
   const [currentProductIndex, setCurrentProductIndex] = useState(0);
@@ -1471,18 +1543,18 @@ const RequestForm: React.FC = () => {
               <div className="flex min-h-[300px] items-center justify-center">
                 {designPreviewAttachment &&
                   isImageFile(designPreviewAttachment.filename) &&
-                  getAttachmentPreviewUrl(designPreviewAttachment) && (
+                  designPreviewUrl && (
                     <img
-                      src={getAttachmentPreviewUrl(designPreviewAttachment)}
+                      src={designPreviewUrl}
                       alt={designPreviewAttachment.filename}
                       className="max-h-[70vh] max-w-full object-contain"
                     />
                   )}
                 {designPreviewAttachment &&
                   isPdfFile(designPreviewAttachment.filename) &&
-                  getAttachmentPreviewUrl(designPreviewAttachment) && (
+                  designPreviewUrl && (
                     <iframe
-                      src={getAttachmentPreviewUrl(designPreviewAttachment)}
+                      src={designPreviewUrl}
                       title={designPreviewAttachment.filename}
                       className="h-[70vh] w-full border border-border rounded"
                     />
@@ -1494,7 +1566,7 @@ const RequestForm: React.FC = () => {
                       {t.request.previewNotAvailable}
                     </div>
                   )}
-                {designPreviewAttachment && !getAttachmentPreviewUrl(designPreviewAttachment) && (
+                {designPreviewAttachment && !designPreviewUrl && (
                   <div className="text-sm text-muted-foreground">
                     {t.request.previewNotAvailable}
                   </div>

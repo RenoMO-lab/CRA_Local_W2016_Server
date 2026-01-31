@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -26,6 +26,7 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const [previewUrl, setPreviewUrl] = useState('');
   const { t } = useLanguage();
 
   const isImageFile = (filename: string) => {
@@ -71,6 +72,77 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
 
     return url;
   };
+
+  const dataUrlToBlob = (dataUrl: string) => {
+    const [meta, base64] = dataUrl.split(',');
+    if (!base64) {
+      return new Blob();
+    }
+    const match = /data:(.*?);base64/.exec(meta || '');
+    const mime = match?.[1] || 'application/octet-stream';
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mime });
+  };
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    if (!previewAttachment) {
+      setPreviewUrl('');
+      return () => {};
+    }
+
+    const rawUrl = previewAttachment.url ?? '';
+    if (!rawUrl) {
+      setPreviewUrl('');
+      return () => {};
+    }
+
+    if (
+      rawUrl.startsWith('http://') ||
+      rawUrl.startsWith('https://') ||
+      rawUrl.startsWith('blob:') ||
+      rawUrl.startsWith('/')
+    ) {
+      setPreviewUrl(rawUrl);
+      return () => {};
+    }
+
+    let dataUrl = rawUrl;
+    if (!rawUrl.startsWith('data:')) {
+      const ext = previewAttachment.filename?.split('.').pop()?.toLowerCase() ?? '';
+      const imageTypes: Record<string, string> = {
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        gif: 'image/gif',
+        webp: 'image/webp',
+        bmp: 'image/bmp',
+      };
+      const mime =
+        ext === 'pdf'
+          ? 'application/pdf'
+          : imageTypes[ext] || 'application/octet-stream';
+      dataUrl = `data:${mime};base64,${rawUrl}`;
+    }
+
+    try {
+      const blob = dataUrlToBlob(dataUrl);
+      objectUrl = URL.createObjectURL(blob);
+      setPreviewUrl(objectUrl);
+    } catch {
+      setPreviewUrl(dataUrl);
+    }
+
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [previewAttachment]);
 
   const handleFileUpload = async (files: FileList | null) => {
     if (!files || !onAttachmentsChange) return;
@@ -210,16 +282,16 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
             <DialogTitle className="truncate pr-8">{previewAttachment?.filename}</DialogTitle>
           </DialogHeader>
           <div className="flex min-h-[300px] items-center justify-center">
-            {previewAttachment && isImageFile(previewAttachment.filename) && getPreviewUrl(previewAttachment) && (
+            {previewAttachment && isImageFile(previewAttachment.filename) && previewUrl && (
               <img
-                src={getPreviewUrl(previewAttachment)}
+                src={previewUrl}
                 alt={previewAttachment.filename}
                 className="max-h-[70vh] max-w-full object-contain"
               />
             )}
-            {previewAttachment && isPdfFile(previewAttachment.filename) && getPreviewUrl(previewAttachment) && (
+            {previewAttachment && isPdfFile(previewAttachment.filename) && previewUrl && (
               <iframe
-                src={getPreviewUrl(previewAttachment)}
+                src={previewUrl}
                 title={previewAttachment.filename}
                 className="h-[70vh] w-full border border-border rounded"
               />
@@ -231,7 +303,7 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
                   {t.request.downloadFile}
                 </div>
               )}
-            {previewAttachment && !getPreviewUrl(previewAttachment) && (
+            {previewAttachment && !previewUrl && (
               <div className="text-sm text-muted-foreground">
                 {t.request.previewNotAvailable}
               </div>
