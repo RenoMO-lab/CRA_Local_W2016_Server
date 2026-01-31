@@ -1293,16 +1293,6 @@ const RequestForm: React.FC = () => {
             />
           )}
 
-          {existingRequest && !(isDesignRole || isAdminEdit) && (
-            <DesignReviewPanel
-              request={existingRequest}
-              onUpdateStatus={handleDesignStatusUpdate}
-              isUpdating={isUpdating}
-              showActions={showDesignPanel}
-              forceEnableActions={isAdminEdit}
-            />
-          )}
-
           {existingRequest && (isDesignRole || isAdminEdit) && (
             <div className="bg-card rounded-lg border border-border p-6 space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -1364,16 +1354,36 @@ const RequestForm: React.FC = () => {
             </div>
           )}
 
-          {existingRequest && !isDesignRole && !isAdminEdit && (
-            <div className="bg-card rounded-lg border border-border p-4 md:p-6">
-              <DesignResultSection
-                comments={existingRequest.designResultComments ?? ''}
-                attachments={Array.isArray(existingRequest.designResultAttachments)
-                  ? existingRequest.designResultAttachments
-                  : []}
-                isReadOnly={true}
-                showEmptyState={true}
+          {existingRequest && !(isDesignRole || isAdminEdit) && (
+            <div className="bg-card rounded-lg border border-border p-6 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                  <ClipboardCheck size={20} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground">{t.panels.designAction}</h3>
+                  <p className="text-sm text-muted-foreground">{t.panels.designActionDesc}</p>
+                </div>
+              </div>
+
+              <DesignReviewPanel
+                request={existingRequest}
+                onUpdateStatus={handleDesignStatusUpdate}
+                isUpdating={isUpdating}
+                showActions={false}
+                variant="embedded"
               />
+
+              <div className="border-t border-border/60 pt-6 space-y-4">
+                <DesignResultSection
+                  comments={existingRequest.designResultComments ?? ''}
+                  attachments={Array.isArray(existingRequest.designResultAttachments)
+                    ? existingRequest.designResultAttachments
+                    : []}
+                  isReadOnly={true}
+                  showEmptyState={true}
+                />
+              </div>
             </div>
           )}
 
