@@ -18,7 +18,7 @@ import StatusTimeline from '@/components/request/StatusTimeline';
 import DesignResultSection from '@/components/request/DesignResultSection';
 import SalesFollowupPanel from '@/components/request/SalesFollowupPanel';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { ArrowLeft, ArrowRight, CheckCircle, ClipboardCheck, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle, ClipboardCheck, Clock, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 type FormStep = 'chapters' | 'product' | 'review';
@@ -260,6 +260,7 @@ const RequestForm: React.FC = () => {
       setCurrentStep('review');
     }
   }, [isReadOnly]);
+
 
   useEffect(() => {
     setCurrentProductIndex((prev) => {
@@ -806,6 +807,8 @@ const RequestForm: React.FC = () => {
   const isAdminEdit = user?.role === 'admin' && isEditMode;
   const isDesignRole = user?.role === 'design';
   const isSalesRole = user?.role === 'sales';
+  const shouldCollapseDesignPanel = Boolean(isDesignRole && existingRequest?.status === 'submitted');
+  const [isDesignPanelCollapsed, setIsDesignPanelCollapsed] = useState(shouldCollapseDesignPanel);
   const showDesignPanel = (user?.role === 'design' || isAdminEdit) && existingRequest &&
     (isAdminEdit || ['submitted', 'under_review', 'feasibility_confirmed', 'design_result'].includes(existingRequest.status));
   
@@ -839,6 +842,10 @@ const RequestForm: React.FC = () => {
     existingRequest &&
       ['design_result', 'in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'closed'].includes(existingRequest.status)
   );
+
+  useEffect(() => {
+    setIsDesignPanelCollapsed(shouldCollapseDesignPanel);
+  }, [shouldCollapseDesignPanel, existingRequest?.id]);
 
   const handleDesignResultSave = async (payload: { comments: string; attachments: Attachment[] }) => {
     if (!existingRequest) return;
@@ -1305,52 +1312,69 @@ const RequestForm: React.FC = () => {
                 </div>
               </div>
 
-              <DesignReviewPanel
-                request={existingRequest}
-                onUpdateStatus={handleDesignStatusUpdate}
-                isUpdating={isUpdating}
-                showActions={showDesignPanel}
-                forceEnableActions={isAdminEdit}
-                variant="embedded"
-              />
+              {isDesignRole && isDesignPanelCollapsed ? (
+                <Button
+                  onClick={async () => {
+                    await handleDesignStatusUpdate('under_review');
+                    setIsDesignPanelCollapsed(false);
+                  }}
+                  disabled={isUpdating}
+                  className="w-full justify-start"
+                  variant="outline"
+                >
+                  <Clock size={16} className="mr-2 text-info" />
+                  {t.panels.setInDesign}
+                </Button>
+              ) : (
+                <>
+                  <DesignReviewPanel
+                    request={existingRequest}
+                    onUpdateStatus={handleDesignStatusUpdate}
+                    isUpdating={isUpdating}
+                    showActions={showDesignPanel}
+                    forceEnableActions={isAdminEdit}
+                    variant="embedded"
+                  />
 
-              <div className="border-t border-border/60 pt-6 space-y-4">
-                <DesignResultSection
-                  comments={canEditDesignResult ? designResultComments : (existingRequest.designResultComments ?? '')}
-                  attachments={canEditDesignResult
-                    ? designResultAttachments
-                    : Array.isArray(existingRequest.designResultAttachments)
-                      ? existingRequest.designResultAttachments
-                      : []}
-                  onCommentsChange={canEditDesignResult ? (value) => {
-                    setDesignResultComments(value);
-                    setDesignResultDirty(true);
-                  } : undefined}
-                  onAttachmentsChange={canEditDesignResult ? (files) => {
-                    setDesignResultAttachments(files);
-                    setDesignResultDirty(true);
-                  } : undefined}
-                  isReadOnly={!canEditDesignResult}
-                  showEmptyState={true}
-                />
-                {canEditDesignResult && (
-                  <Button
-                    onClick={() => handleDesignResultSave({
-                      comments: designResultComments,
-                      attachments: designResultAttachments,
-                    })}
-                    disabled={isUpdating}
-                    className={
-                      isDesignSubmitted
-                        ? 'w-full bg-primary/10 text-primary border border-primary/30'
-                        : 'w-full bg-primary hover:bg-primary/90 text-primary-foreground'
-                    }
-                  >
-                    {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
-                    {isDesignSubmitted ? t.panels.designSubmitted : t.panels.submitDesignResult}
-                  </Button>
-                )}
-              </div>
+                  <div className="border-t border-border/60 pt-6 space-y-4">
+                    <DesignResultSection
+                      comments={canEditDesignResult ? designResultComments : (existingRequest.designResultComments ?? '')}
+                      attachments={canEditDesignResult
+                        ? designResultAttachments
+                        : Array.isArray(existingRequest.designResultAttachments)
+                          ? existingRequest.designResultAttachments
+                          : []}
+                      onCommentsChange={canEditDesignResult ? (value) => {
+                        setDesignResultComments(value);
+                        setDesignResultDirty(true);
+                      } : undefined}
+                      onAttachmentsChange={canEditDesignResult ? (files) => {
+                        setDesignResultAttachments(files);
+                        setDesignResultDirty(true);
+                      } : undefined}
+                      isReadOnly={!canEditDesignResult}
+                      showEmptyState={true}
+                    />
+                    {canEditDesignResult && (
+                      <Button
+                        onClick={() => handleDesignResultSave({
+                          comments: designResultComments,
+                          attachments: designResultAttachments,
+                        })}
+                        disabled={isUpdating}
+                        className={
+                          isDesignSubmitted
+                            ? 'w-full bg-primary/10 text-primary border border-primary/30'
+                            : 'w-full bg-primary hover:bg-primary/90 text-primary-foreground'
+                        }
+                      >
+                        {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
+                        {isDesignSubmitted ? t.panels.designSubmitted : t.panels.submitDesignResult}
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
