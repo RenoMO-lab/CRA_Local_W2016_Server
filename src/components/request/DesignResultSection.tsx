@@ -40,9 +40,35 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
   const getPreviewUrl = (attachment: Attachment | null) => {
     const url = attachment?.url ?? '';
     if (!url) return '';
-    if (url.startsWith('blob:')) {
-      return '';
+
+    if (
+      url.startsWith('data:') ||
+      url.startsWith('http://') ||
+      url.startsWith('https://') ||
+      url.startsWith('blob:') ||
+      url.startsWith('/')
+    ) {
+      return url;
     }
+
+    const ext = attachment?.filename?.split('.').pop()?.toLowerCase() ?? '';
+    const imageTypes: Record<string, string> = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      bmp: 'image/bmp',
+    };
+
+    if (ext === 'pdf') {
+      return `data:application/pdf;base64,${url}`;
+    }
+
+    if (imageTypes[ext]) {
+      return `data:${imageTypes[ext]};base64,${url}`;
+    }
+
     return url;
   };
 
@@ -154,7 +180,7 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
                     <Eye size={14} />
                   </button>
                   <a
-                    href={attachment.url}
+                    href={getPreviewUrl(attachment) || attachment.url}
                     download={attachment.filename}
                     className="rounded p-1.5 text-primary hover:bg-primary/20"
                     title={t.request.downloadFile}
@@ -192,25 +218,11 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
               />
             )}
             {previewAttachment && isPdfFile(previewAttachment.filename) && getPreviewUrl(previewAttachment) && (
-              <object
-                data={getPreviewUrl(previewAttachment)}
-                type="application/pdf"
+              <iframe
+                src={getPreviewUrl(previewAttachment)}
+                title={previewAttachment.filename}
                 className="h-[70vh] w-full border border-border rounded"
-              >
-                <div className="text-sm text-muted-foreground">
-                  {t.request.previewNotAvailable}
-                  <div className="mt-2">
-                    <a
-                      href={getPreviewUrl(previewAttachment)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-primary hover:underline"
-                    >
-                      {t.request.downloadFile}
-                    </a>
-                  </div>
-                </div>
-              </object>
+              />
             )}
             {previewAttachment &&
               !isImageFile(previewAttachment.filename) &&
