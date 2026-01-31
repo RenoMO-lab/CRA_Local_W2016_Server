@@ -299,23 +299,9 @@ const RequestForm: React.FC = () => {
     return url;
   };
 
-  const dataUrlToBlob = (dataUrl: string) => {
-    const [meta, base64] = dataUrl.split(',');
-    if (!base64) {
-      return new Blob();
-    }
-    const match = /data:(.*?);base64/.exec(meta || '');
-    const mime = match?.[1] || 'application/octet-stream';
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    return new Blob([bytes], { type: mime });
-  };
-
   useEffect(() => {
     let objectUrl: string | null = null;
+    let cancelled = false;
     if (!designPreviewAttachment) {
       setDesignPreviewUrl('');
       return () => {};
@@ -355,15 +341,20 @@ const RequestForm: React.FC = () => {
       dataUrl = `data:${mime};base64,${rawUrl}`;
     }
 
-    try {
-      const blob = dataUrlToBlob(dataUrl);
-      objectUrl = URL.createObjectURL(blob);
-      setDesignPreviewUrl(objectUrl);
-    } catch {
-      setDesignPreviewUrl(dataUrl);
-    }
+    fetch(dataUrl)
+      .then((res) => res.blob())
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setDesignPreviewUrl(objectUrl);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDesignPreviewUrl(dataUrl);
+      });
 
     return () => {
+      cancelled = true;
       if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
       }
