@@ -37,6 +37,15 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
     return filename.toLowerCase().endsWith('.pdf');
   };
 
+  const getPreviewUrl = (attachment: Attachment | null) => {
+    const url = attachment?.url ?? '';
+    if (!url) return '';
+    if (url.startsWith('blob:')) {
+      return '';
+    }
+    return url;
+  };
+
   const handleFileUpload = async (files: FileList | null) => {
     if (!files || !onAttachmentsChange) return;
 
@@ -175,19 +184,33 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
             <DialogTitle className="truncate pr-8">{previewAttachment?.filename}</DialogTitle>
           </DialogHeader>
           <div className="flex min-h-[300px] items-center justify-center">
-            {previewAttachment && isImageFile(previewAttachment.filename) && (
+            {previewAttachment && isImageFile(previewAttachment.filename) && getPreviewUrl(previewAttachment) && (
               <img
-                src={previewAttachment.url}
+                src={getPreviewUrl(previewAttachment)}
                 alt={previewAttachment.filename}
                 className="max-h-[70vh] max-w-full object-contain"
               />
             )}
-            {previewAttachment && isPdfFile(previewAttachment.filename) && (
-              <iframe
-                src={previewAttachment.url}
-                title={previewAttachment.filename}
+            {previewAttachment && isPdfFile(previewAttachment.filename) && getPreviewUrl(previewAttachment) && (
+              <object
+                data={getPreviewUrl(previewAttachment)}
+                type="application/pdf"
                 className="h-[70vh] w-full border border-border rounded"
-              />
+              >
+                <div className="text-sm text-muted-foreground">
+                  {t.request.previewNotAvailable}
+                  <div className="mt-2">
+                    <a
+                      href={getPreviewUrl(previewAttachment)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      {t.request.downloadFile}
+                    </a>
+                  </div>
+                </div>
+              </object>
             )}
             {previewAttachment &&
               !isImageFile(previewAttachment.filename) &&
@@ -196,6 +219,11 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
                   {t.request.downloadFile}
                 </div>
               )}
+            {previewAttachment && !getPreviewUrl(previewAttachment) && (
+              <div className="text-sm text-muted-foreground">
+                {t.request.previewNotAvailable}
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
