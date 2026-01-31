@@ -21,6 +21,7 @@ import SalesFollowupPanel from '@/components/request/SalesFollowupPanel';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { ArrowLeft, ArrowRight, CheckCircle, ClipboardCheck, Clock, Download, Eye, File, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 type FormStep = 'chapters' | 'product' | 'review';
 
@@ -177,6 +178,7 @@ const RequestForm: React.FC = () => {
   const [designResultComments, setDesignResultComments] = useState('');
   const [designResultAttachments, setDesignResultAttachments] = useState<Attachment[]>([]);
   const [designResultDirty, setDesignResultDirty] = useState(false);
+  const [designPreviewAttachment, setDesignPreviewAttachment] = useState<Attachment | null>(null);
   const submitRedirectRef = useRef<number | null>(null);
   const designResultRequestIdRef = useRef<string | null>(null);
 
@@ -251,6 +253,50 @@ const RequestForm: React.FC = () => {
   const isAdminEdit = user?.role === 'admin' && isEditMode;
   const isDesignRole = user?.role === 'design';
   const isSalesRole = user?.role === 'sales';
+
+  const isImageFile = (filename: string) => {
+    const ext = filename.toLowerCase().split('.').pop();
+    return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext || '');
+  };
+
+  const isPdfFile = (filename: string) => {
+    return filename.toLowerCase().endsWith('.pdf');
+  };
+
+  const getAttachmentPreviewUrl = (attachment: Attachment | null) => {
+    const url = attachment?.url ?? '';
+    if (!url) return '';
+
+    if (
+      url.startsWith('data:') ||
+      url.startsWith('http://') ||
+      url.startsWith('https://') ||
+      url.startsWith('blob:') ||
+      url.startsWith('/')
+    ) {
+      return url;
+    }
+
+    const ext = attachment?.filename?.split('.').pop()?.toLowerCase() ?? '';
+    const imageTypes: Record<string, string> = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      webp: 'image/webp',
+      bmp: 'image/bmp',
+    };
+
+    if (ext === 'pdf') {
+      return `data:application/pdf;base64,${url}`;
+    }
+
+    if (imageTypes[ext]) {
+      return `data:${imageTypes[ext]};base64,${url}`;
+    }
+
+    return url;
+  };
 
   const [currentStep, setCurrentStep] = useState<FormStep>(() => (isReadOnly ? 'review' : 'chapters'));
   const [currentProductIndex, setCurrentProductIndex] = useState(0);
@@ -938,21 +984,21 @@ const RequestForm: React.FC = () => {
                   <span className="text-sm truncate">{attachment.filename}</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => window.open(attachment.url, '_blank')}
-                    className="rounded p-1.5 text-primary hover:bg-primary/20"
-                    title={t.table.view}
-                  >
-                    <Eye size={14} />
-                  </button>
-                  <a
-                    href={attachment.url}
-                    download={attachment.filename}
-                    className="rounded p-1.5 text-primary hover:bg-primary/20"
-                    title={t.request.downloadFile}
-                  >
-                    <Download size={14} />
+                    <button
+                      type="button"
+                      onClick={() => setDesignPreviewAttachment(attachment)}
+                      className="rounded p-1.5 text-primary hover:bg-primary/20"
+                      title={t.table.view}
+                    >
+                      <Eye size={14} />
+                    </button>
+                    <a
+                      href={getAttachmentPreviewUrl(attachment) || attachment.url}
+                      download={attachment.filename}
+                      className="rounded p-1.5 text-primary hover:bg-primary/20"
+                      title={t.request.downloadFile}
+                    >
+                      <Download size={14} />
                   </a>
                 </div>
               </div>
@@ -1416,6 +1462,46 @@ const RequestForm: React.FC = () => {
               isSubmitting={isSubmitting}
             />
           )}
+
+          <Dialog open={!!designPreviewAttachment} onOpenChange={() => setDesignPreviewAttachment(null)}>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
+              <DialogHeader>
+                <DialogTitle className="truncate pr-8">{designPreviewAttachment?.filename}</DialogTitle>
+              </DialogHeader>
+              <div className="flex min-h-[300px] items-center justify-center">
+                {designPreviewAttachment &&
+                  isImageFile(designPreviewAttachment.filename) &&
+                  getAttachmentPreviewUrl(designPreviewAttachment) && (
+                    <img
+                      src={getAttachmentPreviewUrl(designPreviewAttachment)}
+                      alt={designPreviewAttachment.filename}
+                      className="max-h-[70vh] max-w-full object-contain"
+                    />
+                  )}
+                {designPreviewAttachment &&
+                  isPdfFile(designPreviewAttachment.filename) &&
+                  getAttachmentPreviewUrl(designPreviewAttachment) && (
+                    <iframe
+                      src={getAttachmentPreviewUrl(designPreviewAttachment)}
+                      title={designPreviewAttachment.filename}
+                      className="h-[70vh] w-full border border-border rounded"
+                    />
+                  )}
+                {designPreviewAttachment &&
+                  !isImageFile(designPreviewAttachment.filename) &&
+                  !isPdfFile(designPreviewAttachment.filename) && (
+                    <div className="text-sm text-muted-foreground">
+                      {t.request.previewNotAvailable}
+                    </div>
+                  )}
+                {designPreviewAttachment && !getAttachmentPreviewUrl(designPreviewAttachment) && (
+                  <div className="text-sm text-muted-foreground">
+                    {t.request.previewNotAvailable}
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {existingRequest && showDesignSummary && renderDesignSummary()}
 
