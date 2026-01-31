@@ -835,6 +835,10 @@ const RequestForm: React.FC = () => {
       isAdminEdit
     )
   );
+  const isDesignSubmitted = Boolean(
+    existingRequest &&
+      ['design_result', 'in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'closed'].includes(existingRequest.status)
+  );
 
   const handleDesignResultSave = async (payload: { comments: string; attachments: Attachment[] }) => {
     if (!existingRequest) return;
@@ -1340,19 +1344,21 @@ const RequestForm: React.FC = () => {
                   showEmptyState={true}
                 />
                 {canEditDesignResult && (
-                  <div className="flex justify-end">
-                    <Button
-                      onClick={() => handleDesignResultSave({
-                        comments: designResultComments,
-                        attachments: designResultAttachments,
-                      })}
-                      disabled={isUpdating}
-                      className="bg-primary hover:bg-primary/90 text-primary-foreground"
-                    >
-                      {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
-                      {t.panels.saveDesignResult}
-                    </Button>
-                  </div>
+                  <Button
+                    onClick={() => handleDesignResultSave({
+                      comments: designResultComments,
+                      attachments: designResultAttachments,
+                    })}
+                    disabled={isUpdating}
+                    className={
+                      isDesignSubmitted
+                        ? 'w-full bg-primary/10 text-primary border border-primary/30'
+                        : 'w-full bg-primary hover:bg-primary/90 text-primary-foreground'
+                    }
+                  >
+                    {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
+                    {isDesignSubmitted ? t.panels.designSubmitted : t.panels.submitDesignResult}
+                  </Button>
                 )}
               </div>
             </div>

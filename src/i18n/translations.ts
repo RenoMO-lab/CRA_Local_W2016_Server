@@ -533,7 +533,8 @@ export const translations = {
       designResultPlaceholder: 'Summarize the design outcome, key constraints, and next steps...',
       designResultUploads: 'Design Documents',
       uploadDesignDocs: 'Upload PDF, Excel, or supporting files',
-      saveDesignResult: 'Save Design Result',
+      submitDesignResult: 'Submit Design Result',
+      designSubmitted: 'Design Submitted',
       designResultEmpty: 'No design result has been shared yet.',
     },
 
@@ -1232,7 +1233,8 @@ export const translations = {
       designResultPlaceholder: 'Résumez le résultat, les contraintes et les prochaines étapes...',
       designResultUploads: 'Documents de conception',
       uploadDesignDocs: 'Téléverser des fichiers PDF, Excel ou autres',
-      saveDesignResult: 'Enregistrer le résultat',
+      submitDesignResult: 'Soumettre le résultat',
+      designSubmitted: 'Design soumis',
       designResultEmpty: 'Aucun résultat de conception partagé pour le moment.',
     },
 
@@ -1931,7 +1933,8 @@ export const translations = {
       designResultPlaceholder: '概述设计结论、关键约束和下一步...',
       designResultUploads: '设计文件',
       uploadDesignDocs: '上传 PDF、Excel 或相关文件',
-      saveDesignResult: '保存设计结果',
+      submitDesignResult: '提交设计结果',
+      designSubmitted: '设计已提交',
       designResultEmpty: '尚未提供设计结果。',
     },
 
