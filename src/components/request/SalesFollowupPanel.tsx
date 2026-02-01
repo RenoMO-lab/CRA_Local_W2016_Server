@@ -513,7 +513,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
       {!showEditor && (hasSalesSummary || hasSalesAttachments) && (
         <div className="space-y-3">
           {hasSalesSummary && (
-            <div className="p-4 bg-muted/30 rounded-lg border border-border space-y-2">
+            <div className="p-4 bg-destructive/10 rounded-lg border border-destructive/20 space-y-2">
               {request.salesFinalPrice && (
                 <p className="text-sm text-foreground">
                   <span className="text-muted-foreground">{t.panels.salesFinalPrice}:</span> {request.salesCurrency ?? 'EUR'} {request.salesFinalPrice.toFixed(2)}
@@ -576,7 +576,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
       {!showEditor && isSales && request.status === 'gm_approval_pending' && (
         <Button
           disabled
-          className="w-full bg-muted/30 text-muted-foreground border border-border"
+          className="w-full bg-destructive/10 text-destructive border border-destructive/20"
         >
           {t.panels.submittedToGm}
         </Button>
@@ -630,7 +630,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
               <p className="text-xs text-muted-foreground">{t.panels.gmApprovalDesc}</p>
             </div>
           </div>
-          <div className="p-4 bg-muted/30 rounded-lg border border-border space-y-2">
+          <div className="p-4 bg-destructive/10 rounded-lg border border-destructive/20 space-y-2">
             <p className="text-sm text-foreground">
               <span className="text-muted-foreground">{t.common.status}:</span>{' '}
               <span className={gmDecisionStatus === 'gm_approved' ? 'text-success' : 'text-destructive'}>
