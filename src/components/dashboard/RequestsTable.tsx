@@ -177,7 +177,19 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
     <div className="bg-card rounded-lg border border-border overflow-hidden shadow-sm">
       <div className="md:hidden divide-y divide-border">
         {requests.map((request) => (
-          <div key={request.id} className="p-4 space-y-3">
+          <div
+            key={request.id}
+            className="p-4 space-y-3 cursor-pointer transition-colors hover:bg-muted/20"
+            onClick={() => handleView(request.id)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                handleView(request.id);
+              }
+            }}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm text-muted-foreground">{t.table.requestId}</p>
@@ -209,7 +221,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-2 pt-2">
+            <div className="flex items-center justify-between gap-2 pt-2" onClick={(event) => event.stopPropagation()}>
               <Button size="sm" variant="outline" onClick={() => handleView(request.id)}>
                 <Eye size={14} className="mr-2" />
                 {t.table.view}
@@ -247,14 +259,23 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
           </TableHeader>
           <TableBody>
             {requests.map((request, index) => (
-              <TableRow 
-                key={request.id}
-                className={cn(
-                  "cursor-pointer transition-colors hover:bg-muted/30",
-                  index % 2 === 0 ? "bg-card" : "bg-muted/10"
-                )}
-                style={{ animationDelay: `${index * 50}ms` }}
-              >
+            <TableRow 
+              key={request.id}
+              className={cn(
+                "cursor-pointer transition-colors hover:bg-muted/30",
+                index % 2 === 0 ? "bg-card" : "bg-muted/10"
+              )}
+              style={{ animationDelay: `${index * 50}ms` }}
+              onClick={() => handleView(request.id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  handleView(request.id);
+                }
+              }}
+            >
                 <TableCell className="font-medium text-primary">{request.id}</TableCell>
                 <TableCell className="max-w-[200px] truncate">{request.clientName}</TableCell>
                 <TableCell className="max-w-[200px] truncate">{translateOption(request.applicationVehicle)}</TableCell>
@@ -265,7 +286,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                 <TableCell>
                   <StatusBadge status={request.status} />
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
                   <div className="flex items-center justify-end gap-2">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
