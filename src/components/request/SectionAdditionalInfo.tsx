@@ -30,6 +30,9 @@ const SectionAdditionalInfo: React.FC<SectionAdditionalInfoProps> = ({
   const rimDrawingInputRef = useRef<HTMLInputElement>(null);
   const picturesInputRef = useRef<HTMLInputElement>(null);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const closePreview = () => {
+    setTimeout(() => setPreviewAttachment(null), 0);
+  };
   const { t } = useLanguage();
   const fieldId = (suffix: string) => (idPrefix ? `${idPrefix}-${suffix}` : suffix);
 
@@ -243,7 +246,7 @@ const SectionAdditionalInfo: React.FC<SectionAdditionalInfoProps> = ({
       </div>
 
       {/* Preview Dialog */}
-      <Dialog open={!!previewAttachment} onOpenChange={() => setPreviewAttachment(null)}>
+      <Dialog open={!!previewAttachment} onOpenChange={(open) => { if (!open) closePreview(); }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="truncate pr-8">{previewAttachment?.filename}</DialogTitle>

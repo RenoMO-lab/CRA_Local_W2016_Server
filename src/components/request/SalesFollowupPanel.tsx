@@ -64,6 +64,9 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   );
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
+  const closePreview = () => {
+    setTimeout(() => setPreviewAttachment(null), 0);
+  };
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [approvalComment, setApprovalComment] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -570,7 +573,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
         </div>
       )}
 
-      <Dialog open={!!previewAttachment} onOpenChange={() => setPreviewAttachment(null)}>
+      <Dialog open={!!previewAttachment} onOpenChange={(open) => { if (!open) closePreview(); }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="truncate pr-8">{previewAttachment?.filename}</DialogTitle>

@@ -180,6 +180,9 @@ const RequestForm: React.FC = () => {
   const [designResultDirty, setDesignResultDirty] = useState(false);
   const [designPreviewAttachment, setDesignPreviewAttachment] = useState<Attachment | null>(null);
   const [designPreviewUrl, setDesignPreviewUrl] = useState('');
+  const closeDesignPreview = () => {
+    setTimeout(() => setDesignPreviewAttachment(null), 0);
+  };
   const submitRedirectRef = useRef<number | null>(null);
   const designResultRequestIdRef = useRef<string | null>(null);
 
@@ -1526,7 +1529,7 @@ const RequestForm: React.FC = () => {
             />
           )}
 
-          <Dialog open={!!designPreviewAttachment} onOpenChange={() => setDesignPreviewAttachment(null)}>
+          <Dialog open={!!designPreviewAttachment} onOpenChange={(open) => { if (!open) closeDesignPreview(); }}>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
               <DialogHeader>
                 <DialogTitle className="truncate pr-8">{designPreviewAttachment?.filename}</DialogTitle>

@@ -68,6 +68,9 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useLanguage();
+  const closePreview = () => {
+    setTimeout(() => setPreviewAttachment(null), 0);
+  };
 
   const isImageFile = (filename: string) => {
     const ext = filename.toLowerCase().split('.').pop();
@@ -586,7 +589,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
         </div>
       )}
 
-      <Dialog open={!!previewAttachment} onOpenChange={() => setPreviewAttachment(null)}>
+      <Dialog open={!!previewAttachment} onOpenChange={(open) => { if (!open) closePreview(); }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="truncate pr-8">{previewAttachment?.filename}</DialogTitle>
