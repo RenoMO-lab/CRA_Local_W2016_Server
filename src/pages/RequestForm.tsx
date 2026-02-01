@@ -959,7 +959,9 @@ const RequestForm: React.FC = () => {
     : false;
   const canEditSalesPanel = Boolean(
     existingRequest && (
-      (isSalesRole && isEditMode && existingRequest.status !== 'gm_approved') ||
+      (isSalesRole &&
+        salesStatuses.includes(existingRequest.status) &&
+        existingRequest.status !== 'gm_approved') ||
       isAdminEdit
     )
   );
