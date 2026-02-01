@@ -532,8 +532,8 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
 
       {['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected'].includes(request.status) && (
         <div className="space-y-3">
-          <div className="p-4 bg-success/10 rounded-lg border border-success/20 space-y-2">
-            <p className="text-sm font-medium text-success">{t.panels.costingCompleted}</p>
+          <div className="p-4 bg-muted/30 rounded-lg border border-border space-y-2">
+            <p className="text-sm font-medium text-foreground">{t.panels.costingCompleted}</p>
             {request.sellingPrice && (
               <p className="text-sm text-foreground">
                 <span className="text-muted-foreground">{t.panels.sellingPrice}:</span> {request.sellingCurrency ?? 'EUR'} {request.sellingPrice.toFixed(2)}

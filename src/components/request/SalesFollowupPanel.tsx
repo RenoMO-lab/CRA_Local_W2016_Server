@@ -276,6 +276,16 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   const vatRateValid = salesVatMode === 'without' || (salesVatRate !== '' && !isNaN(parseFloat(salesVatRate)));
   const isValidSubmission = salesFinalPrice && parseFloat(salesFinalPrice) > 0 && vatRateValid;
   const incotermDisplay = salesIncoterm === 'other' ? salesIncotermOther : salesIncoterm;
+  const gmDecisionStatus: RequestStatus | null =
+    request.status === 'gm_approved' || request.status === 'gm_rejected'
+      ? request.status
+      : null;
+  const gmDecisionLabel = gmDecisionStatus
+    ? t.statuses[gmDecisionStatus as keyof typeof t.statuses]
+    : '';
+  const gmDecisionEntry = gmDecisionStatus
+    ? [...request.history].reverse().find((entry) => entry.status === gmDecisionStatus)
+    : undefined;
 
   const showEditor = !readOnly && isSales && ['sales_followup', 'gm_rejected'].includes(request.status);
   const hasSalesSummary = Boolean(
@@ -503,7 +513,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
       {!showEditor && (hasSalesSummary || hasSalesAttachments) && (
         <div className="space-y-3">
           {hasSalesSummary && (
-            <div className="p-4 bg-info/10 rounded-lg border border-info/20 space-y-2">
+            <div className="p-4 bg-muted/30 rounded-lg border border-border space-y-2">
               {request.salesFinalPrice && (
                 <p className="text-sm text-foreground">
                   <span className="text-muted-foreground">{t.panels.salesFinalPrice}:</span> {request.salesCurrency ?? 'EUR'} {request.salesFinalPrice.toFixed(2)}
@@ -566,7 +576,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
       {!showEditor && isSales && request.status === 'gm_approval_pending' && (
         <Button
           disabled
-          className="w-full bg-info/10 text-info border border-info/30"
+          className="w-full bg-muted/30 text-muted-foreground border border-border"
         >
           {t.panels.submittedToGm}
         </Button>
@@ -608,6 +618,32 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
           >
             {t.panels.rejectDeal}
           </Button>
+        </div>
+      )}
+
+      {!canApprove && gmDecisionStatus && (
+        <div className="border-t border-border/60 pt-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={18} className="text-muted-foreground" />
+            <div>
+              <h4 className="text-sm font-semibold text-foreground">{t.panels.gmApproval}</h4>
+              <p className="text-xs text-muted-foreground">{t.panels.gmApprovalDesc}</p>
+            </div>
+          </div>
+          <div className="p-4 bg-muted/30 rounded-lg border border-border space-y-2">
+            <p className="text-sm text-foreground">
+              <span className="text-muted-foreground">{t.common.status}:</span>{' '}
+              <span className={gmDecisionStatus === 'gm_approved' ? 'text-success' : 'text-destructive'}>
+                {gmDecisionLabel}
+              </span>
+            </p>
+            {gmDecisionEntry?.comment && (
+              <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">{t.panels.gmApprovalComment}:</span>{' '}
+                {gmDecisionEntry.comment}
+              </p>
+            )}
+          </div>
         </div>
       )}
 
