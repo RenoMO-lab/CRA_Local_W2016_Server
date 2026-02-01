@@ -1005,8 +1005,8 @@ const RequestForm: React.FC = () => {
           </div>
         </div>
 
-          <div className="p-4 bg-destructive/10 rounded-lg border border-destructive/20 space-y-2">
-            <p className="text-sm font-medium text-destructive">{t.panels.designSubmitted}</p>
+          <div className="p-4 bg-muted/30 rounded-lg border border-border space-y-2">
+            <p className="text-sm font-medium text-foreground">{t.panels.designSubmitted}</p>
           <p className="text-sm text-foreground">
             <span className="text-muted-foreground">{t.common.status}:</span> {statusLabel}
           </p>

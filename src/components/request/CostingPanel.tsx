@@ -532,7 +532,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
 
       {['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected'].includes(request.status) && (
         <div className="space-y-3">
-          <div className="p-4 bg-destructive/10 rounded-lg border border-destructive/20 space-y-2">
+          <div className="p-4 bg-muted/30 rounded-lg border border-border space-y-2">
             <p className="text-sm font-medium text-foreground">{t.panels.costingCompleted}</p>
             {request.sellingPrice && (
               <p className="text-sm text-foreground">
