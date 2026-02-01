@@ -121,16 +121,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
     return parts.length > 0 ? parts.join(' / ') : '-';
   };
 
-  const canEdit = (request: CustomerRequest) => {
-    if (userRole === 'admin') return true;
-    if (
-      userRole === 'sales' &&
-      ['draft', 'clarification_needed', 'costing_complete', 'sales_followup', 'gm_approval_pending'].includes(request.status)
-    ) {
-      return true;
-    }
-    return false;
-  };
+  const canEditRoute = userRole === 'admin';
 
   const canDelete = (request: CustomerRequest) => {
     return userRole === 'admin';
@@ -223,7 +214,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                 <Eye size={14} className="mr-2" />
                 {t.table.view}
               </Button>
-              {canEdit(request) && (
+              {canEditRoute && (
                 <Button size="sm" variant="outline" onClick={() => handleEdit(request.id)}>
                   <Edit size={14} className="mr-2" />
                   {t.table.edit}
@@ -287,7 +278,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                           <Eye size={14} className="mr-2" />
                           {t.table.view}
                         </DropdownMenuItem>
-                        {canEdit(request) && (
+                        {canEditRoute && (
                           <DropdownMenuItem onClick={() => handleEdit(request.id)} className="cursor-pointer">
                             <Edit size={14} className="mr-2" />
                             {t.table.edit}
