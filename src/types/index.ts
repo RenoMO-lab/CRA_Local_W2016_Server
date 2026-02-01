@@ -13,6 +13,7 @@ export type RequestStatus =
   | 'sales_followup'
   | 'gm_approval_pending'
   | 'gm_approved'
+  | 'gm_rejected'
   | 'closed';
 
 export type BrakeType = 'drum' | 'disk' | 'na';
@@ -247,6 +248,7 @@ export const STATUS_CONFIG: Record<RequestStatus, { label: string; color: string
   sales_followup: { label: 'Sales Follow-up', color: 'text-info', bgColor: 'bg-info/10' },
   gm_approval_pending: { label: 'GM Approval Pending', color: 'text-warning', bgColor: 'bg-warning/10' },
   gm_approved: { label: 'Approved', color: 'text-success', bgColor: 'bg-success/10' },
+  gm_rejected: { label: 'Rejected by GM', color: 'text-destructive', bgColor: 'bg-destructive/10' },
   closed: { label: 'Closed', color: 'text-muted-foreground', bgColor: 'bg-muted' },
 };
 

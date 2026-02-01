@@ -949,10 +949,10 @@ const RequestForm: React.FC = () => {
   const showCostingPanel = user?.role === 'costing' && existingRequest &&
     ['feasibility_confirmed', 'design_result', 'in_costing'].includes(existingRequest.status);
   const showCostingSummary = existingRequest
-    ? ['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved'].includes(existingRequest.status)
+    ? ['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected'].includes(existingRequest.status)
     : false;
 
-  const salesStatuses = ['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved'];
+  const salesStatuses = ['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected'];
   const showSalesPanel = existingRequest
     ? salesStatuses.includes(existingRequest.status) &&
       (existingRequest.status !== 'costing_complete' || isSalesRole || isAdminEdit)
@@ -976,7 +976,7 @@ const RequestForm: React.FC = () => {
   );
   const isDesignSubmitted = Boolean(
     existingRequest &&
-      ['design_result', 'in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'closed'].includes(existingRequest.status)
+      ['design_result', 'in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected', 'closed'].includes(existingRequest.status)
   );
   const showDesignSummary = Boolean(existingRequest && isDesignSubmitted);
 

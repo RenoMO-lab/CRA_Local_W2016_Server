@@ -92,6 +92,7 @@ export const translations = {
       sales_followup: 'Sales Follow-up',
       gm_approval_pending: 'GM Approval Pending',
       gm_approved: 'Approved',
+      gm_rejected: 'Rejected by GM',
       closed: 'Closed',
     },
 
@@ -796,6 +797,7 @@ export const translations = {
       sales_followup: 'Suivi commercial',
       gm_approval_pending: 'Approbation DG en attente',
       gm_approved: 'Approuvé',
+      gm_rejected: 'Rejeté par le DG',
       closed: 'Clôturé',
     },
 
@@ -1500,6 +1502,7 @@ export const translations = {
       sales_followup: '销售跟进',
       gm_approval_pending: '总经理审批中',
       gm_approved: '已批准',
+      gm_rejected: '总经理已拒绝',
       closed: '已关闭',
     },
 

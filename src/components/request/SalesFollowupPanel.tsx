@@ -266,24 +266,26 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   };
 
   const handleRejectDeal = () => {
-    onUpdateStatus('sales_followup', approvalComment?.trim() || undefined);
+    onUpdateStatus('gm_rejected', approvalComment?.trim() || undefined);
   };
 
   const canStartFollowup = forceEnableActions || request.status === 'costing_complete';
-  const canEditSales = forceEnableActions || (isSales && request.status === 'sales_followup');
+  const canEditSales = forceEnableActions || (isSales && ['sales_followup', 'gm_rejected'].includes(request.status));
   const canSubmitForApproval = isSales && canEditSales;
   const canApprove = isAdmin && (forceEnableActions || request.status === 'gm_approval_pending');
   const vatRateValid = salesVatMode === 'without' || (salesVatRate !== '' && !isNaN(parseFloat(salesVatRate)));
   const isValidSubmission = salesFinalPrice && parseFloat(salesFinalPrice) > 0 && vatRateValid;
   const incotermDisplay = salesIncoterm === 'other' ? salesIncotermOther : salesIncoterm;
 
-  const showEditor = !readOnly && isSales && request.status === 'sales_followup';
-  const hasSalesData = Boolean(
+  const showEditor = !readOnly && isSales && ['sales_followup', 'gm_rejected'].includes(request.status);
+  const hasSalesSummary = Boolean(
     request.salesFinalPrice ||
       request.salesFeedbackComment ||
-      (Array.isArray(request.salesAttachments) && request.salesAttachments.length) ||
       request.salesIncoterm ||
       (request.salesVatMode === 'with' && request.salesVatRate !== null)
+  );
+  const hasSalesAttachments = Boolean(
+    Array.isArray(request.salesAttachments) && request.salesAttachments.length
   );
 
   return (
@@ -498,32 +500,36 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
         </>
       )}
 
-      {!showEditor && hasSalesData && (
-        <div className="p-4 bg-muted/40 rounded-lg border border-border space-y-2">
-          {request.salesFinalPrice && (
-            <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.salesFinalPrice}:</span> {request.salesCurrency ?? 'EUR'} {request.salesFinalPrice.toFixed(2)}
-            </p>
-          )}
-          {request.salesIncoterm && (
-            <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.incoterm}:</span> {incotermDisplay}
-            </p>
-          )}
-          {request.salesVatMode && (
-            <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.vatMode}:</span> {request.salesVatMode === 'with' ? t.panels.withVat : t.panels.withoutVat}
-              {request.salesVatMode === 'with' && request.salesVatRate !== null && (
-                <> ({request.salesVatRate}%)</>
+      {!showEditor && (hasSalesSummary || hasSalesAttachments) && (
+        <div className="space-y-3">
+          {hasSalesSummary && (
+            <div className="p-4 bg-info/10 rounded-lg border border-info/20 space-y-2">
+              {request.salesFinalPrice && (
+                <p className="text-sm text-foreground">
+                  <span className="text-muted-foreground">{t.panels.salesFinalPrice}:</span> {request.salesCurrency ?? 'EUR'} {request.salesFinalPrice.toFixed(2)}
+                </p>
               )}
-            </p>
+              {request.salesIncoterm && (
+                <p className="text-sm text-foreground">
+                  <span className="text-muted-foreground">{t.panels.incoterm}:</span> {incotermDisplay}
+                </p>
+              )}
+              {request.salesVatMode && (
+                <p className="text-sm text-foreground">
+                  <span className="text-muted-foreground">{t.panels.vatMode}:</span> {request.salesVatMode === 'with' ? t.panels.withVat : t.panels.withoutVat}
+                  {request.salesVatMode === 'with' && request.salesVatRate !== null && (
+                    <> ({request.salesVatRate}%)</>
+                  )}
+                </p>
+              )}
+              {request.salesFeedbackComment && (
+                <p className="text-sm text-foreground">
+                  <span className="text-muted-foreground">{t.panels.salesFeedback}:</span> {request.salesFeedbackComment}
+                </p>
+              )}
+            </div>
           )}
-          {request.salesFeedbackComment && (
-            <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.salesFeedback}:</span> {request.salesFeedbackComment}
-            </p>
-          )}
-          {Array.isArray(request.salesAttachments) && request.salesAttachments.length > 0 && (
+          {hasSalesAttachments && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">{t.panels.salesAttachments}</p>
               {request.salesAttachments.map((attachment) => (

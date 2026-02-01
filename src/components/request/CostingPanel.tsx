@@ -530,40 +530,42 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
         </>
       )}
 
-      {['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved'].includes(request.status) && (
-        <div className="p-4 bg-success/10 rounded-lg border border-success/20 space-y-2">
-          <p className="text-sm font-medium text-success">{t.panels.costingCompleted}</p>
-          {request.sellingPrice && (
-            <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.sellingPrice}:</span> {request.sellingCurrency ?? 'EUR'} {request.sellingPrice.toFixed(2)}
-            </p>
-          )}
-          {request.calculatedMargin !== undefined && (
-            <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.margin}:</span> {request.calculatedMargin.toFixed(1)}%
-            </p>
-          )}
-          {request.incoterm && (
-            <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.incoterm}:</span> {incotermDisplay}
-            </p>
-          )}
-          <p className="text-sm text-foreground">
-            <span className="text-muted-foreground">{t.panels.vatMode}:</span> {request.vatMode === 'with' ? t.panels.withVat : t.panels.withoutVat}
-            {request.vatMode === 'with' && request.vatRate !== null && (
-              <> ({request.vatRate}%)</>
+      {['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected'].includes(request.status) && (
+        <div className="space-y-3">
+          <div className="p-4 bg-success/10 rounded-lg border border-success/20 space-y-2">
+            <p className="text-sm font-medium text-success">{t.panels.costingCompleted}</p>
+            {request.sellingPrice && (
+              <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">{t.panels.sellingPrice}:</span> {request.sellingCurrency ?? 'EUR'} {request.sellingPrice.toFixed(2)}
+              </p>
             )}
-          </p>
-          {request.deliveryLeadtime && (
+            {request.calculatedMargin !== undefined && (
+              <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">{t.panels.margin}:</span> {request.calculatedMargin.toFixed(1)}%
+              </p>
+            )}
+            {request.incoterm && (
+              <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">{t.panels.incoterm}:</span> {incotermDisplay}
+              </p>
+            )}
             <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.deliveryLeadtime}:</span> {request.deliveryLeadtime}
+              <span className="text-muted-foreground">{t.panels.vatMode}:</span> {request.vatMode === 'with' ? t.panels.withVat : t.panels.withoutVat}
+              {request.vatMode === 'with' && request.vatRate !== null && (
+                <> ({request.vatRate}%)</>
+              )}
             </p>
-          )}
-          {request.costingNotes && (
-            <p className="text-sm text-foreground">
-              <span className="text-muted-foreground">{t.panels.costingNotes}:</span> {request.costingNotes}
-            </p>
-          )}
+            {request.deliveryLeadtime && (
+              <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">{t.panels.deliveryLeadtime}:</span> {request.deliveryLeadtime}
+              </p>
+            )}
+            {request.costingNotes && (
+              <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">{t.panels.costingNotes}:</span> {request.costingNotes}
+              </p>
+            )}
+          </div>
           {Array.isArray(request.costingAttachments) && request.costingAttachments.length > 0 && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-foreground">{t.panels.costingAttachments}</p>

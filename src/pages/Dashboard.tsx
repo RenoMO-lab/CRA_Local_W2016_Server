@@ -65,6 +65,7 @@ const Dashboard: React.FC = () => {
           'costing_complete',
           'sales_followup',
           'gm_approval_pending',
+          'gm_rejected',
         ].includes(r.status)
       );
     }
@@ -93,7 +94,7 @@ const Dashboard: React.FC = () => {
         return [
           { title: t.dashboard.totalRequests, value: roleFilteredRequests.length, icon: FileText, filterValue: 'all' as FilterType },
           { title: t.dashboard.drafts, value: countByStatus(['draft']), icon: Clock, filterValue: 'draft' as FilterType },
-          { title: t.dashboard.pendingReview, value: countByStatus(['submitted', 'under_review', 'sales_followup', 'gm_approval_pending']), icon: AlertCircle, filterValue: 'in_progress' as FilterType },
+          { title: t.dashboard.pendingReview, value: countByStatus(['submitted', 'under_review', 'sales_followup', 'gm_approval_pending', 'gm_rejected']), icon: AlertCircle, filterValue: 'in_progress' as FilterType },
           { title: t.dashboard.clarificationNeeded, value: countByStatus(['clarification_needed']), icon: AlertCircle, filterValue: 'clarification_needed' as FilterType },
         ];
       case 'design':
@@ -107,13 +108,13 @@ const Dashboard: React.FC = () => {
         return [
           { title: t.dashboard.readyForCosting, value: countByStatus(['feasibility_confirmed', 'design_result']), icon: FileText, filterValue: 'feasibility_confirmed' as FilterType },
           { title: t.dashboard.inCosting, value: countByStatus(['in_costing']), icon: Clock, filterValue: 'in_costing' as FilterType },
-          { title: t.dashboard.completed, value: countByStatus(['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved']), icon: CheckCircle, filterValue: 'costing_complete' as FilterType },
-          { title: t.dashboard.totalProcessed, value: countByStatus(['in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved']), icon: TrendingUp, filterValue: 'all' as FilterType },
+          { title: t.dashboard.completed, value: countByStatus(['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected']), icon: CheckCircle, filterValue: 'costing_complete' as FilterType },
+          { title: t.dashboard.totalProcessed, value: countByStatus(['in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected']), icon: TrendingUp, filterValue: 'all' as FilterType },
         ];
       case 'admin':
         return [
           { title: t.dashboard.totalRequests, value: requests.length, icon: FileText, filterValue: 'all' as FilterType },
-          { title: t.dashboard.inProgress, value: countByStatus(['submitted', 'under_review', 'design_result', 'in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending']), icon: Clock, filterValue: 'in_progress' as FilterType },
+          { title: t.dashboard.inProgress, value: countByStatus(['submitted', 'under_review', 'design_result', 'in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_rejected']), icon: Clock, filterValue: 'in_progress' as FilterType },
           { title: t.dashboard.completed, value: countByStatus(['gm_approved', 'closed']), icon: CheckCircle, filterValue: 'completed' as FilterType },
           { title: t.dashboard.needsAttention, value: countByStatus(['clarification_needed']), icon: AlertCircle, filterValue: 'needs_attention' as FilterType },
         ];

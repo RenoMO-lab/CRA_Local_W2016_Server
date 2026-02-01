@@ -63,6 +63,7 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
     'sales_followup',
     'gm_approval_pending',
     'gm_approved',
+    'gm_rejected',
     'closed',
   ].includes(request.status);
   const statusLabel = t.statuses[request.status as keyof typeof t.statuses] || request.status;

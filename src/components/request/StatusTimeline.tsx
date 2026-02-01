@@ -35,6 +35,8 @@ const getStatusIcon = (status: RequestStatus) => {
       return Clock;
     case 'gm_approved':
       return CheckCircle;
+    case 'gm_rejected':
+      return AlertCircle;
     case 'closed':
       return Check;
     default:
@@ -56,6 +58,15 @@ const StatusTimeline: React.FC<StatusTimelineProps> = ({ history }) => {
           const isLast = index === history.length - 1;
           const statusKey = entry.status as keyof typeof t.statuses;
           const label = t.statuses[statusKey] || config.label;
+          const successStatuses: RequestStatus[] = ['gm_approved', 'costing_complete', 'closed'];
+          const dangerStatuses: RequestStatus[] = ['gm_rejected', 'clarification_needed', 'edited'];
+          const toneClass = isLast
+            ? successStatuses.includes(entry.status)
+              ? 'bg-success/10 text-success'
+              : dangerStatuses.includes(entry.status)
+                ? 'bg-destructive/10 text-destructive'
+                : 'bg-info/10 text-info'
+            : 'bg-muted/30 text-muted-foreground';
           
           return (
             <div key={entry.id} className="relative flex gap-3 md:gap-4">
@@ -64,8 +75,7 @@ const StatusTimeline: React.FC<StatusTimelineProps> = ({ history }) => {
                 {/* Icon */}
                 <div className={cn(
                   "w-6 h-6 md:w-8 md:h-8 rounded-full flex items-center justify-center shrink-0 relative z-10",
-                  config.bgColor,
-                  config.color
+                  toneClass
                 )}>
                   <Icon size={12} className="md:hidden" />
                   <Icon size={16} className="hidden md:block" />
