@@ -27,10 +27,19 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
-  const closePreview = () => {
-    setTimeout(() => setPreviewAttachment(null), 0);
-  };
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const { t } = useLanguage();
+
+  const openPreview = (attachment: Attachment) => {
+    setPreviewAttachment(attachment);
+    setIsPreviewOpen(true);
+  };
+
+  useEffect(() => {
+    if (isPreviewOpen || !previewAttachment) return undefined;
+    const timeout = window.setTimeout(() => setPreviewAttachment(null), 200);
+    return () => window.clearTimeout(timeout);
+  }, [isPreviewOpen, previewAttachment]);
 
   const isImageFile = (filename: string) => {
     const ext = filename.toLowerCase().split('.').pop();
@@ -239,7 +248,7 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    onClick={() => setPreviewAttachment(attachment)}
+                    onClick={() => openPreview(attachment)}
                     className="rounded p-1.5 text-primary hover:bg-primary/20"
                     title={t.table.view}
                   >
@@ -270,7 +279,7 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
         )}
       </div>
 
-      <Dialog open={!!previewAttachment} onOpenChange={(open) => { if (!open) closePreview(); }}>
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="truncate pr-8">{previewAttachment?.filename}</DialogTitle>

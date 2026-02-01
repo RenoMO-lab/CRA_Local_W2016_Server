@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
@@ -30,11 +30,20 @@ const SectionAdditionalInfo: React.FC<SectionAdditionalInfoProps> = ({
   const rimDrawingInputRef = useRef<HTMLInputElement>(null);
   const picturesInputRef = useRef<HTMLInputElement>(null);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
-  const closePreview = () => {
-    setTimeout(() => setPreviewAttachment(null), 0);
-  };
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const { t } = useLanguage();
   const fieldId = (suffix: string) => (idPrefix ? `${idPrefix}-${suffix}` : suffix);
+
+  const openPreview = (attachment: Attachment) => {
+    setPreviewAttachment(attachment);
+    setIsPreviewOpen(true);
+  };
+
+  useEffect(() => {
+    if (isPreviewOpen || !previewAttachment) return undefined;
+    const timeout = window.setTimeout(() => setPreviewAttachment(null), 200);
+    return () => window.clearTimeout(timeout);
+  }, [isPreviewOpen, previewAttachment]);
 
   const isImageFile = (filename: string) => {
     const ext = filename.toLowerCase().split('.').pop();
@@ -123,7 +132,7 @@ const SectionAdditionalInfo: React.FC<SectionAdditionalInfoProps> = ({
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button
                       type="button"
-                      onClick={() => setPreviewAttachment(attachment)}
+                      onClick={() => openPreview(attachment)}
                       className="p-1.5 hover:bg-primary/20 rounded text-primary"
                       title={t.table.view}
                     >
@@ -198,7 +207,7 @@ const SectionAdditionalInfo: React.FC<SectionAdditionalInfoProps> = ({
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button
                       type="button"
-                      onClick={() => setPreviewAttachment(attachment)}
+                      onClick={() => openPreview(attachment)}
                       className="p-1.5 hover:bg-primary/20 rounded text-primary"
                       title={t.table.view}
                     >
@@ -246,7 +255,7 @@ const SectionAdditionalInfo: React.FC<SectionAdditionalInfoProps> = ({
       </div>
 
       {/* Preview Dialog */}
-      <Dialog open={!!previewAttachment} onOpenChange={(open) => { if (!open) closePreview(); }}>
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="truncate pr-8">{previewAttachment?.filename}</DialogTitle>

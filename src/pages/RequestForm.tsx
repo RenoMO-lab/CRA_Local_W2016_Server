@@ -180,11 +180,20 @@ const RequestForm: React.FC = () => {
   const [designResultDirty, setDesignResultDirty] = useState(false);
   const [designPreviewAttachment, setDesignPreviewAttachment] = useState<Attachment | null>(null);
   const [designPreviewUrl, setDesignPreviewUrl] = useState('');
-  const closeDesignPreview = () => {
-    setTimeout(() => setDesignPreviewAttachment(null), 0);
-  };
+  const [isDesignPreviewOpen, setIsDesignPreviewOpen] = useState(false);
   const submitRedirectRef = useRef<number | null>(null);
   const designResultRequestIdRef = useRef<string | null>(null);
+
+  const openDesignPreview = (attachment: Attachment) => {
+    setDesignPreviewAttachment(attachment);
+    setIsDesignPreviewOpen(true);
+  };
+
+  useEffect(() => {
+    if (isDesignPreviewOpen || !designPreviewAttachment) return undefined;
+    const timeout = window.setTimeout(() => setDesignPreviewAttachment(null), 200);
+    return () => window.clearTimeout(timeout);
+  }, [isDesignPreviewOpen, designPreviewAttachment]);
 
   useEffect(() => {
     if (!existingRequest) {
@@ -1052,7 +1061,7 @@ const RequestForm: React.FC = () => {
                 <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => setDesignPreviewAttachment(attachment)}
+                      onClick={() => openDesignPreview(attachment)}
                       className="rounded p-1.5 text-primary hover:bg-primary/20"
                       title={t.table.view}
                     >
@@ -1529,7 +1538,7 @@ const RequestForm: React.FC = () => {
             />
           )}
 
-          <Dialog open={!!designPreviewAttachment} onOpenChange={(open) => { if (!open) closeDesignPreview(); }}>
+          <Dialog open={isDesignPreviewOpen} onOpenChange={setIsDesignPreviewOpen}>
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
               <DialogHeader>
                 <DialogTitle className="truncate pr-8">{designPreviewAttachment?.filename}</DialogTitle>

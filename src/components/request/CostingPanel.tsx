@@ -65,12 +65,21 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
   );
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [previewUrl, setPreviewUrl] = useState('');
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useLanguage();
-  const closePreview = () => {
-    setTimeout(() => setPreviewAttachment(null), 0);
+
+  const openPreview = (attachment: Attachment) => {
+    setPreviewAttachment(attachment);
+    setIsPreviewOpen(true);
   };
+
+  useEffect(() => {
+    if (isPreviewOpen || !previewAttachment) return undefined;
+    const timeout = window.setTimeout(() => setPreviewAttachment(null), 200);
+    return () => window.clearTimeout(timeout);
+  }, [isPreviewOpen, previewAttachment]);
 
   const isImageFile = (filename: string) => {
     const ext = filename.toLowerCase().split('.').pop();
@@ -458,7 +467,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => setPreviewAttachment(attachment)}
+                        onClick={() => openPreview(attachment)}
                         className="rounded p-1.5 text-primary hover:bg-primary/20"
                         title={t.table.view}
                       >
@@ -567,7 +576,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => setPreviewAttachment(attachment)}
+                      onClick={() => openPreview(attachment)}
                       className="rounded p-1.5 text-primary hover:bg-primary/20"
                       title={t.table.view}
                     >
@@ -589,7 +598,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
         </div>
       )}
 
-      <Dialog open={!!previewAttachment} onOpenChange={(open) => { if (!open) closePreview(); }}>
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="truncate pr-8">{previewAttachment?.filename}</DialogTitle>
