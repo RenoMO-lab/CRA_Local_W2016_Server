@@ -978,12 +978,23 @@ const RequestForm: React.FC = () => {
     existingRequest &&
       ['design_result', 'in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected', 'closed'].includes(existingRequest.status)
   );
-  const showDesignSummary = Boolean(existingRequest && isDesignSubmitted);
+  const hasDesignInfo = Boolean(
+    existingRequest &&
+      ((existingRequest.designResultComments ?? '').trim().length > 0 ||
+        (Array.isArray(existingRequest.designResultAttachments) && existingRequest.designResultAttachments.length > 0))
+  );
+  const showDesignSummary = Boolean(existingRequest && hasDesignInfo);
 
 
   const renderDesignSummary = () => {
     if (!existingRequest) return null;
-    const statusLabel = t.statuses[existingRequest.status as keyof typeof t.statuses] || existingRequest.status;
+    const designStatuses: RequestStatus[] = ['submitted', 'under_review', 'feasibility_confirmed', 'design_result'];
+    const lastDesignEntry = [...(existingRequest.history ?? [])]
+      .reverse()
+      .find((entry) => designStatuses.includes(entry.status));
+    const statusLabel = lastDesignEntry
+      ? (t.statuses[lastDesignEntry.status as keyof typeof t.statuses] || lastDesignEntry.status)
+      : '';
     const designAttachments = Array.isArray(existingRequest.designResultAttachments)
       ? existingRequest.designResultAttachments
       : [];
@@ -1007,9 +1018,11 @@ const RequestForm: React.FC = () => {
 
           <div className="p-4 bg-muted/30 rounded-lg border border-border space-y-2">
             <p className="text-sm font-medium text-foreground">{t.panels.designSubmitted}</p>
-          <p className="text-sm text-foreground">
-            <span className="text-muted-foreground">{t.common.status}:</span> {statusLabel}
-          </p>
+            {lastDesignEntry && (
+              <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">{t.common.status}:</span> {statusLabel}
+              </p>
+            )}
           {existingRequest.designResultComments && (
             <p className="text-sm text-foreground">
               <span className="text-muted-foreground">{t.panels.designResultComments}:</span>{' '}
