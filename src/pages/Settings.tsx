@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useAdminSettings, ListItem, UserItem, ListCategory } from '@/context/AdminSettingsContext';
 import { useLanguage } from '@/context/LanguageContext';
@@ -35,6 +35,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,13 +48,13 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, RefreshCw, Mail, MoreVertical } from 'lucide-react';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, RefreshCw, Mail, ChevronDown } from 'lucide-react';
 import { ROLE_CONFIG, UserRole } from '@/types';
 import { cn } from '@/lib/utils';
 import ListManager from '@/components/settings/ListManager';
 import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 type M365RoleKey = 'sales' | 'design' | 'costing' | 'admin';
@@ -235,6 +236,9 @@ const Settings: React.FC = () => {
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
   const [hasFeedbackError, setHasFeedbackError] = useState(false);
+  const isMobile = useIsMobile();
+  const [selectedFeedbackId, setSelectedFeedbackId] = useState<string | null>(null);
+  const [isFeedbackDetailsOpen, setIsFeedbackDetailsOpen] = useState(false);
   const [feedbackDeleteId, setFeedbackDeleteId] = useState<string | null>(null);
   const [deployInfo, setDeployInfo] = useState<DeployInfo | null>(null);
   const [isDeployLoading, setIsDeployLoading] = useState(false);
@@ -257,20 +261,96 @@ const Settings: React.FC = () => {
     critical: t.feedback.severityCritical,
   };
 
+  const FEEDBACK_STATUSES = ['submitted', 'ongoing', 'finished', 'cancelled'] as const;
+  type FeedbackStatus = typeof FEEDBACK_STATUSES[number];
+
+  const normalizeFeedbackStatus = (value?: string): FeedbackStatus => {
+    const v = String(value || 'submitted').trim().toLowerCase();
+    return (FEEDBACK_STATUSES as readonly string[]).includes(v) ? (v as FeedbackStatus) : 'submitted';
+  };
+
   const getFeedbackStatusLabel = (status?: string) => {
-    const s = String(status || 'submitted').toLowerCase();
+    const s = normalizeFeedbackStatus(status);
     if (s === 'ongoing') return t.feedback.statusOngoing;
     if (s === 'finished') return t.feedback.statusFinished;
     if (s === 'cancelled') return t.feedback.statusCancelled;
     return t.feedback.statusSubmitted;
   };
 
-  const getFeedbackStatusVariant = (status?: string) => {
-    const s = String(status || 'submitted').toLowerCase();
-    if (s === 'ongoing') return 'secondary' as const;
-    if (s === 'finished') return 'default' as const;
-    if (s === 'cancelled') return 'destructive' as const;
-    return 'outline' as const;
+  const getFeedbackStatusPillClasses = (status?: string) => {
+    const s = normalizeFeedbackStatus(status);
+    // Light, modern pill: soft bg + readable text, supports dark mode.
+    if (s === 'ongoing') return {
+      wrap: 'border-sky-500/20 bg-sky-500/10 text-sky-700 hover:bg-sky-500/15 dark:text-sky-200',
+      dot: 'bg-sky-500',
+    };
+    if (s === 'finished') return {
+      wrap: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-200',
+      dot: 'bg-emerald-500',
+    };
+    if (s === 'cancelled') return {
+      wrap: 'border-rose-500/20 bg-rose-500/10 text-rose-700 hover:bg-rose-500/15 dark:text-rose-200',
+      dot: 'bg-rose-500',
+    };
+    return {
+      wrap: 'border-slate-500/20 bg-slate-500/10 text-slate-700 hover:bg-slate-500/15 dark:text-slate-200',
+      dot: 'bg-slate-500',
+    };
+  };
+
+  const selectedFeedback = useMemo(() => {
+    if (!selectedFeedbackId) return null;
+    return feedbackItems.find((f) => f.id === selectedFeedbackId) ?? null;
+  }, [feedbackItems, selectedFeedbackId]);
+
+  const openFeedbackDetails = (item: FeedbackItem) => {
+    setSelectedFeedbackId(item.id);
+    setIsFeedbackDetailsOpen(true);
+  };
+
+  const closeFeedbackDetails = () => {
+    setIsFeedbackDetailsOpen(false);
+  };
+
+  const renderStatusPill = (item: FeedbackItem) => {
+    const current = normalizeFeedbackStatus(item.status);
+    const classes = getFeedbackStatusPillClasses(current);
+    const otherStatuses = FEEDBACK_STATUSES.filter((s) => s !== current);
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
+              "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+              classes.wrap
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className={cn("h-1.5 w-1.5 rounded-full", classes.dot)} />
+            <span>{getFeedbackStatusLabel(current)}</span>
+            <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="start"
+          className="bg-popover border border-border shadow-lg rounded-lg p-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {otherStatuses.map((s) => (
+            <DropdownMenuItem
+              key={s}
+              className="cursor-pointer"
+              onClick={() => updateFeedbackStatus(item.id, s)}
+            >
+              {getFeedbackStatusLabel(s)}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   };
 
   const getStatusLabel = (status: string) => {
@@ -546,6 +626,16 @@ const Settings: React.FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    if (!selectedFeedbackId) return;
+    if (!isFeedbackDetailsOpen) return;
+    const stillExists = feedbackItems.some((f) => f.id === selectedFeedbackId);
+    if (!stillExists) {
+      setIsFeedbackDetailsOpen(false);
+      setSelectedFeedbackId(null);
+    }
+  }, [feedbackItems, isFeedbackDetailsOpen, selectedFeedbackId]);
+
   const updateFeedbackStatus = async (id: string, status: 'submitted' | 'ongoing' | 'finished' | 'cancelled') => {
     try {
       const res = await fetch(`/api/feedback/${encodeURIComponent(id)}`, {
@@ -560,6 +650,10 @@ const Settings: React.FC = () => {
       setFeedbackItems((prev) =>
         prev.map((item) => (item.id === id ? { ...item, status, updatedAt: data?.updatedAt ?? item.updatedAt } : item))
       );
+      if (selectedFeedbackId === id) {
+        // Keep the details panel in sync.
+        setSelectedFeedbackId(id);
+      }
       toast({ title: t.common.update, description: t.feedback.statusUpdated });
     } catch (error) {
       console.error('Failed to update feedback status:', error);
@@ -579,6 +673,10 @@ const Settings: React.FC = () => {
         throw new Error(data?.error || `Failed to delete feedback: ${res.status}`);
       }
       setFeedbackItems((prev) => prev.filter((item) => item.id !== id));
+      if (selectedFeedbackId === id) {
+        setIsFeedbackDetailsOpen(false);
+        setSelectedFeedbackId(null);
+      }
       toast({ title: t.common.delete, description: t.feedback.deleted });
     } catch (error) {
       console.error('Failed to delete feedback:', error);
@@ -1256,40 +1354,25 @@ const Settings: React.FC = () => {
                 <>
                   <div className="space-y-3 md:hidden">
                     {feedbackItems.map((item) => (
-                      <div key={item.id} className="rounded-lg border border-border bg-card p-4 space-y-2">
-                        <div className="flex items-center justify-between">
+                      <div
+                        key={item.id}
+                        className="rounded-lg border border-border bg-card p-4 space-y-2 cursor-pointer hover:bg-muted/10 transition-colors"
+                        onClick={() => openFeedbackDetails(item)}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <div className="flex items-center justify-between gap-3">
                           <span className="text-xs uppercase tracking-wide text-muted-foreground">
                             {item.type === 'bug' ? t.feedback.typeBug : t.feedback.typeFeature}
                           </span>
-                          <span className="text-xs text-muted-foreground">
-                            {item.createdAt ? format(new Date(item.createdAt), 'MMM d, yyyy') : '-'}
-                          </span>
+                          {renderStatusPill(item)}
                         </div>
                         <div className="font-semibold text-foreground">{item.title}</div>
                         <div className="text-sm text-muted-foreground">{item.description}</div>
-                        <div className="flex items-center justify-between">
-                          <Badge variant={getFeedbackStatusVariant(item.status)}>
-                            {getFeedbackStatusLabel(item.status)}
-                          </Badge>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t.common.actions}>
-                                <MoreVertical size={16} />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="bg-popover border border-border shadow-lg rounded-lg p-1">
-                              <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'ongoing')}>{t.feedback.markOngoing}</DropdownMenuItem>
-                              <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'finished')}>{t.feedback.markFinished}</DropdownMenuItem>
-                              <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'cancelled')}>{t.feedback.markCancelled}</DropdownMenuItem>
-                              <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive" onClick={() => setFeedbackDeleteId(item.id)}>
-                                {t.feedback.delete}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
                         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                           <span>{t.feedback.severity}: {item.severity ? severityLabels[item.severity] || item.severity : '-'}</span>
                           <span>{t.feedback.page}: {item.pagePath || '-'}</span>
+                          <span>{item.createdAt ? format(new Date(item.createdAt), 'MMM d, yyyy') : '-'}</span>
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {t.feedback.reportedBy}: {item.userName || '-'} {item.userEmail ? `(${item.userEmail})` : ''}
@@ -1308,20 +1391,21 @@ const Settings: React.FC = () => {
                           <TableHead className="font-semibold">{t.feedback.reportedBy}</TableHead>
                           <TableHead className="font-semibold">{t.feedback.page}</TableHead>
                           <TableHead className="font-semibold">{t.feedback.createdAt}</TableHead>
-                          <TableHead className="font-semibold text-right">{t.common.actions}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {feedbackItems.map((item) => (
-                          <TableRow key={item.id}>
+                          <TableRow
+                            key={item.id}
+                            className="cursor-pointer hover:bg-muted/20"
+                            onClick={() => openFeedbackDetails(item)}
+                          >
                             <TableCell className="capitalize">
                               {item.type === 'bug' ? t.feedback.typeBug : t.feedback.typeFeature}
                             </TableCell>
                             <TableCell className="font-medium">{item.title}</TableCell>
                             <TableCell>
-                              <Badge variant={getFeedbackStatusVariant(item.status)}>
-                                {getFeedbackStatusLabel(item.status)}
-                              </Badge>
+                              {renderStatusPill(item)}
                             </TableCell>
                             <TableCell>{item.severity ? severityLabels[item.severity] || item.severity : '-'}</TableCell>
                             <TableCell>
@@ -1334,23 +1418,6 @@ const Settings: React.FC = () => {
                             <TableCell className="text-sm text-muted-foreground">
                               {item.createdAt ? format(new Date(item.createdAt), 'MMM d, yyyy') : '-'}
                             </TableCell>
-                            <TableCell className="text-right">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t.common.actions}>
-                                    <MoreVertical size={16} />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="bg-popover border border-border shadow-lg rounded-lg p-1">
-                                  <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'ongoing')}>{t.feedback.markOngoing}</DropdownMenuItem>
-                                  <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'finished')}>{t.feedback.markFinished}</DropdownMenuItem>
-                                  <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'cancelled')}>{t.feedback.markCancelled}</DropdownMenuItem>
-                                  <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive" onClick={() => setFeedbackDeleteId(item.id)}>
-                                    {t.feedback.delete}
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -1360,6 +1427,143 @@ const Settings: React.FC = () => {
               )}
             </div>
           </div>
+
+          {/* Feedback details: drawer on desktop, modal on mobile */}
+          {selectedFeedback && !isMobile && (
+            <Sheet open={isFeedbackDetailsOpen} onOpenChange={setIsFeedbackDetailsOpen}>
+              <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto">
+                <SheetHeader className="pr-8">
+                  <SheetTitle>{selectedFeedback.title}</SheetTitle>
+                </SheetHeader>
+
+                <div className="mt-4 space-y-5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {renderStatusPill(selectedFeedback)}
+                    <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                      {selectedFeedback.type === 'bug' ? t.feedback.typeBug : t.feedback.typeFeature}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {t.feedback.severity}: {selectedFeedback.severity ? severityLabels[selectedFeedback.severity] || selectedFeedback.severity : '-'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                    <div className="space-y-1">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.reportedBy}</div>
+                      <div className="font-medium text-foreground">{selectedFeedback.userName || '-'}</div>
+                      <div className="text-xs text-muted-foreground">{selectedFeedback.userEmail || '-'}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.page}</div>
+                      <div className="font-medium text-foreground break-all">{selectedFeedback.pagePath || '-'}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.createdAt}</div>
+                      <div className="font-medium text-foreground">
+                        {selectedFeedback.createdAt ? format(new Date(selectedFeedback.createdAt), 'MMM d, yyyy') : '-'}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.common.update}</div>
+                      <div className="font-medium text-foreground">
+                        {selectedFeedback.updatedAt ? format(new Date(selectedFeedback.updatedAt), 'MMM d, yyyy') : '-'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.description}</div>
+                    <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm text-foreground whitespace-pre-wrap">
+                      {selectedFeedback.description || '-'}
+                    </div>
+                  </div>
+
+                  {selectedFeedback.steps ? (
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.steps}</div>
+                      <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm text-foreground whitespace-pre-wrap">
+                        {selectedFeedback.steps}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="pt-2 flex items-center justify-end">
+                    <Button
+                      variant="destructive"
+                      onClick={() => setFeedbackDeleteId(selectedFeedback.id)}
+                    >
+                      <Trash2 size={16} />
+                      {t.common.delete}
+                    </Button>
+                  </div>
+                </div>
+              </SheetContent>
+            </Sheet>
+          )}
+
+          {selectedFeedback && isMobile && (
+            <Dialog open={isFeedbackDetailsOpen} onOpenChange={setIsFeedbackDetailsOpen}>
+              <DialogContent className="bg-card max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>{selectedFeedback.title}</DialogTitle>
+                </DialogHeader>
+
+                <div className="space-y-5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {renderStatusPill(selectedFeedback)}
+                    <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                      {selectedFeedback.type === 'bug' ? t.feedback.typeBug : t.feedback.typeFeature}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {t.feedback.severity}: {selectedFeedback.severity ? severityLabels[selectedFeedback.severity] || selectedFeedback.severity : '-'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 text-sm">
+                    <div className="space-y-1">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.reportedBy}</div>
+                      <div className="font-medium text-foreground">{selectedFeedback.userName || '-'}</div>
+                      <div className="text-xs text-muted-foreground">{selectedFeedback.userEmail || '-'}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.page}</div>
+                      <div className="font-medium text-foreground break-all">{selectedFeedback.pagePath || '-'}</div>
+                    </div>
+                    <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                      <span>{t.feedback.createdAt}: {selectedFeedback.createdAt ? format(new Date(selectedFeedback.createdAt), 'MMM d, yyyy') : '-'}</span>
+                      <span>{t.common.update}: {selectedFeedback.updatedAt ? format(new Date(selectedFeedback.updatedAt), 'MMM d, yyyy') : '-'}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.description}</div>
+                    <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm text-foreground whitespace-pre-wrap">
+                      {selectedFeedback.description || '-'}
+                    </div>
+                  </div>
+
+                  {selectedFeedback.steps ? (
+                    <div className="space-y-2">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.steps}</div>
+                      <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm text-foreground whitespace-pre-wrap">
+                        {selectedFeedback.steps}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <DialogFooter>
+                    <Button variant="outline" onClick={closeFeedbackDetails}>
+                      {t.common.close}
+                    </Button>
+                    <Button variant="destructive" onClick={() => setFeedbackDeleteId(selectedFeedback.id)}>
+                      <Trash2 size={16} />
+                      {t.common.delete}
+                    </Button>
+                  </DialogFooter>
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
 
           <AlertDialog open={!!feedbackDeleteId} onOpenChange={(open) => !open && setFeedbackDeleteId(null)}>
             <AlertDialogContent className="bg-card">
