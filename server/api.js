@@ -221,18 +221,18 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
       ? `<img src="${escapeHtml(logoUrl)}" width="120" alt="MONROC" style="display:block; border:0; outline:none; text-decoration:none; height:auto;" />`
       : `<div style="font-weight:800; letter-spacing:0.5px; color:#111827;">MONROC</div>`;
 
-  const renderButton = ({ href, text, fill, color, border }) => {
+  const renderPrimaryButton = ({ href, text }) => {
     const safeHref = String(href ?? "");
     const safeText = escapeHtml(text);
 
     if (!safeHref) return "";
 
     return `
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:separate;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;">
         <tr>
-          <td align="center" valign="middle" bgcolor="${fill}" style="background:${fill}; border:1px solid ${border}; border-radius:10px; mso-padding-alt:14px 18px;">
-            <a href="${safeHref}" style="display:block; font-family:Arial, sans-serif; font-size:15px; font-weight:800; color:${color}; text-decoration:none; padding:14px 18px; line-height:20px; -webkit-text-size-adjust:none;">
-              <span style="color:${color}; text-decoration:none;">${safeText}</span>
+          <td align="left" valign="middle" bgcolor="#D71920" style="background:#D71920; border-radius:12px; mso-padding-alt:14px 18px;">
+            <a href="${safeHref}" style="display:inline-block; font-family:Arial, sans-serif; font-size:15px; font-weight:800; color:#FFFFFF; text-decoration:none; padding:14px 18px; line-height:20px; -webkit-text-size-adjust:none; border-radius:12px;">
+              <span style="color:#FFFFFF; text-decoration:none;">${safeText}</span>
             </a>
           </td>
         </tr>
@@ -240,47 +240,66 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
     `.trim();
   };
 
-  const commentHtml = safeComment
-    ? `
-      <tr>
-        <td style="padding:16px 24px 0 24px;">
-          <div style="font-size:12px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Comment</div>
-          <div style="margin-top:6px; font-size:14px; color:#111827; white-space:pre-wrap;">${escapeHtml(safeComment)}</div>
-        </td>
-      </tr>
-    `.trim()
-    : "";
+  const renderSecondaryLink = ({ href, text }) => {
+    const safeHref = String(href ?? "");
+    if (!safeHref) return "";
+    const label = escapeHtml(text);
+    return `<a href="${escapeHtml(safeHref)}" style="font-family:Arial, sans-serif; font-size:14px; font-weight:700; color:#2563EB; text-decoration:underline;">${label} &rarr;</a>`;
+  };
 
-  const kvRow = (label, value) => {
+  const kvCell = (label, value) => {
     const v = String(value ?? "").trim();
-    if (!v) return "";
+    if (!v) return null;
     return `
-      <tr>
-        <td style="padding:6px 0; font-size:12px; color:#6B7280; width:160px; vertical-align:top;">${escapeHtml(label)}</td>
-        <td style="padding:6px 0; font-size:14px; color:#111827; vertical-align:top;">${escapeHtml(v)}</td>
-      </tr>
+      <td width="50%" valign="top" style="padding:10px 10px 10px 0;">
+        <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">${escapeHtml(label)}</div>
+        <div style="margin-top:3px; font-size:14px; font-weight:700; color:#111827;">${escapeHtml(v)}</div>
+      </td>
     `.trim();
   };
 
   const qtyText = typeof expectedQty === "number" ? String(expectedQty) : "";
 
-  const primaryBtn = renderButton({
-    href: openRequestHref,
-    text: primaryText,
-    fill: "#D71920",
-    color: "#FFFFFF",
-    border: "#D71920",
-  });
-  const secondaryBtn = renderButton({
-    href: openDashboardHref,
-    text: secondaryText,
-    fill: "#FFFFFF",
-    color: "#111827",
-    border: "#D1D5DB",
-  });
+  const primaryBtn = renderPrimaryButton({ href: openRequestHref, text: primaryText });
+  const secondaryLink = renderSecondaryLink({ href: openDashboardHref, text: secondaryText || "Open dashboard" });
 
   const accent = badge.accent;
-  const statusPanelBg = "#F3F4F6";
+  const metaParts = [];
+  if (rid) metaParts.push(`Request ${escapeHtml(rid)}`);
+  if (updatedAt) metaParts.push(escapeHtml(updatedAt));
+  if (actor) metaParts.push(`By ${escapeHtml(actor)}`);
+  const metaLine = metaParts.join(" | ");
+
+  const facts = [
+    kvCell("Client", client),
+    kvCell("Country", country),
+    kvCell("Application Vehicle", appVehicle),
+    kvCell("Expected Qty", qtyText),
+    kvCell("Expected Delivery Date", expectedDeliveryDate),
+  ].filter(Boolean);
+
+  const factsRows = [];
+  for (let i = 0; i < facts.length; i += 2) {
+    const left = facts[i] ?? "";
+    const right = facts[i + 1] ?? `<td width="50%" style="padding:10px 0;">&nbsp;</td>`;
+    factsRows.push(`<tr>${left}${right}</tr>`);
+  }
+
+  const commentBlock = safeComment
+    ? `
+      <tr>
+        <td style="padding:14px 0 0 0;">
+          <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Comment</div>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:8px; border-collapse:separate;">
+            <tr>
+              <td width="4" bgcolor="${accent}" style="background:${accent}; border-radius:4px 0 0 4px; font-size:0; line-height:0;">&nbsp;</td>
+              <td style="padding:10px 12px; background:#F9FAFB; border:1px solid #E5E7EB; border-left:0; border-radius:0 10px 10px 0; font-size:14px; color:#111827; white-space:pre-wrap; line-height:20px;">${escapeHtml(safeComment)}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    `.trim()
+    : "";
 
   return `
   <!doctype html>
@@ -291,10 +310,10 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
       <meta name="color-scheme" content="light" />
       <meta name="supported-color-schemes" content="light" />
     </head>
-    <body style="margin:0; padding:0; background:#F6F8FB; color:#111827;">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#F6F8FB" style="background:#F6F8FB; width:100%;">
+    <body style="margin:0; padding:0; background:#F5F7FB; color:#111827;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#F5F7FB" style="background:#F5F7FB; width:100%;">
       <tr>
-        <td align="center" style="padding:28px 12px;">
+        <td align="center" style="padding:30px 12px;">
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px; max-width:640px;">
             <tr>
               <td style="padding:0 0 12px 0;">
@@ -310,74 +329,63 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
             </tr>
 
             <tr>
-              <td bgcolor="#FFFFFF" style="background:#FFFFFF; border:1px solid #E5E7EB; border-radius:12px; overflow:hidden; font-family: Arial, sans-serif;">
+              <td bgcolor="#FFFFFF" style="background:#FFFFFF; border:1px solid #E5E7EB; border-radius:16px; overflow:hidden; font-family: Arial, sans-serif;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                   <tr>
-                    <td style="padding:20px 24px 10px 24px;">
-                      <div style="font-size:20px; font-weight:800; color:#111827; letter-spacing:0.2px;">${escapeHtml(titleText)}</div>
-                      ${introText ? `<div style="margin-top:8px; font-size:14px; color:#374151; line-height:20px;">${escapeHtml(introText)}</div>` : ""}
-
-                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:14px; border-collapse:separate;">
+                    <td style="padding:0; background:#FFFFFF;">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                         <tr>
-                          <td width="6" bgcolor="${accent}" style="background:${accent}; border-radius:6px 0 0 6px; font-size:0; line-height:0;">&nbsp;</td>
-                          <td bgcolor="${statusPanelBg}" style="background:${statusPanelBg}; border-top:1px solid #E5E7EB; border-bottom:1px solid #E5E7EB; border-right:1px solid #E5E7EB; padding:12px 12px;">
+                          <td height="6" bgcolor="${accent}" style="background:${accent}; font-size:0; line-height:0;">&nbsp;</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:22px 24px 18px 24px;">
+                            <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Status Updated</div>
+                            <div style="margin-top:6px; font-size:24px; font-weight:900; color:#111827; letter-spacing:0.2px; line-height:30px;">${escapeHtml(statusLabel)}</div>
+                            ${introText ? `<div style="margin-top:10px; font-size:14px; color:#374151; line-height:20px;">${escapeHtml(introText)}</div>` : ""}
+                            ${metaLine ? `<div style="margin-top:10px; font-size:12px; color:#6B7280; line-height:18px;">${metaLine}</div>` : ""}
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td style="padding:0 24px 0 24px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top:1px solid #EEF2F7;">
+                              <tr><td style="height:1px; line-height:1px;">&nbsp;</td></tr>
+                            </table>
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td style="padding:14px 24px 0 24px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                              ${factsRows.join("")}
+                            </table>
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                              ${commentBlock}
+                            </table>
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td style="padding:18px 24px 22px 24px;">
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                               <tr>
-                                <td style="vertical-align:middle;">
-                                  <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">New status</div>
-                                  <div style="margin-top:2px; font-size:16px; font-weight:800; color:#111827;">${escapeHtml(statusLabel)}</div>
+                                <td align="left">
+                                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="320" style="width:320px; max-width:320px;">
+                                    <tr><td>${primaryBtn}</td></tr>
+                                  </table>
                                 </td>
-                                <td align="right" style="vertical-align:middle; white-space:nowrap; padding-left:10px;">
-                                  <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Updated</div>
-                                  <div style="margin-top:2px; font-size:13px; color:#111827;">${escapeHtml(updatedAt || "")}</div>
+                              </tr>
+                              <tr>
+                                <td style="padding-top:10px;">
+                                  ${secondaryLink ? `<div style="font-family:Arial, sans-serif;">${secondaryLink}</div>` : ""}
                                 </td>
                               </tr>
                             </table>
+
+                            ${openRequestHref ? `<div style="margin-top:14px; font-size:11px; color:#6B7280; line-height:16px;">If the button doesn't work, use this link: <a href="${openRequestHref}" style="color:#2563EB; text-decoration:underline; word-break:break-all;">${openRequestHref}</a></div>` : ""}
                           </td>
                         </tr>
                       </table>
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style="padding:0 24px 6px 24px;">
-                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-top:1px solid #E5E7EB;">
-                        <tr><td style="height:10px; line-height:10px;">&nbsp;</td></tr>
-                      </table>
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style="padding:0 24px 0 24px;">
-                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                        ${kvRow("Request ID", rid)}
-                        ${kvRow("Client", client)}
-                        ${kvRow("Country", country)}
-                        ${kvRow("Application Vehicle", appVehicle)}
-                        ${kvRow("Expected Qty", qtyText)}
-                        ${kvRow("Expected Delivery Date", expectedDeliveryDate)}
-                        ${actor ? kvRow("Changed by", actor) : ""}
-                      </table>
-                    </td>
-                  </tr>
-
-                  ${commentHtml}
-
-                  <tr>
-                    <td style="padding:20px 24px 24px 24px;">
-                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                        <tr>
-                          <td align="center">
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:360px;">
-                              <tr><td>${primaryBtn}</td></tr>
-                              <tr><td style="height:10px; line-height:10px;">&nbsp;</td></tr>
-                              <tr><td>${secondaryBtn}</td></tr>
-                            </table>
-                          </td>
-                        </tr>
-                      </table>
-
-                      ${openRequestHref ? `<div style="margin-top:14px; font-size:11px; color:#6B7280; line-height:16px; text-align:center;">If the button doesn't work, use this link:<br/><a href="${openRequestHref}" style="color:#2563EB; text-decoration:underline; word-break:break-all;">${openRequestHref}</a></div>` : ""}
                     </td>
                   </tr>
                 </table>
