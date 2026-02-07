@@ -135,20 +135,19 @@ const resolveRecipientsForStatus = (settings, status) => {
 };
 
 const statusBadgeStyles = (status) => {
+  // Outlook dark mode can heavily transform background/text colors.
+  // Using a single accent color (instead of a pill) is much more stable.
   const s = String(status ?? "");
   if (["clarification_needed", "gm_rejected"].includes(s)) {
-    // Solid badge (better contrast in Outlook dark mode).
-    return { bg: "#991B1B", text: "#FFFFFF", border: "#991B1B" };
+    return { accent: "#DC2626" }; // red
   }
   if (["gm_approved", "costing_complete", "feasibility_confirmed", "closed"].includes(s)) {
-    // Solid badge (better contrast in Outlook dark mode).
-    return { bg: "#166534", text: "#FFFFFF", border: "#166534" };
+    return { accent: "#16A34A" }; // green
   }
   if (["submitted", "under_review", "in_costing", "gm_approval_pending", "sales_followup"].includes(s)) {
-    // Solid badge (better contrast in Outlook dark mode).
-    return { bg: "#1E40AF", text: "#FFFFFF", border: "#1E40AF" };
+    return { accent: "#2563EB" }; // blue
   }
-  return { bg: "#374151", text: "#FFFFFF", border: "#374151" };
+  return { accent: "#64748B" }; // slate
 };
 
 const DEFAULT_EMAIL_TEMPLATES = {
@@ -196,7 +195,6 @@ const formatIsoUtc = (iso) => {
 const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, dashboardLink, logoUrl, logoCid, template, introOverride }) => {
   const safeComment = String(comment ?? "").trim();
   const client = String(request?.clientName ?? "").trim();
-  const contact = String(request?.clientContact ?? "").trim();
   const country = String(request?.country ?? "").trim();
   const appVehicle = String(request?.applicationVehicle ?? "").trim();
   const expectedQty = request?.expectedQty ?? null;
@@ -223,34 +221,22 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
       ? `<img src="${escapeHtml(logoUrl)}" width="120" alt="MONROC" style="display:block; border:0; outline:none; text-decoration:none; height:auto;" />`
       : `<div style="font-weight:800; letter-spacing:0.5px; color:#111827;">MONROC</div>`;
 
-  const clampBtnWidth = (text) => {
-    const t = String(text ?? "");
-    const w = Math.floor(t.length * 9 + 96);
-    return Math.max(180, Math.min(320, w));
-  };
-
   const renderButton = ({ href, text, fill, color, border }) => {
     const safeHref = String(href ?? "");
     const safeText = escapeHtml(text);
-    const width = clampBtnWidth(text);
-    const height = 44;
 
     if (!safeHref) return "";
 
     return `
-      <!--[if mso]>
-      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${safeHref}" style="height:${height}px;v-text-anchor:middle;width:${width}px;" arcsize="18%" strokecolor="${border}" fillcolor="${fill}">
-        <w:anchorlock/>
-        <center style="mso-line-height-rule:exactly;">
-      <![endif]-->
-      <a href="${safeHref}"
-        style="background-color:${fill}; border:1px solid ${border}; border-radius:8px; color:${color}; display:inline-block; font-family:Arial, sans-serif; font-size:14px; font-weight:700; line-height:${height}px; text-align:center; text-decoration:none; width:${width}px; -webkit-text-size-adjust:none; mso-padding-alt:0;">
-        <span style="color:${color}; text-decoration:none;">${safeText}</span>
-      </a>
-      <!--[if mso]>
-        </center>
-      </v:roundrect>
-      <![endif]-->
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:separate;">
+        <tr>
+          <td align="center" valign="middle" bgcolor="${fill}" style="background:${fill}; border:1px solid ${border}; border-radius:10px; mso-padding-alt:14px 18px;">
+            <a href="${safeHref}" style="display:block; font-family:Arial, sans-serif; font-size:15px; font-weight:800; color:${color}; text-decoration:none; padding:14px 18px; line-height:20px; -webkit-text-size-adjust:none;">
+              <span style="color:${color}; text-decoration:none;">${safeText}</span>
+            </a>
+          </td>
+        </tr>
+      </table>
     `.trim();
   };
 
@@ -290,8 +276,11 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
     text: secondaryText,
     fill: "#FFFFFF",
     color: "#111827",
-    border: "#E5E7EB",
+    border: "#D1D5DB",
   });
+
+  const accent = badge.accent;
+  const statusPanelBg = "#F3F4F6";
 
   return `
   <!doctype html>
@@ -325,14 +314,26 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                   <tr>
                     <td style="padding:20px 24px 10px 24px;">
-                      <div style="font-size:18px; font-weight:700; color:#111827;">${escapeHtml(titleText)}</div>
-                      ${introText ? `<div style="margin-top:6px; font-size:13px; color:#374151;">${escapeHtml(introText)}</div>` : ""}
-                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;">
+                      <div style="font-size:20px; font-weight:800; color:#111827; letter-spacing:0.2px;">${escapeHtml(titleText)}</div>
+                      ${introText ? `<div style="margin-top:8px; font-size:14px; color:#374151; line-height:20px;">${escapeHtml(introText)}</div>` : ""}
+
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:14px; border-collapse:separate;">
                         <tr>
-                          <td bgcolor="${badge.bg}" style="background:${badge.bg}; border:1px solid ${badge.border}; border-radius:999px; padding:6px 10px; mso-padding-alt:6px 10px; font-size:12px; font-weight:700; color:${badge.text}; mso-line-height-rule:exactly;">
-                            <span style="color:${badge.text}; text-decoration:none;">${escapeHtml(statusLabel)}</span>
+                          <td width="6" bgcolor="${accent}" style="background:${accent}; border-radius:6px 0 0 6px; font-size:0; line-height:0;">&nbsp;</td>
+                          <td bgcolor="${statusPanelBg}" style="background:${statusPanelBg}; border-top:1px solid #E5E7EB; border-bottom:1px solid #E5E7EB; border-right:1px solid #E5E7EB; padding:12px 12px;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                              <tr>
+                                <td style="vertical-align:middle;">
+                                  <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">New status</div>
+                                  <div style="margin-top:2px; font-size:16px; font-weight:800; color:#111827;">${escapeHtml(statusLabel)}</div>
+                                </td>
+                                <td align="right" style="vertical-align:middle; white-space:nowrap; padding-left:10px;">
+                                  <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Updated</div>
+                                  <div style="margin-top:2px; font-size:13px; color:#111827;">${escapeHtml(updatedAt || "")}</div>
+                                </td>
+                              </tr>
+                            </table>
                           </td>
-                          ${updatedAt ? `<td style="padding-left:10px; font-size:12px; color:#6B7280; vertical-align:middle;">${escapeHtml(updatedAt)}</td>` : ""}
                         </tr>
                       </table>
                     </td>
@@ -364,18 +365,19 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
 
                   <tr>
                     <td style="padding:20px 24px 24px 24px;">
-                      <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                         <tr>
-                          <td style="padding-right:10px; vertical-align:top;">
-                            ${primaryBtn}
-                          </td>
-                          <td style="vertical-align:top;">
-                            ${secondaryBtn}
+                          <td align="center">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:360px;">
+                              <tr><td>${primaryBtn}</td></tr>
+                              <tr><td style="height:10px; line-height:10px;">&nbsp;</td></tr>
+                              <tr><td>${secondaryBtn}</td></tr>
+                            </table>
                           </td>
                         </tr>
                       </table>
 
-                      ${openRequestHref ? `<div style="margin-top:14px; font-size:12px; color:#6B7280;">If the button doesn't work, use this link: <a href="${openRequestHref}" style="color:#2563EB; text-decoration:underline; word-break:break-all;">${openRequestHref}</a></div>` : ""}
+                      ${openRequestHref ? `<div style="margin-top:14px; font-size:11px; color:#6B7280; line-height:16px; text-align:center;">If the button doesn't work, use this link:<br/><a href="${openRequestHref}" style="color:#2563EB; text-decoration:underline; word-break:break-all;">${openRequestHref}</a></div>` : ""}
                     </td>
                   </tr>
                 </table>
