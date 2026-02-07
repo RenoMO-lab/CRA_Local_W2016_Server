@@ -326,8 +326,11 @@ const Settings: React.FC = () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error(`Failed to save M365 settings: ${res.status}`);
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = data?.error || `Failed to save M365 settings: ${res.status}`;
+        throw new Error(msg);
+      }
       setM365Info((prev) => ({
         settings: data?.settings ?? payload,
         connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
@@ -338,7 +341,7 @@ const Settings: React.FC = () => {
       console.error('Failed to save M365 settings:', error);
       toast({
         title: t.request.error,
-        description: t.request.failedSubmit,
+        description: String((error as any)?.message ?? error),
         variant: 'destructive',
       });
     }

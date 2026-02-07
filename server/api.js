@@ -860,7 +860,13 @@ export const apiRouter = (() => {
     asyncHandler(async (req, res) => {
       const body = safeJson(req.body) ?? {};
       const pool = await getPool();
-      await updateM365Settings(pool, body);
+      try {
+        await updateM365Settings(pool, body);
+      } catch (error) {
+        console.error("Failed to update M365 settings:", error);
+        res.status(500).json({ error: String(error?.message ?? error) });
+        return;
+      }
       const settings = await getM365Settings(pool);
       res.json({ settings });
     })
