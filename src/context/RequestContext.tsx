@@ -136,6 +136,10 @@ const reviveRequest = (r: any): CustomerRequest => {
   };
 };
 
+type StoredRequest = CustomerRequest & { __full?: boolean };
+const isFullRequest = (r: any): r is StoredRequest => !!r?.__full;
+const markFullRequest = (r: CustomerRequest): StoredRequest => ({ ...(r as any), __full: true });
+
 const fetchJson = async <T,>(input: RequestInfo, init?: RequestInit): Promise<T> => {
   const res = await fetch(input, init);
   if (!res.ok) {
@@ -146,7 +150,7 @@ const fetchJson = async <T,>(input: RequestInfo, init?: RequestInit): Promise<T>
 
 export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-  const [requests, setRequests] = useState<CustomerRequest[]>([]);
+  const [requests, setRequests] = useState<StoredRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshRequests = useCallback(async () => {
@@ -154,7 +158,33 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       // Use a lightweight endpoint for dashboard polling; fetch full request only on-demand.
       const data = await fetchJson<CustomerRequest[]>(`${API_BASE}/summary`);
-      setRequests(data.map(reviveRequest));
+      const summaries = data.map((r) => ({ ...(reviveRequest(r) as any), __full: false } as StoredRequest));
+      const summaryIds = new Set(summaries.map((s) => s.id));
+
+      setRequests((prev) => {
+        const prevById = new Map(prev.map((r) => [r.id, r]));
+        const merged = summaries.map((s) => {
+          const existing = prevById.get(s.id);
+          if (existing && isFullRequest(existing)) {
+            // Keep the fully-loaded request details, but refresh key fields from the summary.
+            return {
+              ...existing,
+              status: s.status,
+              updatedAt: s.updatedAt,
+              clientName: s.clientName,
+              applicationVehicle: s.applicationVehicle,
+              country: s.country,
+              createdBy: s.createdBy,
+              createdByName: s.createdByName,
+            };
+          }
+          return s;
+        });
+
+        // Keep any full requests that aren't in the summary (rare, but avoids dropping local state).
+        const extras = prev.filter((r) => isFullRequest(r) && !summaryIds.has(r.id));
+        return extras.length ? [...merged, ...extras] : merged;
+      });
     } catch (e) {
       console.error('Failed to load requests:', e);
       setRequests([]);
@@ -208,13 +238,12 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const getRequestByIdAsync = useCallback(async (id: string) => {
     const existing = requests.find(r => r.id === id);
-    if (existing && Array.isArray(existing.products)) {
-      // If it looks like a full request object, avoid refetching.
+    if (existing && isFullRequest(existing)) {
       return existing;
     }
     try {
       const full = await fetchJson<CustomerRequest>(`${API_BASE}/${id}`);
-      const revived = reviveRequest(full);
+      const revived = markFullRequest(reviveRequest(full));
       setRequests(prev => (prev.some(r => r.id === id) ? prev.map(r => (r.id === id ? revived : r)) : [...prev, revived]));
       return revived;
     } catch (e) {
@@ -236,7 +265,7 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
       body: JSON.stringify(payload),
     });
 
-    const revived = reviveRequest(created);
+    const revived = markFullRequest(reviveRequest(created));
     setRequests(prev => [...prev, revived]);
     return revived;
   }, [user]);
@@ -253,7 +282,7 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
       body: JSON.stringify(payload),
     });
 
-    const revived = reviveRequest(updated);
+    const revived = markFullRequest(reviveRequest(updated));
     setRequests(prev => prev.map(r => (r.id === id ? revived : r)));
   }, [user]);
 
@@ -269,7 +298,7 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }),
     });
 
-    const revived = reviveRequest(updated);
+    const revived = markFullRequest(reviveRequest(updated));
     setRequests(prev => prev.map(r => (r.id === id ? revived : r)));
   }, [user]);
 
