@@ -5,6 +5,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import { useRequests } from '@/context/RequestContext';
 import { Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -52,6 +53,42 @@ import ListManager from '@/components/settings/ListManager';
 import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
 
+type M365RoleKey = 'sales' | 'design' | 'costing' | 'admin';
+type M365FlowMap = Record<string, Partial<Record<M365RoleKey, boolean>>>;
+
+const FLOW_STATUS_KEYS = [
+  'draft',
+  'submitted',
+  'edited',
+  'under_review',
+  'clarification_needed',
+  'feasibility_confirmed',
+  'design_result',
+  'in_costing',
+  'costing_complete',
+  'sales_followup',
+  'gm_approval_pending',
+  'gm_approved',
+  'gm_rejected',
+  'closed',
+] as const;
+
+const DEFAULT_FLOW_MAP: M365FlowMap = {
+  submitted: { design: true, admin: true },
+  under_review: { design: true, admin: true },
+  clarification_needed: { sales: true, admin: true },
+  feasibility_confirmed: { costing: true, sales: true, admin: true },
+  design_result: { costing: true, sales: true, admin: true },
+  in_costing: { costing: true, admin: true },
+  costing_complete: { sales: true, admin: true },
+  sales_followup: { sales: true, admin: true },
+  gm_approval_pending: { sales: true, admin: true },
+  gm_approved: { sales: true, admin: true },
+  gm_rejected: { sales: true, admin: true },
+  closed: { sales: true },
+  edited: { admin: true },
+};
+
 interface FeedbackItem {
   id: string;
   type: 'bug' | 'feature' | string;
@@ -90,6 +127,9 @@ interface M365Settings {
   recipientsDesign: string;
   recipientsCosting: string;
   recipientsAdmin: string;
+  testMode: boolean;
+  testEmail: string;
+  flowMap: M365FlowMap | null;
 }
 
 interface M365AdminResponse {
@@ -172,6 +212,31 @@ const Settings: React.FC = () => {
     critical: t.feedback.severityCritical,
   };
 
+  const getStatusLabel = (status: string) => {
+    const key = status as keyof typeof t.statuses;
+    return (t.statuses && t.statuses[key]) || status;
+  };
+
+  const getFlowValue = (status: string, role: M365RoleKey) => {
+    const map = (m365Info?.settings?.flowMap ?? DEFAULT_FLOW_MAP) as M365FlowMap;
+    return Boolean(map?.[status]?.[role]);
+  };
+
+  const updateFlowValue = (status: string, role: M365RoleKey, checked: boolean) => {
+    setM365Info((prev) => {
+      const settings = prev?.settings ?? defaultM365Settings;
+      const flowMap = { ...(settings.flowMap ?? DEFAULT_FLOW_MAP) } as M365FlowMap;
+      const entry = { ...(flowMap[status] ?? {}) };
+      entry[role] = checked;
+      flowMap[status] = entry;
+      return {
+        settings: { ...settings, flowMap },
+        connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+        deviceCode: prev?.deviceCode ?? null,
+      };
+    });
+  };
+
   const defaultM365Settings: M365Settings = {
     enabled: false,
     tenantId: '',
@@ -182,6 +247,9 @@ const Settings: React.FC = () => {
     recipientsDesign: '',
     recipientsCosting: '',
     recipientsAdmin: '',
+    testMode: false,
+    testEmail: '',
+    flowMap: DEFAULT_FLOW_MAP,
   };
 
   const loadM365Info = async () => {
@@ -192,7 +260,11 @@ const Settings: React.FC = () => {
       if (!res.ok) throw new Error(`Failed to load M365 settings: ${res.status}`);
       const data = await res.json();
       setM365Info({
-        settings: data?.settings ?? defaultM365Settings,
+        settings: {
+          ...defaultM365Settings,
+          ...(data?.settings ?? {}),
+          flowMap: data?.settings?.flowMap || DEFAULT_FLOW_MAP,
+        },
         connection: data?.connection ?? { hasRefreshToken: false, expiresAt: null },
         deviceCode: data?.deviceCode ?? null,
       });
@@ -1213,6 +1285,39 @@ const Settings: React.FC = () => {
                       />
                     </div>
 
+                    <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-3">
+                      <div className="space-y-0.5">
+                        <div className="text-sm font-medium text-foreground">{t.settings.m365TestMode}</div>
+                        <div className="text-xs text-muted-foreground">{t.settings.m365TestModeDesc}</div>
+                      </div>
+                      <Switch
+                        checked={(m365Info?.settings ?? defaultM365Settings).testMode}
+                        onCheckedChange={(checked) =>
+                          setM365Info((prev) => ({
+                            settings: { ...(prev?.settings ?? defaultM365Settings), testMode: checked },
+                            connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+                            deviceCode: prev?.deviceCode ?? null,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="m365-test-recipient">{t.settings.m365TestRecipient}</Label>
+                      <Input
+                        id="m365-test-recipient"
+                        value={(m365Info?.settings ?? defaultM365Settings).testEmail}
+                        onChange={(e) =>
+                          setM365Info((prev) => ({
+                            settings: { ...(prev?.settings ?? defaultM365Settings), testEmail: e.target.value },
+                            connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+                            deviceCode: prev?.deviceCode ?? null,
+                          }))
+                        }
+                        placeholder="r.molinier@qdmonroc.onmicrosoft.com"
+                      />
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="m365-tenant">{t.settings.m365TenantId}</Label>
@@ -1350,6 +1455,57 @@ const Settings: React.FC = () => {
                             placeholder="admin@company.com"
                           />
                         </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-4">
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold text-foreground">{t.settings.m365FlowTitle}</div>
+                        <div className="text-xs text-muted-foreground">{t.settings.m365FlowDesc}</div>
+                      </div>
+                      <div className="overflow-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-muted/50 hover:bg-muted/50">
+                              <TableHead className="font-semibold">{t.settings.m365FlowStatus}</TableHead>
+                              <TableHead className="font-semibold">{t.settings.m365FlowSales}</TableHead>
+                              <TableHead className="font-semibold">{t.settings.m365FlowDesign}</TableHead>
+                              <TableHead className="font-semibold">{t.settings.m365FlowCosting}</TableHead>
+                              <TableHead className="font-semibold">{t.settings.m365FlowAdmin}</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {FLOW_STATUS_KEYS.map((status) => (
+                              <TableRow key={status}>
+                                <TableCell className="font-medium">{getStatusLabel(status)}</TableCell>
+                                <TableCell>
+                                  <Checkbox
+                                    checked={getFlowValue(status, 'sales')}
+                                    onCheckedChange={(checked) => updateFlowValue(status, 'sales', Boolean(checked))}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Checkbox
+                                    checked={getFlowValue(status, 'design')}
+                                    onCheckedChange={(checked) => updateFlowValue(status, 'design', Boolean(checked))}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Checkbox
+                                    checked={getFlowValue(status, 'costing')}
+                                    onCheckedChange={(checked) => updateFlowValue(status, 'costing', Boolean(checked))}
+                                  />
+                                </TableCell>
+                                <TableCell>
+                                  <Checkbox
+                                    checked={getFlowValue(status, 'admin')}
+                                    onCheckedChange={(checked) => updateFlowValue(status, 'admin', Boolean(checked))}
+                                  />
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
                       </div>
                     </div>
 

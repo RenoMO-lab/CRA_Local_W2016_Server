@@ -36,6 +36,19 @@ export const parseEmailList = (raw) => {
   return out;
 };
 
+const safeParseFlowMap = (raw) => {
+  if (!raw) return null;
+  if (typeof raw === "object") return raw;
+  if (typeof raw !== "string") return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch (e) {
+    return null;
+  }
+  return null;
+};
+
 export const getM365Settings = async (pool) => {
   const { recordset } = await pool.request().query("SELECT TOP 1 * FROM m365_mail_settings WHERE id = 1");
   const row = recordset[0] ?? {};
@@ -49,6 +62,9 @@ export const getM365Settings = async (pool) => {
     recipientsDesign: row.recipients_design ?? "",
     recipientsCosting: row.recipients_costing ?? "",
     recipientsAdmin: row.recipients_admin ?? "",
+    testMode: Boolean(row.test_mode),
+    testEmail: row.test_email ?? "",
+    flowMap: safeParseFlowMap(row.flow_map),
   };
 };
 
@@ -62,6 +78,10 @@ export const updateM365Settings = async (pool, input) => {
   const recipientsDesign = String(input?.recipientsDesign ?? "").trim();
   const recipientsCosting = String(input?.recipientsCosting ?? "").trim();
   const recipientsAdmin = String(input?.recipientsAdmin ?? "").trim();
+  const testMode = input?.testMode ? 1 : 0;
+  const testEmail = String(input?.testEmail ?? "").trim();
+  const flowMap = safeParseFlowMap(input?.flowMap);
+  const flowMapJson = flowMap ? JSON.stringify(flowMap) : null;
 
   await pool
     .request()
@@ -74,8 +94,11 @@ export const updateM365Settings = async (pool, input) => {
     .input("recipients_design", recipientsDesign || null)
     .input("recipients_costing", recipientsCosting || null)
     .input("recipients_admin", recipientsAdmin || null)
+    .input("test_mode", testMode)
+    .input("test_email", testEmail || null)
+    .input("flow_map", flowMapJson)
     .query(
-      "UPDATE m365_mail_settings SET enabled=@enabled, tenant_id=@tenant_id, client_id=@client_id, sender_upn=@sender_upn, app_base_url=@app_base_url, recipients_sales=@recipients_sales, recipients_design=@recipients_design, recipients_costing=@recipients_costing, recipients_admin=@recipients_admin, updated_at=SYSUTCDATETIME() WHERE id = 1"
+      "UPDATE m365_mail_settings SET enabled=@enabled, tenant_id=@tenant_id, client_id=@client_id, sender_upn=@sender_upn, app_base_url=@app_base_url, recipients_sales=@recipients_sales, recipients_design=@recipients_design, recipients_costing=@recipients_costing, recipients_admin=@recipients_admin, test_mode=@test_mode, test_email=@test_email, flow_map=@flow_map, updated_at=SYSUTCDATETIME() WHERE id = 1"
     );
 };
 

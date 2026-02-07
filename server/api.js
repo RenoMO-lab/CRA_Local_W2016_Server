@@ -62,6 +62,21 @@ const resolveRecipientsForStatus = (settings, status) => {
   const costing = parseEmailList(settings.recipientsCosting);
   const admin = parseEmailList(settings.recipientsAdmin);
 
+  if (settings.testMode && settings.testEmail) {
+    return parseEmailList(settings.testEmail);
+  }
+
+  const flowMap = settings.flowMap && typeof settings.flowMap === "object" ? settings.flowMap : null;
+  const entry = flowMap ? flowMap[String(status ?? "")] : null;
+  if (entry && typeof entry === "object") {
+    const recipients = new Set();
+    if (entry.sales) sales.forEach((v) => recipients.add(v));
+    if (entry.design) design.forEach((v) => recipients.add(v));
+    if (entry.costing) costing.forEach((v) => recipients.add(v));
+    if (entry.admin) admin.forEach((v) => recipients.add(v));
+    return Array.from(recipients);
+  }
+
   switch (String(status ?? "")) {
     case "submitted":
     case "under_review":
