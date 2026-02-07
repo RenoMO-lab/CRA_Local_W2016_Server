@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { apiRouter } from "./api.js";
 import { getPool } from "./db.js";
+import { startNotificationsWorker } from "./notificationsWorker.js";
 
 dotenv.config();
 
@@ -56,6 +57,12 @@ getPool()
     app.listen(port, host, () => {
       console.log(`Server listening on http://${host}:${port}`);
     });
+
+    try {
+      startNotificationsWorker({ getPool });
+    } catch (e) {
+      console.error("Failed to start notifications worker:", e);
+    }
   })
   .catch((error) => {
     console.error("Database connection failed:", error);

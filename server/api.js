@@ -6,6 +6,20 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { getPool, sql } from "./db.js";
+import {
+  clearM365Tokens,
+  getLatestDeviceCodeSession,
+  getM365Settings,
+  getM365TokenState,
+  getValidAccessToken,
+  parseEmailList,
+  pollDeviceCodeToken,
+  sendMail,
+  startDeviceCodeFlow,
+  storeDeviceCodeSession,
+  storeTokenResponse,
+  updateM365Settings,
+} from "./m365.js";
 
 const ADMIN_LIST_CATEGORIES = new Set([
   "applicationVehicles",
@@ -30,6 +44,68 @@ const ADMIN_LIST_CATEGORIES = new Set([
 
 const asyncHandler = (handler) => (req, res, next) =>
   Promise.resolve(handler(req, res, next)).catch(next);
+
+const safeJson = (value) => {
+  if (!value || typeof value !== "object") return null;
+  return value;
+};
+
+const buildRequestLink = (baseUrl, requestId) => {
+  const base = String(baseUrl ?? "").trim().replace(/\/+$/, "");
+  if (!base) return "";
+  return `${base}/requests/${encodeURIComponent(requestId)}`;
+};
+
+const resolveRecipientsForStatus = (settings, status) => {
+  const sales = parseEmailList(settings.recipientsSales);
+  const design = parseEmailList(settings.recipientsDesign);
+  const costing = parseEmailList(settings.recipientsCosting);
+  const admin = parseEmailList(settings.recipientsAdmin);
+
+  switch (String(status ?? "")) {
+    case "submitted":
+    case "under_review":
+      return [...design, ...admin];
+    case "clarification_needed":
+      return [...sales, ...admin];
+    case "feasibility_confirmed":
+    case "design_result":
+      return [...costing, ...sales, ...admin];
+    case "in_costing":
+      return [...costing, ...admin];
+    case "costing_complete":
+      return [...sales, ...admin];
+    case "sales_followup":
+    case "gm_approval_pending":
+    case "gm_approved":
+    case "gm_rejected":
+      return [...sales, ...admin];
+    case "closed":
+      return [...sales];
+    default:
+      return [...admin];
+  }
+};
+
+const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link }) => {
+  const safeComment = String(comment ?? "").trim();
+  const client = String(request?.clientName ?? "").trim();
+  const rid = String(request?.id ?? "").trim();
+  const actor = String(actorName ?? "").trim();
+  const status = String(newStatus ?? "").trim();
+  const linkHtml = link ? `<p><a href="${link}">Open request</a></p>` : "";
+  const commentHtml = safeComment ? `<p><b>Comment:</b><br/>${safeComment.replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br/>")}</p>` : "";
+
+  return `
+    <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.4;">
+      <p><b>Request</b>: ${rid}${client ? ` (${client})` : ""}</p>
+      <p><b>New status</b>: ${status}</p>
+      ${actor ? `<p><b>Changed by</b>: ${actor}</p>` : ""}
+      ${commentHtml}
+      ${linkHtml}
+    </div>
+  `.trim();
+};
 
 const normalizeProduct = (product) => ({
   ...product,
@@ -464,6 +540,153 @@ export const apiRouter = (() => {
           available: logContent !== null,
         },
       });
+    })
+  );
+
+  router.get(
+    "/admin/m365",
+    asyncHandler(async (req, res) => {
+      const pool = await getPool();
+      const [settings, tokenState, latestDc] = await Promise.all([
+        getM365Settings(pool),
+        getM365TokenState(pool),
+        getLatestDeviceCodeSession(pool),
+      ]);
+      res.json({
+        settings,
+        connection: {
+          hasRefreshToken: tokenState.hasRefreshToken,
+          expiresAt: tokenState.expiresAt,
+        },
+        deviceCode: latestDc
+          ? {
+              userCode: latestDc.userCode,
+              verificationUri: latestDc.verificationUri,
+              verificationUriComplete: latestDc.verificationUriComplete,
+              message: latestDc.message,
+              expiresAt: latestDc.expiresAt,
+              status: latestDc.status,
+              createdAt: latestDc.createdAt,
+            }
+          : null,
+      });
+    })
+  );
+
+  router.put(
+    "/admin/m365",
+    asyncHandler(async (req, res) => {
+      const body = safeJson(req.body) ?? {};
+      const pool = await getPool();
+      await updateM365Settings(pool, body);
+      const settings = await getM365Settings(pool);
+      res.json({ settings });
+    })
+  );
+
+  router.post(
+    "/admin/m365/device-code",
+    asyncHandler(async (req, res) => {
+      const pool = await getPool();
+      const settings = await getM365Settings(pool);
+      if (!settings.clientId) {
+        res.status(400).json({ error: "Missing clientId" });
+        return;
+      }
+      if (!settings.tenantId) {
+        res.status(400).json({ error: "Missing tenantId" });
+        return;
+      }
+
+      const scope = "offline_access Mail.Send";
+      const dc = await startDeviceCodeFlow({
+        tenantId: settings.tenantId,
+        clientId: settings.clientId,
+        scope,
+      });
+      await storeDeviceCodeSession(pool, dc);
+      res.json({
+        userCode: dc.user_code,
+        verificationUri: dc.verification_uri,
+        verificationUriComplete: dc.verification_uri_complete,
+        message: dc.message,
+        intervalSeconds: dc.interval,
+        expiresIn: dc.expires_in,
+      });
+    })
+  );
+
+  router.post(
+    "/admin/m365/poll",
+    asyncHandler(async (req, res) => {
+      const pool = await getPool();
+      const settings = await getM365Settings(pool);
+      if (!settings.clientId || !settings.tenantId) {
+        res.status(400).json({ error: "Missing clientId/tenantId" });
+        return;
+      }
+
+      const latest = await getLatestDeviceCodeSession(pool);
+      if (!latest) {
+        res.status(400).json({ error: "No device code session" });
+        return;
+      }
+
+      const result = await pollDeviceCodeToken({
+        tenantId: settings.tenantId,
+        clientId: settings.clientId,
+        deviceCode: latest.deviceCode,
+      });
+
+      if (result.ok) {
+        await storeTokenResponse(pool, result.json);
+        res.json({ status: "connected" });
+        return;
+      }
+
+      const err = result.json?.error;
+      if (err === "authorization_pending") {
+        res.json({ status: "pending" });
+        return;
+      }
+      if (err === "slow_down") {
+        res.json({ status: "slow_down" });
+        return;
+      }
+      if (err === "expired_token") {
+        res.json({ status: "expired" });
+        return;
+      }
+
+      res.status(400).json({ status: "error", error: result.json });
+    })
+  );
+
+  router.post(
+    "/admin/m365/disconnect",
+    asyncHandler(async (req, res) => {
+      const pool = await getPool();
+      await clearM365Tokens(pool);
+      res.json({ ok: true });
+    })
+  );
+
+  router.post(
+    "/admin/m365/test-email",
+    asyncHandler(async (req, res) => {
+      const pool = await getPool();
+      const settings = await getM365Settings(pool);
+      const body = safeJson(req.body) ?? {};
+      const to = parseEmailList(body.toEmail);
+      if (!to.length) {
+        res.status(400).json({ error: "Missing toEmail" });
+        return;
+      }
+      const accessToken = await getValidAccessToken(pool);
+      const subject = `[CRA] Test email`;
+      const html = `<div style="font-family: Arial, sans-serif; font-size: 14px;"><p>Test email from CRA app.</p></div>`;
+      await sendMail({ accessToken, subject, bodyHtml: html, toEmails: to });
+      res.json({ ok: true });
     })
   );
 
@@ -935,6 +1158,7 @@ export const apiRouter = (() => {
         return;
       }
 
+      const previousStatus = String(existing.status ?? "");
       const nowIso = new Date().toISOString();
       const historyEntry = {
         id: `h-${Date.now()}`,
@@ -962,6 +1186,43 @@ export const apiRouter = (() => {
         .input("status", sql.NVarChar(50), updated.status)
         .input("updated_at", sql.DateTime2, new Date(nowIso))
         .query("UPDATE requests SET data = @data, status = @status, updated_at = @updated_at WHERE id = @id");
+
+      // Best-effort email notification enqueue (do not block status updates if email config is missing).
+      try {
+        const newStatus = String(updated.status ?? "");
+        if (newStatus && newStatus !== previousStatus) {
+          const [settings, tokenState] = await Promise.all([
+            getM365Settings(pool),
+            getM365TokenState(pool),
+          ]);
+          if (settings.enabled && tokenState.hasRefreshToken) {
+            const to = resolveRecipientsForStatus(settings, newStatus);
+            if (to.length) {
+              const subject = `[CRA] Request ${requestId} status changed to ${newStatus}`;
+              const link = buildRequestLink(settings.appBaseUrl, requestId);
+              const html = renderStatusEmailHtml({
+                request: updated,
+                newStatus,
+                actorName: body.userName ?? "",
+                comment: body.comment,
+                link,
+              });
+              await pool
+                .request()
+                .input("event_type", sql.NVarChar(64), "request_status_changed")
+                .input("request_id", sql.NVarChar(64), requestId)
+                .input("to_emails", sql.NVarChar(sql.MAX), to.join(", "))
+                .input("subject", sql.NVarChar(255), subject)
+                .input("body_html", sql.NVarChar(sql.MAX), html)
+                .query(
+                  "INSERT INTO notification_outbox (event_type, request_id, to_emails, subject, body_html) VALUES (@event_type, @request_id, @to_emails, @subject, @body_html)"
+                );
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Failed to enqueue status change email:", e);
+      }
 
       res.json(updated);
     })

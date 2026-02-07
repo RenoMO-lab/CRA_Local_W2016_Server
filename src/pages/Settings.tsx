@@ -7,6 +7,7 @@ import { Navigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   Table, 
@@ -44,11 +45,12 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, RefreshCw, Mail } from 'lucide-react';
 import { ROLE_CONFIG, UserRole } from '@/types';
 import { cn } from '@/lib/utils';
 import ListManager from '@/components/settings/ListManager';
 import { format } from 'date-fns';
+import { Textarea } from '@/components/ui/textarea';
 
 interface FeedbackItem {
   id: string;
@@ -76,6 +78,35 @@ interface DeployInfo {
     content: string;
     available: boolean;
   };
+}
+
+interface M365Settings {
+  enabled: boolean;
+  tenantId: string;
+  clientId: string;
+  senderUpn: string;
+  appBaseUrl: string;
+  recipientsSales: string;
+  recipientsDesign: string;
+  recipientsCosting: string;
+  recipientsAdmin: string;
+}
+
+interface M365AdminResponse {
+  settings: M365Settings;
+  connection: {
+    hasRefreshToken: boolean;
+    expiresAt: string | null;
+  };
+  deviceCode: {
+    userCode: string | null;
+    verificationUri: string | null;
+    verificationUriComplete: string | null;
+    message: string | null;
+    expiresAt: string | null;
+    status: string | null;
+    createdAt: string | null;
+  } | null;
 }
 
 const Settings: React.FC = () => {
@@ -129,11 +160,157 @@ const Settings: React.FC = () => {
   const [deployInfo, setDeployInfo] = useState<DeployInfo | null>(null);
   const [isDeployLoading, setIsDeployLoading] = useState(false);
   const [hasDeployError, setHasDeployError] = useState(false);
+  const [m365Info, setM365Info] = useState<M365AdminResponse | null>(null);
+  const [isM365Loading, setIsM365Loading] = useState(false);
+  const [hasM365Error, setHasM365Error] = useState(false);
+  const [m365TestEmail, setM365TestEmail] = useState('');
+  const [m365LastPollStatus, setM365LastPollStatus] = useState<string | null>(null);
   const severityLabels: Record<string, string> = {
     low: t.feedback.severityLow,
     medium: t.feedback.severityMedium,
     high: t.feedback.severityHigh,
     critical: t.feedback.severityCritical,
+  };
+
+  const defaultM365Settings: M365Settings = {
+    enabled: false,
+    tenantId: '',
+    clientId: '',
+    senderUpn: '',
+    appBaseUrl: '',
+    recipientsSales: '',
+    recipientsDesign: '',
+    recipientsCosting: '',
+    recipientsAdmin: '',
+  };
+
+  const loadM365Info = async () => {
+    setIsM365Loading(true);
+    setHasM365Error(false);
+    try {
+      const res = await fetch('/api/admin/m365');
+      if (!res.ok) throw new Error(`Failed to load M365 settings: ${res.status}`);
+      const data = await res.json();
+      setM365Info({
+        settings: data?.settings ?? defaultM365Settings,
+        connection: data?.connection ?? { hasRefreshToken: false, expiresAt: null },
+        deviceCode: data?.deviceCode ?? null,
+      });
+    } catch (error) {
+      console.error('Failed to load M365 settings:', error);
+      setM365Info(null);
+      setHasM365Error(true);
+    } finally {
+      setIsM365Loading(false);
+    }
+  };
+
+  const saveM365Settings = async () => {
+    const payload = m365Info?.settings ?? defaultM365Settings;
+    try {
+      const res = await fetch('/api/admin/m365', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`Failed to save M365 settings: ${res.status}`);
+      const data = await res.json();
+      setM365Info((prev) => ({
+        settings: data?.settings ?? payload,
+        connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+        deviceCode: prev?.deviceCode ?? null,
+      }));
+      toast({ title: t.settings.saveChanges, description: t.settings.saveChanges });
+    } catch (error) {
+      console.error('Failed to save M365 settings:', error);
+      toast({
+        title: t.request.error,
+        description: t.request.failedSubmit,
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const startM365DeviceCode = async () => {
+    try {
+      const res = await fetch('/api/admin/m365/device-code', { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = data?.error || `Failed to start device code: ${res.status}`;
+        throw new Error(msg);
+      }
+      setM365LastPollStatus(null);
+      await loadM365Info();
+      toast({ title: t.settings.m365Connect, description: t.settings.m365DeviceCodeHint });
+    } catch (error) {
+      console.error('Failed to start device code flow:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const pollM365Connection = async () => {
+    try {
+      const res = await fetch('/api/admin/m365/poll', { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = data?.error ? JSON.stringify(data.error) : `Poll failed: ${res.status}`;
+        throw new Error(msg);
+      }
+      setM365LastPollStatus(data?.status ?? null);
+      await loadM365Info();
+      toast({ title: t.settings.m365ConnectionStatus, description: String(data?.status ?? '') });
+    } catch (error) {
+      console.error('Failed to poll M365 connection:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const disconnectM365 = async () => {
+    try {
+      const res = await fetch('/api/admin/m365/disconnect', { method: 'POST' });
+      if (!res.ok) throw new Error(`Disconnect failed: ${res.status}`);
+      setM365LastPollStatus(null);
+      await loadM365Info();
+      toast({ title: t.settings.m365Disconnect, description: t.settings.m365Disconnect });
+    } catch (error) {
+      console.error('Failed to disconnect M365:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const sendM365TestEmail = async () => {
+    try {
+      const res = await fetch('/api/admin/m365/test-email', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ toEmail: m365TestEmail }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const msg = data?.error || `Test email failed: ${res.status}`;
+        throw new Error(msg);
+      }
+      toast({ title: t.settings.m365TestEmail, description: t.settings.m365TestEmail });
+    } catch (error) {
+      console.error('Failed to send test email:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    }
   };
 
   const loadDeployInfo = async () => {
@@ -155,6 +332,7 @@ const Settings: React.FC = () => {
 
   useEffect(() => {
     loadDeployInfo();
+    loadM365Info();
   }, []);
 
   const loadFeedback = useCallback(async () => {
@@ -482,6 +660,10 @@ const Settings: React.FC = () => {
           <TabsTrigger value="feedback" className="data-[state=active]:bg-background">
             <MessageCircle size={16} className="mr-2" />
             {t.settings.feedbackTab}
+          </TabsTrigger>
+          <TabsTrigger value="m365" className="data-[state=active]:bg-background">
+            <Mail size={16} className="mr-2" />
+            {t.settings.m365Tab}
           </TabsTrigger>
           <TabsTrigger value="deployments" className="data-[state=active]:bg-background">
             <Server size={16} className="mr-2" />
@@ -992,6 +1174,261 @@ const Settings: React.FC = () => {
                 </>
               )}
             </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="m365" className="space-y-6">
+          <div className="bg-card rounded-lg border border-border p-4 md:p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <h3 className="text-lg font-semibold text-foreground">{t.settings.m365Title}</h3>
+                <p className="text-sm text-muted-foreground">{t.settings.m365Description}</p>
+              </div>
+              <Button variant="outline" onClick={loadM365Info} disabled={isM365Loading}>
+                <RefreshCw size={16} className="mr-2" />
+                {isM365Loading ? t.common.loading : t.feedback.refresh}
+              </Button>
+            </div>
+
+            {hasM365Error ? (
+              <p className="mt-4 text-sm text-destructive">{t.settings.m365LoadError}</p>
+            ) : (
+              <div className="mt-6 space-y-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-3">
+                      <div className="space-y-0.5">
+                        <div className="text-sm font-medium text-foreground">{t.settings.m365Enabled}</div>
+                        <div className="text-xs text-muted-foreground">{t.settings.m365EnabledDesc}</div>
+                      </div>
+                      <Switch
+                        checked={(m365Info?.settings ?? defaultM365Settings).enabled}
+                        onCheckedChange={(checked) =>
+                          setM365Info((prev) => ({
+                            settings: { ...(prev?.settings ?? defaultM365Settings), enabled: checked },
+                            connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+                            deviceCode: prev?.deviceCode ?? null,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="m365-tenant">{t.settings.m365TenantId}</Label>
+                        <Input
+                          id="m365-tenant"
+                          value={(m365Info?.settings ?? defaultM365Settings).tenantId}
+                          onChange={(e) =>
+                            setM365Info((prev) => ({
+                              settings: { ...(prev?.settings ?? defaultM365Settings), tenantId: e.target.value },
+                              connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+                              deviceCode: prev?.deviceCode ?? null,
+                            }))
+                          }
+                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="m365-client">{t.settings.m365ClientId}</Label>
+                        <Input
+                          id="m365-client"
+                          value={(m365Info?.settings ?? defaultM365Settings).clientId}
+                          onChange={(e) =>
+                            setM365Info((prev) => ({
+                              settings: { ...(prev?.settings ?? defaultM365Settings), clientId: e.target.value },
+                              connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+                              deviceCode: prev?.deviceCode ?? null,
+                            }))
+                          }
+                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="m365-sender">{t.settings.m365SenderUpn}</Label>
+                      <Input
+                        id="m365-sender"
+                        value={(m365Info?.settings ?? defaultM365Settings).senderUpn}
+                        onChange={(e) =>
+                          setM365Info((prev) => ({
+                            settings: { ...(prev?.settings ?? defaultM365Settings), senderUpn: e.target.value },
+                            connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+                            deviceCode: prev?.deviceCode ?? null,
+                          }))
+                        }
+                        placeholder="no-reply@company.com"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="m365-baseurl">{t.settings.m365AppBaseUrl}</Label>
+                      <Input
+                        id="m365-baseurl"
+                        value={(m365Info?.settings ?? defaultM365Settings).appBaseUrl}
+                        onChange={(e) =>
+                          setM365Info((prev) => ({
+                            settings: { ...(prev?.settings ?? defaultM365Settings), appBaseUrl: e.target.value },
+                            connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+                            deviceCode: prev?.deviceCode ?? null,
+                          }))
+                        }
+                        placeholder="http://intranet-server:3000"
+                      />
+                    </div>
+
+                    <div className="flex gap-3">
+                      <Button onClick={saveM365Settings}>{t.settings.saveChanges}</Button>
+                      <Button variant="outline" onClick={loadM365Info}>
+                        {t.feedback.refresh}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-4">
+                      <div className="text-sm font-semibold text-foreground">{t.settings.m365RecipientsTitle}</div>
+                      <div className="grid grid-cols-1 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="m365-rec-sales">{t.settings.m365RecipientsSales}</Label>
+                          <Textarea
+                            id="m365-rec-sales"
+                            value={(m365Info?.settings ?? defaultM365Settings).recipientsSales}
+                            onChange={(e) =>
+                              setM365Info((prev) => ({
+                                settings: { ...(prev?.settings ?? defaultM365Settings), recipientsSales: e.target.value },
+                                connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+                                deviceCode: prev?.deviceCode ?? null,
+                              }))
+                            }
+                            placeholder="sales1@company.com, sales2@company.com"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="m365-rec-design">{t.settings.m365RecipientsDesign}</Label>
+                          <Textarea
+                            id="m365-rec-design"
+                            value={(m365Info?.settings ?? defaultM365Settings).recipientsDesign}
+                            onChange={(e) =>
+                              setM365Info((prev) => ({
+                                settings: { ...(prev?.settings ?? defaultM365Settings), recipientsDesign: e.target.value },
+                                connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+                                deviceCode: prev?.deviceCode ?? null,
+                              }))
+                            }
+                            placeholder="design1@company.com; design2@company.com"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="m365-rec-costing">{t.settings.m365RecipientsCosting}</Label>
+                          <Textarea
+                            id="m365-rec-costing"
+                            value={(m365Info?.settings ?? defaultM365Settings).recipientsCosting}
+                            onChange={(e) =>
+                              setM365Info((prev) => ({
+                                settings: { ...(prev?.settings ?? defaultM365Settings), recipientsCosting: e.target.value },
+                                connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+                                deviceCode: prev?.deviceCode ?? null,
+                              }))
+                            }
+                            placeholder="costing@company.com"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="m365-rec-admin">{t.settings.m365RecipientsAdmin}</Label>
+                          <Textarea
+                            id="m365-rec-admin"
+                            value={(m365Info?.settings ?? defaultM365Settings).recipientsAdmin}
+                            onChange={(e) =>
+                              setM365Info((prev) => ({
+                                settings: { ...(prev?.settings ?? defaultM365Settings), recipientsAdmin: e.target.value },
+                                connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+                                deviceCode: prev?.deviceCode ?? null,
+                              }))
+                            }
+                            placeholder="admin@company.com"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-0.5">
+                          <div className="text-sm font-semibold text-foreground">{t.settings.m365Connect}</div>
+                          <div className="text-xs text-muted-foreground">{t.settings.m365ConnectDesc}</div>
+                        </div>
+                        <div className="text-xs text-muted-foreground text-right">
+                          <div>
+                            {t.settings.m365ConnectionStatus}:{' '}
+                            <span className={cn('font-medium', (m365Info?.connection?.hasRefreshToken ? 'text-foreground' : 'text-muted-foreground'))}>
+                              {m365Info?.connection?.hasRefreshToken ? t.settings.m365Connected : t.settings.m365NotConnected}
+                            </span>
+                          </div>
+                          {m365LastPollStatus ? <div>{t.settings.m365LastPoll}: {m365LastPollStatus}</div> : null}
+                        </div>
+                      </div>
+
+                      {m365Info?.deviceCode?.userCode ? (
+                        <div className="rounded-md border border-border bg-background p-3 text-sm space-y-2">
+                          <div className="font-medium text-foreground">{t.settings.m365DeviceCode}</div>
+                          <div className="text-xs text-muted-foreground whitespace-pre-wrap">
+                            {m365Info.deviceCode.message || t.settings.m365DeviceCodeHint}
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <div className="text-xs text-muted-foreground">{t.settings.m365VerificationUrl}</div>
+                            <div className="font-mono break-all">
+                              {m365Info.deviceCode.verificationUriComplete || m365Info.deviceCode.verificationUri || '-'}
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <div className="text-xs text-muted-foreground">{t.settings.m365UserCode}</div>
+                            <div className="font-mono text-base">{m365Info.deviceCode.userCode}</div>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="flex flex-wrap gap-3">
+                        <Button variant="outline" onClick={startM365DeviceCode}>
+                          {t.settings.m365StartDeviceCode}
+                        </Button>
+                        <Button variant="outline" onClick={pollM365Connection}>
+                          {t.settings.m365Poll}
+                        </Button>
+                        <Button variant="outline" onClick={disconnectM365}>
+                          {t.settings.m365Disconnect}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-3">
+                      <div className="text-sm font-semibold text-foreground">{t.settings.m365TestEmail}</div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                        <div className="md:col-span-2 space-y-2">
+                          <Label htmlFor="m365-test-to">{t.settings.m365ToEmail}</Label>
+                          <Input
+                            id="m365-test-to"
+                            value={m365TestEmail}
+                            onChange={(e) => setM365TestEmail(e.target.value)}
+                            placeholder="someone@company.com"
+                          />
+                        </div>
+                        <Button
+                          onClick={sendM365TestEmail}
+                          disabled={!m365Info?.connection?.hasRefreshToken}
+                        >
+                          {t.settings.m365SendTest}
+                        </Button>
+                      </div>
+                      {!m365Info?.connection?.hasRefreshToken ? (
+                        <p className="text-xs text-muted-foreground">{t.settings.m365TestEmailHint}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </TabsContent>
 
