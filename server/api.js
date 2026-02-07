@@ -190,7 +190,7 @@ const formatIsoUtc = (iso) => {
   return `${d.toISOString().replace("T", " ").slice(0, 19)} UTC`;
 };
 
-const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, dashboardLink, logoUrl, template, introOverride }) => {
+const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, dashboardLink, logoUrl, logoCid, template, introOverride }) => {
   const safeComment = String(comment ?? "").trim();
   const client = String(request?.clientName ?? "").trim();
   const contact = String(request?.clientContact ?? "").trim();
@@ -213,9 +213,43 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
   const badge = statusBadgeStyles(status);
   const openRequestHref = link ? escapeHtml(link) : "";
   const openDashboardHref = dashboardLink ? escapeHtml(dashboardLink) : "";
-  const logoImg = logoUrl
-    ? `<img src="${escapeHtml(logoUrl)}" width="120" alt="MONROC" style="display:block; border:0; outline:none; text-decoration:none; height:auto;" />`
-    : `<div style="font-weight:800; letter-spacing:0.5px; color:#111827;">MONROC</div>`;
+  const safeLogoCid = String(logoCid ?? "").trim();
+  const logoImg = safeLogoCid
+    ? `<img src="cid:${escapeHtml(safeLogoCid)}" width="120" alt="MONROC" style="display:block; border:0; outline:none; text-decoration:none; height:auto;" />`
+    : logoUrl
+      ? `<img src="${escapeHtml(logoUrl)}" width="120" alt="MONROC" style="display:block; border:0; outline:none; text-decoration:none; height:auto;" />`
+      : `<div style="font-weight:800; letter-spacing:0.5px; color:#111827;">MONROC</div>`;
+
+  const clampBtnWidth = (text) => {
+    const t = String(text ?? "");
+    const w = Math.floor(t.length * 8 + 64);
+    return Math.max(160, Math.min(280, w));
+  };
+
+  const renderButton = ({ href, text, fill, color, border }) => {
+    const safeHref = String(href ?? "");
+    const safeText = escapeHtml(text);
+    const width = clampBtnWidth(text);
+    const height = 44;
+
+    if (!safeHref) return "";
+
+    return `
+      <!--[if mso]>
+      <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="${safeHref}" style="height:${height}px;v-text-anchor:middle;width:${width}px;" arcsize="18%" strokecolor="${border}" fillcolor="${fill}">
+        <w:anchorlock/>
+        <center style="color:${color};font-family:Arial, sans-serif;font-size:14px;font-weight:700;">
+          ${safeText}
+        </center>
+      </v:roundrect>
+      <![endif]-->
+      <!--[if !mso]><!-- -->
+      <a href="${safeHref}" style="background:${fill};border:1px solid ${border};border-radius:8px;color:${color};display:inline-block;font-family:Arial, sans-serif;font-size:14px;font-weight:700;line-height:${height}px;text-align:center;text-decoration:none;width:${width}px;-webkit-text-size-adjust:none;mso-hide:all;">
+        ${safeText}
+      </a>
+      <!--<![endif]-->
+    `.trim();
+  };
 
   const commentHtml = safeComment
     ? `
@@ -241,9 +275,32 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
 
   const qtyText = typeof expectedQty === "number" ? String(expectedQty) : "";
 
+  const primaryBtn = renderButton({
+    href: openRequestHref,
+    text: primaryText,
+    fill: "#D71920",
+    color: "#FFFFFF",
+    border: "#D71920",
+  });
+  const secondaryBtn = renderButton({
+    href: openDashboardHref,
+    text: secondaryText,
+    fill: "#FFFFFF",
+    color: "#111827",
+    border: "#E5E7EB",
+  });
+
   return `
-  <div style="margin:0; padding:0; background:#F6F8FB;">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#F6F8FB; width:100%;">
+  <!doctype html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <meta name="color-scheme" content="light" />
+      <meta name="supported-color-schemes" content="light" />
+    </head>
+    <body style="margin:0; padding:0; background:#F6F8FB; color:#111827;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#F6F8FB" style="background:#F6F8FB; width:100%;">
       <tr>
         <td align="center" style="padding:28px 12px;">
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px; max-width:640px;">
@@ -261,7 +318,7 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
             </tr>
 
             <tr>
-              <td style="background:#FFFFFF; border:1px solid #E5E7EB; border-radius:12px; overflow:hidden; font-family: Arial, sans-serif;">
+              <td bgcolor="#FFFFFF" style="background:#FFFFFF; border:1px solid #E5E7EB; border-radius:12px; overflow:hidden; font-family: Arial, sans-serif;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                   <tr>
                     <td style="padding:20px 24px 10px 24px;">
@@ -305,15 +362,11 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
                     <td style="padding:20px 24px 24px 24px;">
                       <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                         <tr>
-                          <td style="padding-right:10px;">
-                            <a href="${openRequestHref}" style="display:inline-block; background:#D71920; color:#FFFFFF; text-decoration:none; padding:12px 16px; border-radius:8px; font-weight:700; font-size:14px;">
-                              ${escapeHtml(primaryText)}
-                            </a>
+                          <td style="padding-right:10px; vertical-align:top;">
+                            ${primaryBtn}
                           </td>
-                          <td>
-                            <a href="${openDashboardHref}" style="display:inline-block; background:#FFFFFF; color:#111827; text-decoration:none; padding:12px 16px; border-radius:8px; border:1px solid #E5E7EB; font-weight:700; font-size:14px;">
-                              ${escapeHtml(secondaryText)}
-                            </a>
+                          <td style="vertical-align:top;">
+                            ${secondaryBtn}
                           </td>
                         </tr>
                       </table>
@@ -334,7 +387,8 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
         </td>
       </tr>
     </table>
-  </div>
+    </body>
+  </html>
   `.trim();
 };
 
@@ -1559,7 +1613,7 @@ export const apiRouter = (() => {
                 comment: "",
                 link,
                 dashboardLink: buildDashboardLink(settings.appBaseUrl),
-                logoUrl: buildPublicAssetLink(settings.appBaseUrl, "monroc-logo.png"),
+                logoCid: "monroc-logo",
                 template,
                 introOverride: template.intro,
               });
@@ -1655,7 +1709,7 @@ export const apiRouter = (() => {
                 comment: body.comment,
                 link,
                 dashboardLink: buildDashboardLink(settings.appBaseUrl),
-                logoUrl: buildPublicAssetLink(settings.appBaseUrl, "monroc-logo.png"),
+                logoCid: "monroc-logo",
                 template,
                 introOverride: template.intro,
               });

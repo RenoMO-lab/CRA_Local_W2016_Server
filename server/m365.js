@@ -337,10 +337,12 @@ export const forceRefreshAccessToken = async (pool) => {
   return refreshed.access_token;
 };
 
-export const sendMail = async ({ accessToken, subject, bodyHtml, toEmails }) => {
+export const sendMail = async ({ accessToken, subject, bodyHtml, toEmails, attachments }) => {
   ensureFetch();
   const recipients = Array.isArray(toEmails) ? toEmails : [];
   if (!recipients.length) throw new Error("Missing email recipients.");
+
+  const att = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
 
   const res = await fetch(`${GRAPH_BASE}/me/sendMail`, {
     method: "POST",
@@ -356,6 +358,7 @@ export const sendMail = async ({ accessToken, subject, bodyHtml, toEmails }) => 
           content: bodyHtml,
         },
         toRecipients: recipients.map((address) => ({ emailAddress: { address } })),
+        ...(att.length ? { attachments: att } : {}),
       },
       saveToSentItems: true,
     }),

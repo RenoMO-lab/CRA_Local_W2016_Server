@@ -1,4 +1,44 @@
 import { getM365Settings, getM365TokenState, getValidAccessToken, parseEmailList, sendMail } from "./m365.js";
+import { promises as fs } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const LOGO_CID = "monroc-logo";
+const LOGO_FILE = "monroc-logo.png";
+let cachedLogoAttachment = null;
+
+const getInlineLogoAttachment = async () => {
+  if (cachedLogoAttachment) return cachedLogoAttachment;
+
+  const candidates = [
+    path.join(REPO_ROOT, "public", LOGO_FILE),
+    path.join(REPO_ROOT, "dist", LOGO_FILE),
+  ];
+
+  let filePath = null;
+  for (const p of candidates) {
+    try {
+      await fs.access(p);
+      filePath = p;
+      break;
+    } catch {}
+  }
+  if (!filePath) return null;
+
+  const bytes = await fs.readFile(filePath);
+  const base64 = bytes.toString("base64");
+
+  cachedLogoAttachment = {
+    "@odata.type": "#microsoft.graph.fileAttachment",
+    name: LOGO_FILE,
+    contentType: "image/png",
+    contentId: LOGO_CID,
+    isInline: true,
+    contentBytes: base64,
+  };
+  return cachedLogoAttachment;
+};
 
 const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -43,11 +83,19 @@ export const startNotificationsWorker = ({ getPool, intervalMs = 10_000 } = {}) 
             .input("id", id)
             .query("UPDATE notification_outbox SET updated_at=SYSUTCDATETIME() WHERE id = @id");
 
+          const bodyHtml = String(row.body_html ?? "");
+          let attachments = [];
+          if (bodyHtml.includes(`cid:${LOGO_CID}`)) {
+            const inlineLogo = await getInlineLogoAttachment();
+            attachments = inlineLogo ? [inlineLogo] : [];
+          }
+
           await sendMail({
             accessToken,
             subject: row.subject,
-            bodyHtml: row.body_html,
+            bodyHtml,
             toEmails,
+            attachments,
           });
 
           await pool
