@@ -62,8 +62,9 @@ const resolveRecipientsForStatus = (settings, status) => {
   const costing = parseEmailList(settings.recipientsCosting);
   const admin = parseEmailList(settings.recipientsAdmin);
 
-  if (settings.testMode && settings.testEmail) {
-    return parseEmailList(settings.testEmail);
+  if (settings.testMode) {
+    // If test recipient is not provided, default to sender mailbox to prevent silent "no recipient" situations.
+    return parseEmailList(settings.testEmail || settings.senderUpn);
   }
 
   const flowMap = settings.flowMap && typeof settings.flowMap === "object" ? settings.flowMap : null;
@@ -1147,6 +1148,43 @@ export const apiRouter = (() => {
         .query(
           "INSERT INTO requests (id, data, status, created_at, updated_at) VALUES (@id, @data, @status, @created_at, @updated_at)"
         );
+
+      // Best-effort email notification enqueue for non-draft creates (ex: create+submit from the UI).
+      try {
+        const createdStatus = String(status ?? "");
+        if (createdStatus && createdStatus !== "draft") {
+          const [settings, tokenState] = await Promise.all([
+            getM365Settings(pool),
+            getM365TokenState(pool),
+          ]);
+          if (settings.enabled && tokenState.hasRefreshToken) {
+            const to = resolveRecipientsForStatus(settings, createdStatus);
+            if (to.length) {
+              const subject = `[CRA] Request ${id} status changed to ${createdStatus}`;
+              const link = buildRequestLink(settings.appBaseUrl, id);
+              const html = renderStatusEmailHtml({
+                request: requestData,
+                newStatus: createdStatus,
+                actorName: body.createdByName ?? "",
+                comment: "",
+                link,
+              });
+              await pool
+                .request()
+                .input("event_type", sql.NVarChar(64), "request_created")
+                .input("request_id", sql.NVarChar(64), id)
+                .input("to_emails", sql.NVarChar(sql.MAX), to.join(", "))
+                .input("subject", sql.NVarChar(255), subject)
+                .input("body_html", sql.NVarChar(sql.MAX), html)
+                .query(
+                  "INSERT INTO notification_outbox (event_type, request_id, to_emails, subject, body_html) VALUES (@event_type, @request_id, @to_emails, @subject, @body_html)"
+                );
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Failed to enqueue create email:", e);
+      }
 
       res.status(201).json(requestData);
     })
