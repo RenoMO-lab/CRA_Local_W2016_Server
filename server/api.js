@@ -227,7 +227,8 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
     if (!safeHref) return "";
 
     return `
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${width}" style="border-collapse:separate; width:${width}px; max-width:${width}px;">
+      <center>
+      <table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" width="${width}" style="border-collapse:separate; width:${width}px; max-width:${width}px; margin:0 auto; mso-table-lspace:0pt; mso-table-rspace:0pt;">
         <tr>
           <td align="center" valign="middle" bgcolor="#D71920" style="background:#D71920; border-radius:12px; mso-padding-alt:15px 18px;">
             <a href="${safeHref}" style="display:block; font-family:Arial, sans-serif; font-size:15px; font-weight:800; color:#FFFFFF; text-decoration:none; padding:15px 18px; line-height:20px; -webkit-text-size-adjust:none; border-radius:12px; text-align:center;">
@@ -236,6 +237,7 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
           </td>
         </tr>
       </table>
+      </center>
     `.trim();
   };
 
