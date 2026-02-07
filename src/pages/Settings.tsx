@@ -47,12 +47,14 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, RefreshCw, Mail } from 'lucide-react';
+import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, RefreshCw, Mail, MoreVertical } from 'lucide-react';
 import { ROLE_CONFIG, UserRole } from '@/types';
 import { cn } from '@/lib/utils';
 import ListManager from '@/components/settings/ListManager';
 import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 type M365RoleKey = 'sales' | 'design' | 'costing' | 'admin';
 type M365FlowMap = Record<string, Partial<Record<M365RoleKey, boolean>>>;
@@ -133,7 +135,9 @@ interface FeedbackItem {
   userName: string;
   userEmail: string;
   userRole: string;
+  status?: 'submitted' | 'ongoing' | 'finished' | 'cancelled' | string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 interface DeployInfo {
@@ -231,6 +235,7 @@ const Settings: React.FC = () => {
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
   const [hasFeedbackError, setHasFeedbackError] = useState(false);
+  const [feedbackDeleteId, setFeedbackDeleteId] = useState<string | null>(null);
   const [deployInfo, setDeployInfo] = useState<DeployInfo | null>(null);
   const [isDeployLoading, setIsDeployLoading] = useState(false);
   const [hasDeployError, setHasDeployError] = useState(false);
@@ -250,6 +255,22 @@ const Settings: React.FC = () => {
     medium: t.feedback.severityMedium,
     high: t.feedback.severityHigh,
     critical: t.feedback.severityCritical,
+  };
+
+  const getFeedbackStatusLabel = (status?: string) => {
+    const s = String(status || 'submitted').toLowerCase();
+    if (s === 'ongoing') return t.feedback.statusOngoing;
+    if (s === 'finished') return t.feedback.statusFinished;
+    if (s === 'cancelled') return t.feedback.statusCancelled;
+    return t.feedback.statusSubmitted;
+  };
+
+  const getFeedbackStatusVariant = (status?: string) => {
+    const s = String(status || 'submitted').toLowerCase();
+    if (s === 'ongoing') return 'secondary' as const;
+    if (s === 'finished') return 'default' as const;
+    if (s === 'cancelled') return 'destructive' as const;
+    return 'outline' as const;
   };
 
   const getStatusLabel = (status: string) => {
@@ -524,6 +545,52 @@ const Settings: React.FC = () => {
       setIsFeedbackLoading(false);
     }
   }, []);
+
+  const updateFeedbackStatus = async (id: string, status: 'submitted' | 'ongoing' | 'finished' | 'cancelled') => {
+    try {
+      const res = await fetch(`/api/feedback/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to update feedback: ${res.status}`);
+      }
+      setFeedbackItems((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, status, updatedAt: data?.updatedAt ?? item.updatedAt } : item))
+      );
+      toast({ title: t.common.update, description: t.feedback.statusUpdated });
+    } catch (error) {
+      console.error('Failed to update feedback status:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const deleteFeedback = async (id: string) => {
+    try {
+      const res = await fetch(`/api/feedback/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok && res.status !== 204) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || `Failed to delete feedback: ${res.status}`);
+      }
+      setFeedbackItems((prev) => prev.filter((item) => item.id !== id));
+      toast({ title: t.common.delete, description: t.feedback.deleted });
+    } catch (error) {
+      console.error('Failed to delete feedback:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    } finally {
+      setFeedbackDeleteId(null);
+    }
+  };
 
   useEffect(() => {
     loadFeedback();
@@ -1200,6 +1267,26 @@ const Settings: React.FC = () => {
                         </div>
                         <div className="font-semibold text-foreground">{item.title}</div>
                         <div className="text-sm text-muted-foreground">{item.description}</div>
+                        <div className="flex items-center justify-between">
+                          <Badge variant={getFeedbackStatusVariant(item.status)}>
+                            {getFeedbackStatusLabel(item.status)}
+                          </Badge>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t.common.actions}>
+                                <MoreVertical size={16} />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="bg-popover border border-border shadow-lg rounded-lg p-1">
+                              <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'ongoing')}>{t.feedback.markOngoing}</DropdownMenuItem>
+                              <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'finished')}>{t.feedback.markFinished}</DropdownMenuItem>
+                              <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'cancelled')}>{t.feedback.markCancelled}</DropdownMenuItem>
+                              <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive" onClick={() => setFeedbackDeleteId(item.id)}>
+                                {t.feedback.delete}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
                         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                           <span>{t.feedback.severity}: {item.severity ? severityLabels[item.severity] || item.severity : '-'}</span>
                           <span>{t.feedback.page}: {item.pagePath || '-'}</span>
@@ -1216,10 +1303,12 @@ const Settings: React.FC = () => {
                         <TableRow className="bg-muted/50 hover:bg-muted/50">
                           <TableHead className="font-semibold">{t.feedback.type}</TableHead>
                           <TableHead className="font-semibold">{t.feedback.title}</TableHead>
+                          <TableHead className="font-semibold">{t.feedback.status}</TableHead>
                           <TableHead className="font-semibold">{t.feedback.severity}</TableHead>
                           <TableHead className="font-semibold">{t.feedback.reportedBy}</TableHead>
                           <TableHead className="font-semibold">{t.feedback.page}</TableHead>
                           <TableHead className="font-semibold">{t.feedback.createdAt}</TableHead>
+                          <TableHead className="font-semibold text-right">{t.common.actions}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1229,6 +1318,11 @@ const Settings: React.FC = () => {
                               {item.type === 'bug' ? t.feedback.typeBug : t.feedback.typeFeature}
                             </TableCell>
                             <TableCell className="font-medium">{item.title}</TableCell>
+                            <TableCell>
+                              <Badge variant={getFeedbackStatusVariant(item.status)}>
+                                {getFeedbackStatusLabel(item.status)}
+                              </Badge>
+                            </TableCell>
                             <TableCell>{item.severity ? severityLabels[item.severity] || item.severity : '-'}</TableCell>
                             <TableCell>
                               <div className="text-sm">
@@ -1240,6 +1334,23 @@ const Settings: React.FC = () => {
                             <TableCell className="text-sm text-muted-foreground">
                               {item.createdAt ? format(new Date(item.createdAt), 'MMM d, yyyy') : '-'}
                             </TableCell>
+                            <TableCell className="text-right">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t.common.actions}>
+                                    <MoreVertical size={16} />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="bg-popover border border-border shadow-lg rounded-lg p-1">
+                                  <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'ongoing')}>{t.feedback.markOngoing}</DropdownMenuItem>
+                                  <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'finished')}>{t.feedback.markFinished}</DropdownMenuItem>
+                                  <DropdownMenuItem className="cursor-pointer" onClick={() => updateFeedbackStatus(item.id, 'cancelled')}>{t.feedback.markCancelled}</DropdownMenuItem>
+                                  <DropdownMenuItem className="cursor-pointer text-destructive focus:text-destructive" onClick={() => setFeedbackDeleteId(item.id)}>
+                                    {t.feedback.delete}
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -1249,6 +1360,24 @@ const Settings: React.FC = () => {
               )}
             </div>
           </div>
+
+          <AlertDialog open={!!feedbackDeleteId} onOpenChange={(open) => !open && setFeedbackDeleteId(null)}>
+            <AlertDialogContent className="bg-card">
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t.feedback.deleteTitle}</AlertDialogTitle>
+                <AlertDialogDescription>{t.feedback.deleteDesc}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t.common.cancel}</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={() => feedbackDeleteId && deleteFeedback(feedbackDeleteId)}
+                >
+                  {t.common.delete}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </TabsContent>
 
         <TabsContent value="m365" className="space-y-6">

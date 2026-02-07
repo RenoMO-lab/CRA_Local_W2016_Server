@@ -1307,7 +1307,7 @@ export const apiRouter = (() => {
     asyncHandler(async (req, res) => {
       const pool = await getPool();
       const { recordset } = await pool.request().query(
-        "SELECT id, type, title, description, steps, severity, page_path, user_name, user_email, user_role, created_at FROM feedback ORDER BY created_at DESC"
+        "SELECT id, type, title, description, steps, severity, page_path, user_name, user_email, user_role, status, created_at, updated_at FROM feedback ORDER BY created_at DESC"
       );
 
       const data = recordset.map((row) => ({
@@ -1321,7 +1321,9 @@ export const apiRouter = (() => {
         userName: row.user_name ?? "",
         userEmail: row.user_email ?? "",
         userRole: row.user_role ?? "",
+        status: row.status ?? "submitted",
         createdAt: row.created_at,
+        updatedAt: row.updated_at ?? row.created_at,
       }));
 
       res.json(data);
@@ -1368,9 +1370,11 @@ export const apiRouter = (() => {
         .input("user_name", sql.NVarChar(255), userName || null)
         .input("user_email", sql.NVarChar(255), userEmail || null)
         .input("user_role", sql.NVarChar(255), userRole || null)
+        .input("status", sql.NVarChar(50), "submitted")
         .input("created_at", sql.DateTime2, new Date(nowIso))
+        .input("updated_at", sql.DateTime2, new Date(nowIso))
         .query(
-          "INSERT INTO feedback (id, type, title, description, steps, severity, page_path, user_name, user_email, user_role, created_at) VALUES (@id, @type, @title, @description, @steps, @severity, @page_path, @user_name, @user_email, @user_role, @created_at)"
+          "INSERT INTO feedback (id, type, title, description, steps, severity, page_path, user_name, user_email, user_role, status, created_at, updated_at) VALUES (@id, @type, @title, @description, @steps, @severity, @page_path, @user_name, @user_email, @user_role, @status, @created_at, @updated_at)"
         );
 
       res.status(201).json({
@@ -1384,8 +1388,70 @@ export const apiRouter = (() => {
         userName,
         userEmail,
         userRole,
+        status: "submitted",
         createdAt: nowIso,
+        updatedAt: nowIso,
       });
+    })
+  );
+
+  router.patch(
+    "/feedback/:feedbackId",
+    asyncHandler(async (req, res) => {
+      const { feedbackId } = req.params;
+      const body = req.body;
+      const status = String(body?.status ?? "").trim().toLowerCase();
+      const allowed = new Set(["submitted", "ongoing", "finished", "cancelled"]);
+
+      if (!feedbackId) {
+        res.status(400).json({ error: "Missing feedback id" });
+        return;
+      }
+
+      if (!allowed.has(status)) {
+        res.status(400).json({ error: "Invalid status" });
+        return;
+      }
+
+      const pool = await getPool();
+      const nowIso = new Date().toISOString();
+      const result = await pool
+        .request()
+        .input("id", sql.NVarChar(64), feedbackId)
+        .input("status", sql.NVarChar(50), status)
+        .input("updated_at", sql.DateTime2, new Date(nowIso))
+        .query("UPDATE feedback SET status=@status, updated_at=@updated_at WHERE id=@id");
+
+      if (!result.rowsAffected?.[0]) {
+        res.status(404).json({ error: "Feedback not found" });
+        return;
+      }
+
+      res.json({ ok: true, id: feedbackId, status, updatedAt: nowIso });
+    })
+  );
+
+  router.delete(
+    "/feedback/:feedbackId",
+    asyncHandler(async (req, res) => {
+      const { feedbackId } = req.params;
+      if (!feedbackId) {
+        res.status(400).json({ error: "Missing feedback id" });
+        return;
+      }
+
+      const pool = await getPool();
+      const result = await pool
+        .request()
+        .input("id", sql.NVarChar(64), feedbackId)
+        .query("DELETE FROM feedback WHERE id=@id");
+
+      if (!result.rowsAffected?.[0]) {
+        res.status(404).json({ error: "Feedback not found" });
+        return;
+      }
+
+      res.status(204).send();
     })
   );
 
