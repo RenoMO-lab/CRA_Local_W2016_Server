@@ -3,6 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Set theme class ASAP to avoid a flash on load.
+      (function () {
+        try {
+          var key = "cra-theme";
+          var theme = localStorage.getItem(key); // "light" | "dark" | "system" | null
+          var systemDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var useDark = theme === "dark" || (theme !== "light" && systemDark);
+          var root = document.documentElement;
+          if (useDark) root.classList.add("dark");
+          else root.classList.remove("dark");
+        } catch (e) {}
+      })();
+    </script>
     <link rel="icon" type="image/png" href="/monroc-favicon.png" />
     <link rel="preload" as="image" href="/monroc-logo.png" fetchpriority="high" />
     <link rel="preload" as="image" href="/monroc-favicon.png" />
@@ -28,6 +44,10 @@
         background: #f7f7f7;
         color: #111827;
         z-index: 9999;
+      }
+      html.dark #app-splash {
+        background: #070b12;
+        color: #e5e7eb;
       }
       #app-splash .splash-wrap {
         display: flex;

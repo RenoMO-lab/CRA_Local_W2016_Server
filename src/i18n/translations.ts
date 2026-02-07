@@ -41,6 +41,10 @@ export const translations = {
       openMenu: 'Open menu',
       pdfDownloaded: 'PDF downloaded for',
       pdfDownloadFailed: 'Failed to generate PDF',
+      theme: 'Theme',
+      themeSystem: 'System',
+      themeLight: 'Light',
+      themeDark: 'Dark',
     },
 
     // Auth
@@ -809,6 +813,10 @@ export const translations = {
       openMenu: 'Ouvrir le menu',
       pdfDownloaded: 'PDF téléchargé pour',
       pdfDownloadFailed: 'Échec de la génération du PDF',
+      theme: 'Thème',
+      themeSystem: 'Système',
+      themeLight: 'Clair',
+      themeDark: 'Sombre',
     },
 
     // Auth
@@ -1577,6 +1585,10 @@ export const translations = {
       openMenu: '打开菜单',
       pdfDownloaded: 'PDF 已下载：',
       pdfDownloadFailed: '生成 PDF 失败',
+      theme: '主题',
+      themeSystem: '跟随系统',
+      themeLight: '浅色',
+      themeDark: '深色',
     },
 
     // Auth

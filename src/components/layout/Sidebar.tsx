@@ -1,14 +1,15 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileText, Plus, Settings, LogOut, ChevronLeft, Menu, Users, BarChart3, Languages, Tags, MessageCircle, LifeBuoy, MoreVertical } from 'lucide-react';
+import { LayoutDashboard, FileText, Plus, Settings, LogOut, ChevronLeft, Menu, Users, BarChart3, Languages, Tags, MessageCircle, LifeBuoy, MoreVertical, Laptop, Sun, Moon } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { cn } from '@/lib/utils';
 import { ROLE_CONFIG, UserRole } from '@/types';
 import LanguageSelector from '@/components/LanguageSelector';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuPortal, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu';
 import FeedbackDialog from '@/components/feedback/FeedbackDialog';
 import HelpDialog from '@/components/help/HelpDialog';
+import { useTheme } from "next-themes";
 interface SidebarProps {
   isCollapsed: boolean;
   onToggle: () => void;
@@ -27,6 +28,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     language,
     setLanguage
   } = useLanguage();
+  const { theme, setTheme } = useTheme();
   const languages = [
     { code: 'en', label: 'English' },
     { code: 'fr', label: 'Français' },
@@ -182,6 +184,35 @@ const Sidebar: React.FC<SidebarProps> = ({
                       </DropdownMenuItem>
                     }
                   />
+
+                  <DropdownMenuSeparator />
+
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-all duration-150 hover:bg-accent">
+                      <Laptop size={14} className="mr-2" />
+                      {t.common.theme}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuPortal>
+                      <DropdownMenuSubContent className="min-w-[180px] bg-popover border border-border shadow-lg rounded-lg p-1">
+                        <DropdownMenuRadioGroup value={(theme || "system") as any} onValueChange={setTheme}>
+                          <DropdownMenuRadioItem value="system" className="flex items-center gap-2 px-3 py-2.5 rounded-md cursor-pointer transition-all duration-150 hover:bg-accent">
+                            <Laptop size={14} className="opacity-80" />
+                            {t.common.themeSystem}
+                          </DropdownMenuRadioItem>
+                          <DropdownMenuRadioItem value="light" className="flex items-center gap-2 px-3 py-2.5 rounded-md cursor-pointer transition-all duration-150 hover:bg-accent">
+                            <Sun size={14} className="opacity-80" />
+                            {t.common.themeLight}
+                          </DropdownMenuRadioItem>
+                          <DropdownMenuRadioItem value="dark" className="flex items-center gap-2 px-3 py-2.5 rounded-md cursor-pointer transition-all duration-150 hover:bg-accent">
+                            <Moon size={14} className="opacity-80" />
+                            {t.common.themeDark}
+                          </DropdownMenuRadioItem>
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuPortal>
+                  </DropdownMenuSub>
+
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={logout} className="flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-all duration-150 text-destructive hover:bg-destructive/10 focus:text-destructive">
                     <LogOut size={14} className="mr-2" />
                     {t.nav.logout}
