@@ -1,5 +1,6 @@
 import express from "express";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { apiRouter } from "./api.js";
@@ -30,7 +31,9 @@ app.use(
     setHeaders(res, filePath) {
       // Allow index.html to be revalidated so deployments show up immediately.
       if (filePath.endsWith(`${path.sep}index.html`)) {
-        res.setHeader("Cache-Control", "no-cache");
+        res.setHeader("Cache-Control", "no-store, max-age=0");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
       }
     },
   })
@@ -42,11 +45,15 @@ app.get("*", (req, res) => {
     return;
   }
   // For SPA deep-links (e.g. /settings), we serve index.html from this handler.
-  // Ensure browsers don't cache an old index.html that points at stale hashed assets.
+  // Avoid sendFile() here, because it sets its own Cache-Control headers.
+  // Old cached index.html can point at stale hashed assets, hiding new UI sections.
+  const indexPath = path.join(distDir, "index.html");
+  const html = fs.readFileSync(indexPath, "utf8");
+  res.status(200);
   res.setHeader("Cache-Control", "no-store, max-age=0");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
-  res.sendFile(path.join(distDir, "index.html"));
+  res.type("html").send(html);
 });
 
 app.use((err, req, res, next) => {
