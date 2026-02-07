@@ -16,7 +16,24 @@ app.use("/api", apiRouter);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(__dirname, "..", "dist");
 
-app.use(express.static(distDir));
+app.use(
+  "/assets",
+  express.static(path.join(distDir, "assets"), {
+    immutable: true,
+    maxAge: "1y",
+  })
+);
+
+app.use(
+  express.static(distDir, {
+    setHeaders(res, filePath) {
+      // Allow index.html to be revalidated so deployments show up immediately.
+      if (filePath.endsWith(`${path.sep}index.html`)) {
+        res.setHeader("Cache-Control", "no-cache");
+      }
+    },
+  })
+);
 
 app.get("*", (req, res) => {
   if (req.path.startsWith("/api/")) {

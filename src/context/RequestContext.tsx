@@ -10,6 +10,7 @@ interface RequestContextType {
   requests: CustomerRequest[];
   isLoading: boolean;
   getRequestById: (id: string) => CustomerRequest | undefined;
+  getRequestByIdAsync: (id: string) => Promise<CustomerRequest | undefined>;
   createRequest: (request: Omit<CustomerRequest, 'id' | 'createdAt' | 'updatedAt' | 'history' | 'createdBy' | 'createdByName'>) => Promise<CustomerRequest>;
   updateRequest: (id: string, updates: RequestUpdatePayload) => Promise<void>;
   updateStatus: (id: string, status: RequestStatus, comment?: string) => Promise<void>;
@@ -151,7 +152,8 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const refreshRequests = useCallback(async () => {
     setIsLoading(true);
     try {
-      const data = await fetchJson<CustomerRequest[]>(API_BASE);
+      // Use a lightweight endpoint for dashboard polling; fetch full request only on-demand.
+      const data = await fetchJson<CustomerRequest[]>(`${API_BASE}/summary`);
       setRequests(data.map(reviveRequest));
     } catch (e) {
       console.error('Failed to load requests:', e);
@@ -202,6 +204,23 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const getRequestById = useCallback((id: string) => {
     return requests.find(r => r.id === id);
+  }, [requests]);
+
+  const getRequestByIdAsync = useCallback(async (id: string) => {
+    const existing = requests.find(r => r.id === id);
+    if (existing && Array.isArray(existing.products)) {
+      // If it looks like a full request object, avoid refetching.
+      return existing;
+    }
+    try {
+      const full = await fetchJson<CustomerRequest>(`${API_BASE}/${id}`);
+      const revived = reviveRequest(full);
+      setRequests(prev => (prev.some(r => r.id === id) ? prev.map(r => (r.id === id ? revived : r)) : [...prev, revived]));
+      return revived;
+    } catch (e) {
+      console.error('Failed to load request by id:', e);
+      return undefined;
+    }
   }, [requests]);
 
   const createRequest = useCallback(async (requestData: Omit<CustomerRequest, 'id' | 'createdAt' | 'updatedAt' | 'history' | 'createdBy' | 'createdByName'>) => {
@@ -264,6 +283,7 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
       requests,
       isLoading,
       getRequestById,
+      getRequestByIdAsync,
       createRequest,
       updateRequest,
       updateStatus,

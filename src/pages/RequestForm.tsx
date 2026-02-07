@@ -154,7 +154,7 @@ const RequestForm: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { getRequestById, createRequest, updateRequest, updateStatus, isLoading } = useRequests();
+  const { getRequestById, getRequestByIdAsync, createRequest, updateRequest, updateStatus, isLoading } = useRequests();
   const { t } = useLanguage();
   const {
     applicationVehicles,
@@ -183,6 +183,14 @@ const RequestForm: React.FC = () => {
   const isCreateMode = !id;
 
   const existingRequest = id ? getRequestById(id) : undefined;
+
+  useEffect(() => {
+    if (!id) return;
+    if (location.pathname.includes('/new')) return;
+    if (existingRequest) return;
+    // Ensure direct navigation works even when the dashboard is only polling summaries.
+    void getRequestByIdAsync(id);
+  }, [id, existingRequest, getRequestByIdAsync, location.pathname]);
 
   const [formData, setFormData] = useState<Partial<CustomerRequest>>(
     existingRequest ? { ...existingRequest, products: normalizeProducts(existingRequest) } : getInitialFormData()

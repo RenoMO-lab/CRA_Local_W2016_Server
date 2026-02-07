@@ -371,6 +371,14 @@ const getRequestById = async (pool, id) => {
   return safeParseRequest(data, { id: rowId });
 };
 
+const requestSummarySelect =
+  "SELECT id, status, created_at, updated_at, JSON_VALUE(data, '$.clientName') as clientName, " +
+  "JSON_VALUE(data, '$.applicationVehicle') as applicationVehicle, " +
+  "JSON_VALUE(data, '$.country') as country, " +
+  "JSON_VALUE(data, '$.createdBy') as createdBy, " +
+  "JSON_VALUE(data, '$.createdByName') as createdByName " +
+  "FROM requests ORDER BY updated_at DESC";
+
 const fetchAdminLists = async (pool) => {
   const { recordset } = await pool
     .request()
@@ -834,6 +842,28 @@ export const apiRouter = (() => {
         .map((row) => safeParseRequest(row.data, { id: row.id }))
         .filter(Boolean);
       res.json(parsed);
+    })
+  );
+
+  // Lightweight list endpoint for dashboards: avoids shipping attachments/base64 blobs.
+  router.get(
+    "/requests/summary",
+    asyncHandler(async (req, res) => {
+      const pool = await getPool();
+      const { recordset } = await pool.request().query(requestSummarySelect);
+      res.json(
+        recordset.map((row) => ({
+          id: row.id,
+          status: row.status,
+          clientName: row.clientName ?? "",
+          applicationVehicle: row.applicationVehicle ?? "",
+          country: row.country ?? "",
+          createdBy: row.createdBy ?? "",
+          createdByName: row.createdByName ?? "",
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }))
+      );
     })
   );
 
