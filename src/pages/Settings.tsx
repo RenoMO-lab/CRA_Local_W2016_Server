@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { 
   Table, 
   TableBody, 
@@ -821,10 +822,6 @@ const Settings: React.FC = () => {
             <SettingsIcon size={16} className="mr-2" />
             {t.settings.systemLists}
           </TabsTrigger>
-          <TabsTrigger value="product-types" className="data-[state=active]:bg-background">
-            <Layers size={16} className="mr-2" />
-            {t.settings.productTypes}
-          </TabsTrigger>
           <TabsTrigger value="users" className="data-[state=active]:bg-background">
             <Users size={16} className="mr-2" />
             {t.settings.usersRoles}
@@ -844,211 +841,116 @@ const Settings: React.FC = () => {
         </TabsList>
 
         <TabsContent value="lists" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <ListManager
-              title={t.settings.applicationVehicles}
-              icon={Truck}
-              list={applicationVehicles}
-              listName={t.settings.applicationVehicles}
-              onAddItem={(value) => addListItem('applicationVehicles', value)}
-              onDeleteItem={(id) => deleteListItem('applicationVehicles', id)}
-              onEditItem={(listName, item) => openEditItemDialog('applicationVehicles', listName, item)}
-              onReorderItems={(ids) => reorderListItems('applicationVehicles', ids)}
-              onToast={handleToast}
-            />
-            <ListManager
-              title={t.settings.countries}
-              icon={Globe}
-              list={countries}
-              listName={t.settings.countries}
-              onAddItem={(value) => addListItem('countries', value)}
-              onDeleteItem={(id) => deleteListItem('countries', id)}
-              onEditItem={(listName, item) => openEditItemDialog('countries', listName, item)}
-              onReorderItems={(ids) => reorderListItems('countries', ids)}
-              onToast={handleToast}
-            />
-              <ListManager
-                title={t.settings.brakeSizes}
-                icon={SettingsIcon}
-                list={brakeSizes}
-                listName={t.settings.brakeSizes}
-                onAddItem={(value) => addListItem('brakeSizes', value)}
-                onDeleteItem={(id) => deleteListItem('brakeSizes', id)}
-                onEditItem={(listName, item) => openEditItemDialog('brakeSizes', listName, item)}
-                onReorderItems={(ids) => reorderListItems('brakeSizes', ids)}
-                onToast={handleToast}
-              />
-              <ListManager
-                title={t.settings.brakeTypes}
-                icon={Circle}
-                list={brakeTypes}
-                listName={t.settings.brakeTypes}
-                onAddItem={(value) => addListItem('brakeTypes', value)}
-                onDeleteItem={(id) => deleteListItem('brakeTypes', id)}
-                onEditItem={(listName, item) => openEditItemDialog('brakeTypes', listName, item)}
-                onReorderItems={(ids) => reorderListItems('brakeTypes', ids)}
-                onToast={handleToast}
-              />
-              <ListManager
-                title={t.settings.brakePowerTypes}
-                icon={SettingsIcon}
-                list={brakePowerTypes}
-                listName={t.settings.brakePowerTypes}
-                onAddItem={(value) => addListItem('brakePowerTypes', value)}
-                onDeleteItem={(id) => deleteListItem('brakePowerTypes', id)}
-                onEditItem={(listName, item) => openEditItemDialog('brakePowerTypes', listName, item)}
-                onReorderItems={(ids) => reorderListItems('brakePowerTypes', ids)}
-                onToast={handleToast}
-              />
-              <ListManager
-                title={t.settings.brakeCertificates}
-                icon={SettingsIcon}
-                list={brakeCertificates}
-                listName={t.settings.brakeCertificates}
-                onAddItem={(value) => addListItem('brakeCertificates', value)}
-                onDeleteItem={(id) => deleteListItem('brakeCertificates', id)}
-                onEditItem={(listName, item) => openEditItemDialog('brakeCertificates', listName, item)}
-                onReorderItems={(ids) => reorderListItems('brakeCertificates', ids)}
-                onToast={handleToast}
-              />
-              <ListManager
-                title={t.settings.mainBodySectionTypes}
-                icon={Box}
-                list={mainBodySectionTypes}
-                listName={t.settings.mainBodySectionTypes}
-                onAddItem={(value) => addListItem('mainBodySectionTypes', value)}
-                onDeleteItem={(id) => deleteListItem('mainBodySectionTypes', id)}
-                onEditItem={(listName, item) => openEditItemDialog('mainBodySectionTypes', listName, item)}
-                onReorderItems={(ids) => reorderListItems('mainBodySectionTypes', ids)}
-                onToast={handleToast}
-              />
-              <ListManager
-                title={t.settings.clientSealingRequests}
-                icon={SettingsIcon}
-                list={clientSealingRequests}
-                listName={t.settings.clientSealingRequests}
-                onAddItem={(value) => addListItem('clientSealingRequests', value)}
-                onDeleteItem={(id) => deleteListItem('clientSealingRequests', id)}
-                onEditItem={(listName, item) => openEditItemDialog('clientSealingRequests', listName, item)}
-                onReorderItems={(ids) => reorderListItems('clientSealingRequests', ids)}
-                onToast={handleToast}
-              />
-              <ListManager
-                title={t.settings.cupLogoOptions}
-                icon={Circle}
-                list={cupLogoOptions}
-                listName={t.settings.cupLogoOptions}
-                onAddItem={(value) => addListItem('cupLogoOptions', value)}
-                onDeleteItem={(id) => deleteListItem('cupLogoOptions', id)}
-                onEditItem={(listName, item) => openEditItemDialog('cupLogoOptions', listName, item)}
-                onReorderItems={(ids) => reorderListItems('cupLogoOptions', ids)}
-                onToast={handleToast}
-              />
-              <ListManager
-                title={t.settings.suspensions}
-                icon={SettingsIcon}
-              list={suspensions}
-              listName={t.settings.suspensions}
-              onAddItem={(value) => addListItem('suspensions', value)}
-              onDeleteItem={(id) => deleteListItem('suspensions', id)}
-              onEditItem={(listName, item) => openEditItemDialog('suspensions', listName, item)}
-              onReorderItems={(ids) => reorderListItems('suspensions', ids)}
-              onToast={handleToast}
-            />
-            <ListManager
-              title={t.settings.repeatabilityTypes}
-              icon={Repeat}
-              list={repeatabilityTypes}
-              listName={t.settings.repeatabilityTypes}
-              onAddItem={(value) => addListItem('repeatabilityTypes', value)}
-              onDeleteItem={(id) => deleteListItem('repeatabilityTypes', id)}
-              onEditItem={(listName, item) => openEditItemDialog('repeatabilityTypes', listName, item)}
-              onReorderItems={(ids) => reorderListItems('repeatabilityTypes', ids)}
-              onToast={handleToast}
-            />
-            <ListManager
-              title={t.settings.expectedDeliveryOptions}
-              icon={PackageCheck}
-              list={expectedDeliveryOptions}
-              listName={t.settings.expectedDeliveryOptions}
-              onAddItem={(value) => addListItem('expectedDeliveryOptions', value)}
-              onDeleteItem={(id) => deleteListItem('expectedDeliveryOptions', id)}
-              onEditItem={(listName, item) => openEditItemDialog('expectedDeliveryOptions', listName, item)}
-              onReorderItems={(ids) => reorderListItems('expectedDeliveryOptions', ids)}
-              onToast={handleToast}
-            />
-            <ListManager
-              title={t.settings.workingConditions}
-              icon={Droplets}
-              list={workingConditions}
-              listName={t.settings.workingConditions}
-              onAddItem={(value) => addListItem('workingConditions', value)}
-              onDeleteItem={(id) => deleteListItem('workingConditions', id)}
-              onEditItem={(listName, item) => openEditItemDialog('workingConditions', listName, item)}
-              onReorderItems={(ids) => reorderListItems('workingConditions', ids)}
-              onToast={handleToast}
-            />
-            <ListManager
-              title={t.settings.usageTypes}
-              icon={Route}
-              list={usageTypes}
-              listName={t.settings.usageTypes}
-              onAddItem={(value) => addListItem('usageTypes', value)}
-              onDeleteItem={(id) => deleteListItem('usageTypes', id)}
-              onEditItem={(listName, item) => openEditItemDialog('usageTypes', listName, item)}
-              onReorderItems={(ids) => reorderListItems('usageTypes', ids)}
-              onToast={handleToast}
-            />
-            <ListManager
-              title={t.settings.environments}
-              icon={Wind}
-              list={environments}
-              listName={t.settings.environments}
-              onAddItem={(value) => addListItem('environments', value)}
-              onDeleteItem={(id) => deleteListItem('environments', id)}
-              onEditItem={(listName, item) => openEditItemDialog('environments', listName, item)}
-              onReorderItems={(ids) => reorderListItems('environments', ids)}
-              onToast={handleToast}
-            />
-          </div>
-        </TabsContent>
+          {(() => {
+            const renderListPanel = (
+              category: ListCategory,
+              title: string,
+              icon: any,
+              list: ListItem[],
+            ) => {
+              const Icon = icon;
+              return (
+                <AccordionItem value={category} className="border border-border rounded-lg bg-card px-4 border-b-0">
+                  <AccordionTrigger className="hover:no-underline py-3">
+                    <div className="flex flex-1 items-center justify-between pr-2">
+                      <div className="flex items-center gap-2">
+                        <Icon className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-semibold text-foreground">{title}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{(list?.length ?? 0)} items</span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="pt-2">
+                    <ListManager
+                      title={title}
+                      icon={icon}
+                      list={list}
+                      listName={title}
+                      onAddItem={(value) => addListItem(category, value)}
+                      onDeleteItem={(id) => deleteListItem(category, id)}
+                      onEditItem={(listName, item) => openEditItemDialog(category, listName, item)}
+                      onReorderItems={(ids) => reorderListItems(category, ids)}
+                      onToast={handleToast}
+                    />
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            };
 
-        <TabsContent value="product-types" className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <ListManager
-              title={t.settings.configurationTypes}
-              icon={Box}
-              list={configurationTypes}
-              listName={t.settings.configurationTypes}
-              onAddItem={(value) => addListItem('configurationTypes', value)}
-              onDeleteItem={(id) => deleteListItem('configurationTypes', id)}
-              onEditItem={(listName, item) => openEditItemDialog('configurationTypes', listName, item)}
-              onReorderItems={(ids) => reorderListItems('configurationTypes', ids)}
-              onToast={handleToast}
-            />
-            <ListManager
-              title={t.settings.axleLocations}
-              icon={Layers}
-              list={axleLocations}
-              listName={t.settings.axleLocations}
-              onAddItem={(value) => addListItem('axleLocations', value)}
-              onDeleteItem={(id) => deleteListItem('axleLocations', id)}
-              onEditItem={(listName, item) => openEditItemDialog('axleLocations', listName, item)}
-              onReorderItems={(ids) => reorderListItems('axleLocations', ids)}
-              onToast={handleToast}
-            />
-            <ListManager
-              title={t.settings.articulationTypes}
-              icon={ArrowRightLeft}
-              list={articulationTypes}
-              listName={t.settings.articulationTypes}
-              onAddItem={(value) => addListItem('articulationTypes', value)}
-              onDeleteItem={(id) => deleteListItem('articulationTypes', id)}
-              onEditItem={(listName, item) => openEditItemDialog('articulationTypes', listName, item)}
-              onReorderItems={(ids) => reorderListItems('articulationTypes', ids)}
-              onToast={handleToast}
-            />
-          </div>
+            const productTypesCount =
+              (configurationTypes?.length ?? 0) +
+              (axleLocations?.length ?? 0) +
+              (articulationTypes?.length ?? 0);
+
+            return (
+              <Accordion type="multiple" className="space-y-3">
+                <AccordionItem value="product-types" className="border border-border rounded-lg bg-card px-4 border-b-0">
+                  <AccordionTrigger className="hover:no-underline py-3">
+                    <div className="flex flex-1 items-center justify-between pr-2">
+                      <div className="flex items-center gap-2">
+                        <Layers className="h-4 w-4 text-muted-foreground" />
+                        <span className="text-sm font-semibold text-foreground">{t.settings.productTypes}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{productTypesCount} items</span>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="pt-2">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <ListManager
+                        title={t.settings.configurationTypes}
+                        icon={Box}
+                        list={configurationTypes}
+                        listName={t.settings.configurationTypes}
+                        onAddItem={(value) => addListItem('configurationTypes', value)}
+                        onDeleteItem={(id) => deleteListItem('configurationTypes', id)}
+                        onEditItem={(listName, item) => openEditItemDialog('configurationTypes', listName, item)}
+                        onReorderItems={(ids) => reorderListItems('configurationTypes', ids)}
+                        onToast={handleToast}
+                      />
+                      <ListManager
+                        title={t.settings.axleLocations}
+                        icon={Layers}
+                        list={axleLocations}
+                        listName={t.settings.axleLocations}
+                        onAddItem={(value) => addListItem('axleLocations', value)}
+                        onDeleteItem={(id) => deleteListItem('axleLocations', id)}
+                        onEditItem={(listName, item) => openEditItemDialog('axleLocations', listName, item)}
+                        onReorderItems={(ids) => reorderListItems('axleLocations', ids)}
+                        onToast={handleToast}
+                      />
+                      <ListManager
+                        title={t.settings.articulationTypes}
+                        icon={ArrowRightLeft}
+                        list={articulationTypes}
+                        listName={t.settings.articulationTypes}
+                        onAddItem={(value) => addListItem('articulationTypes', value)}
+                        onDeleteItem={(id) => deleteListItem('articulationTypes', id)}
+                        onEditItem={(listName, item) => openEditItemDialog('articulationTypes', listName, item)}
+                        onReorderItems={(ids) => reorderListItems('articulationTypes', ids)}
+                        onToast={handleToast}
+                      />
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+
+                {renderListPanel('applicationVehicles', t.settings.applicationVehicles, Truck, applicationVehicles)}
+                {renderListPanel('countries', t.settings.countries, Globe, countries)}
+                {renderListPanel('brakeSizes', t.settings.brakeSizes, SettingsIcon, brakeSizes)}
+                {renderListPanel('brakeTypes', t.settings.brakeTypes, Circle, brakeTypes)}
+                {renderListPanel('brakePowerTypes', t.settings.brakePowerTypes, SettingsIcon, brakePowerTypes)}
+                {renderListPanel('brakeCertificates', t.settings.brakeCertificates, SettingsIcon, brakeCertificates)}
+                {renderListPanel('mainBodySectionTypes', t.settings.mainBodySectionTypes, Box, mainBodySectionTypes)}
+                {renderListPanel('clientSealingRequests', t.settings.clientSealingRequests, SettingsIcon, clientSealingRequests)}
+                {renderListPanel('cupLogoOptions', t.settings.cupLogoOptions, Circle, cupLogoOptions)}
+                {renderListPanel('suspensions', t.settings.suspensions, SettingsIcon, suspensions)}
+                {renderListPanel('repeatabilityTypes', t.settings.repeatabilityTypes, Repeat, repeatabilityTypes)}
+                {renderListPanel('expectedDeliveryOptions', t.settings.expectedDeliveryOptions, PackageCheck, expectedDeliveryOptions)}
+                {renderListPanel('workingConditions', t.settings.workingConditions, Droplets, workingConditions)}
+                {renderListPanel('usageTypes', t.settings.usageTypes, Route, usageTypes)}
+                {renderListPanel('environments', t.settings.environments, Wind, environments)}
+              </Accordion>
+            );
+          })()}
         </TabsContent>
 
         <TabsContent value="users" className="space-y-6">
