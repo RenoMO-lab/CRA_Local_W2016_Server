@@ -187,10 +187,10 @@ const RequestForm: React.FC = () => {
   useEffect(() => {
     if (!id) return;
     if (location.pathname.includes('/new')) return;
-    if (existingRequest) return;
-    // Ensure direct navigation works even when the dashboard is only polling summaries.
+    // Always ask for the full request object. The dashboard polls summaries which may exist in memory
+    // but are missing history/details, so we can't treat "exists" as "fully loaded".
     void getRequestByIdAsync(id);
-  }, [id, existingRequest, getRequestByIdAsync, location.pathname]);
+  }, [id, getRequestByIdAsync, location.pathname]);
 
   const [formData, setFormData] = useState<Partial<CustomerRequest>>(
     existingRequest ? { ...existingRequest, products: normalizeProducts(existingRequest) } : getInitialFormData()
