@@ -116,7 +116,8 @@ const Dashboard: React.FC = () => {
         ];
       case 'costing':
         return [
-          { title: t.dashboard.readyForCosting, value: countByStatus(['feasibility_confirmed', 'design_result']), icon: FileText, filterValue: 'feasibility_confirmed' as FilterType },
+          // "Ready for costing" starts only after Design Result is submitted.
+          { title: t.dashboard.readyForCosting, value: countByStatus(['design_result']), icon: FileText, filterValue: 'design_result' as FilterType },
           { title: t.dashboard.inCosting, value: countByStatus(['in_costing']), icon: Clock, filterValue: 'in_costing' as FilterType },
           { title: t.dashboard.completed, value: countByStatus(['costing_complete']), icon: CheckCircle, filterValue: 'costing_complete' as FilterType },
           { title: t.dashboard.totalProcessed, value: countByStatus(['in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected']), icon: TrendingUp, filterValue: 'all' as FilterType },
