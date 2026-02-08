@@ -143,3 +143,27 @@ Deploy script: `CRA_Local/deploy/deploy.ps1`
 - `login failed`: verify SQL login permissions and database name.
 - Port conflicts: update `PORT` (API) and `VITE_API_PROXY`.
 
+## Backup And Disaster Recovery (RPO 24h / RTO 2h)
+
+This app stores all business data in SQL Server (`DB_NAME`, defaults to `request_navigator`). If the VM/server is lost, **your recovery depends on having recent `.bak` backups stored off the VM** (NAS).
+
+Current VM note: the deploy script performs a `BACKUP DATABASE` before deployment, but that backup is only useful if it is stored/copied to a safe location (NAS) and restores are tested.
+
+### Recommended Setup (Best Practice)
+
+- Daily full backup to NAS (meets RPO 24h).
+- Optional (recommended): differential backups every 6 hours + transaction log backups hourly (improves RPO/RTO).
+- Always use `WITH CHECKSUM` and run `RESTORE VERIFYONLY`.
+- Keep at least 14 days of backups on NAS (or follow your company policy).
+- Test restore monthly to a separate DB name (fire drill).
+
+### SQL Server Edition
+
+The production VM is running **Enterprise Evaluation Edition (64-bit)** which includes SQL Server Agent. Use SQL Agent jobs for scheduled backups.
+
+### SQL Scripts For IT
+
+- SQL Agent jobs (full + optional diff/log + cleanup): `CRA_Local/docs/sqlserver/backup-jobs.sql`
+- Restore runbook (step-by-step): `CRA_Local/docs/sqlserver/backup-and-restore.md`
+
+Important: the SQL Server service account (or SQL Agent proxy) must have write permissions to the NAS share path used for backups (example: `\\\\NAS\\SQLBackups\\CRA_Local`).
