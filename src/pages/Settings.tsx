@@ -49,7 +49,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, RefreshCw, Mail, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, Database, RefreshCw, Mail, ChevronDown } from 'lucide-react';
 import { ROLE_CONFIG, UserRole } from '@/types';
 import { cn } from '@/lib/utils';
 import ListManager from '@/components/settings/ListManager';
@@ -188,6 +188,47 @@ interface M365AdminResponse {
   } | null;
 }
 
+type DbMonitorWaitRow = {
+  waitType: string;
+  waitMs: number | null;
+};
+
+type DbMonitorQueryRow = {
+  queryHash: string;
+  execCount: number | null;
+  totalMs: number | null;
+  avgMs: number | null;
+  cpuMs: number | null;
+  logicalReads: number | null;
+};
+
+type DbMonitorSnapshot = {
+  collectedAt: string;
+  database: {
+    databaseName: string;
+    serverName: string;
+    productVersion: string;
+    edition: string;
+  } | null;
+  sizeMb: number | null;
+  sessions: {
+    userSessions: number | null;
+    activeRequests: number | null;
+    blockedRequests: number | null;
+  };
+  topWaits: DbMonitorWaitRow[];
+  topQueries: DbMonitorQueryRow[];
+  errors: { section: string; message: string }[];
+};
+
+type DbMonitorState = {
+  snapshot: DbMonitorSnapshot | null;
+  refreshing: boolean;
+  lastError: string | null;
+  lastRefreshedAt: string | null;
+  nextRefreshAt: string | null;
+};
+
 const Settings: React.FC = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -243,6 +284,9 @@ const Settings: React.FC = () => {
   const [deployInfo, setDeployInfo] = useState<DeployInfo | null>(null);
   const [isDeployLoading, setIsDeployLoading] = useState(false);
   const [hasDeployError, setHasDeployError] = useState(false);
+  const [dbMonitor, setDbMonitor] = useState<DbMonitorState | null>(null);
+  const [isDbMonitorLoading, setIsDbMonitorLoading] = useState(false);
+  const [hasDbMonitorError, setHasDbMonitorError] = useState(false);
   const [m365Info, setM365Info] = useState<M365AdminResponse | null>(null);
   const [isM365Loading, setIsM365Loading] = useState(false);
   const [hasM365Error, setHasM365Error] = useState(false);
@@ -604,9 +648,48 @@ const Settings: React.FC = () => {
     }
   };
 
+  const loadDbMonitor = async () => {
+    setIsDbMonitorLoading(true);
+    setHasDbMonitorError(false);
+    try {
+      const res = await fetch('/api/admin/db-monitor');
+      if (!res.ok) throw new Error(`Failed to load DB monitor: ${res.status}`);
+      const data = await res.json();
+      setDbMonitor(data);
+    } catch (error) {
+      console.error('Failed to load DB monitor:', error);
+      setDbMonitor(null);
+      setHasDbMonitorError(true);
+    } finally {
+      setIsDbMonitorLoading(false);
+    }
+  };
+
+  const refreshDbMonitor = async () => {
+    setIsDbMonitorLoading(true);
+    setHasDbMonitorError(false);
+    try {
+      const res = await fetch('/api/admin/db-monitor/refresh', { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Refresh failed: ${res.status}`);
+      setDbMonitor(data);
+    } catch (error) {
+      console.error('Failed to refresh DB monitor:', error);
+      setHasDbMonitorError(true);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDbMonitorLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadDeployInfo();
     loadM365Info();
+    loadDbMonitor();
   }, []);
 
   const loadFeedback = useCallback(async () => {
@@ -998,6 +1081,10 @@ const Settings: React.FC = () => {
           <TabsTrigger value="m365" className="data-[state=active]:bg-background">
             <Mail size={16} className="mr-2" />
             {t.settings.m365Tab}
+          </TabsTrigger>
+          <TabsTrigger value="dbmonitor" className="data-[state=active]:bg-background">
+            <Database size={16} className="mr-2" />
+            {t.settings.dbMonitorTab}
           </TabsTrigger>
           <TabsTrigger value="deployments" className="data-[state=active]:bg-background">
             <Server size={16} className="mr-2" />
@@ -2051,6 +2138,181 @@ const Settings: React.FC = () => {
               </div>
             )}
           </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="dbmonitor" className="space-y-6">
+          <div className="bg-card rounded-lg border border-border p-4 md:p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <h3 className="text-lg font-semibold text-foreground">{t.settings.dbMonitorTitle}</h3>
+                <p className="text-sm text-muted-foreground">{t.settings.dbMonitorDescription}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t.settings.dbMonitorAutoRefresh}: {t.settings.dbMonitorHourly}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2 md:items-end">
+                <div className="text-xs text-muted-foreground">
+                  {t.settings.dbMonitorLastUpdated}:{' '}
+                  <span className="text-foreground">
+                    {dbMonitor?.snapshot?.collectedAt ? format(new Date(dbMonitor.snapshot.collectedAt), 'MMM d, yyyy HH:mm') : '-'}
+                  </span>
+                  {dbMonitor?.nextRefreshAt ? (
+                    <span className="ml-2 text-muted-foreground">
+                      ({t.settings.dbMonitorNext}: {format(new Date(dbMonitor.nextRefreshAt), 'MMM d, HH:mm')})
+                    </span>
+                  ) : null}
+                </div>
+                <Button variant="outline" onClick={refreshDbMonitor} disabled={isDbMonitorLoading}>
+                  <RefreshCw size={16} className="mr-2" />
+                  {isDbMonitorLoading ? t.common.loading : t.settings.dbMonitorRefresh}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {hasDbMonitorError ? (
+            <div className="bg-card rounded-lg border border-destructive/30 p-4 text-sm text-destructive">
+              {t.settings.dbMonitorLoadError}
+            </div>
+          ) : null}
+
+          {dbMonitor?.lastError ? (
+            <div className="bg-card rounded-lg border border-destructive/30 p-4 text-sm text-destructive">
+              {t.settings.dbMonitorCollectorError}: {dbMonitor.lastError}
+            </div>
+          ) : null}
+
+          {dbMonitor?.snapshot?.errors?.length ? (
+            <div className="bg-card rounded-lg border border-border p-4">
+              <div className="text-sm font-semibold text-foreground">{t.settings.dbMonitorPartialTitle}</div>
+              <div className="text-xs text-muted-foreground mt-1">{t.settings.dbMonitorPartialDesc}</div>
+              <div className="mt-3 space-y-2 text-sm">
+                {dbMonitor.snapshot.errors.slice(0, 6).map((e, idx) => (
+                  <div key={`${e.section}-${idx}`} className="rounded-md border border-border bg-muted/20 p-2">
+                    <div className="font-medium text-foreground">{e.section}</div>
+                    <div className="text-xs text-muted-foreground break-words">{e.message}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-3 lg:col-span-2">
+              <div className="text-sm font-semibold text-foreground">{t.settings.dbMonitorDbInfo}</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div className="rounded-md border border-border bg-muted/10 p-3">
+                  <div className="text-xs text-muted-foreground">{t.settings.dbMonitorDbName}</div>
+                  <div className="font-medium text-foreground break-all">{dbMonitor?.snapshot?.database?.databaseName || '-'}</div>
+                </div>
+                <div className="rounded-md border border-border bg-muted/10 p-3">
+                  <div className="text-xs text-muted-foreground">{t.settings.dbMonitorServer}</div>
+                  <div className="font-medium text-foreground break-all">{dbMonitor?.snapshot?.database?.serverName || '-'}</div>
+                </div>
+                <div className="rounded-md border border-border bg-muted/10 p-3">
+                  <div className="text-xs text-muted-foreground">{t.settings.dbMonitorEdition}</div>
+                  <div className="font-medium text-foreground break-words">{dbMonitor?.snapshot?.database?.edition || '-'}</div>
+                </div>
+                <div className="rounded-md border border-border bg-muted/10 p-3">
+                  <div className="text-xs text-muted-foreground">{t.settings.dbMonitorVersion}</div>
+                  <div className="font-medium text-foreground">{dbMonitor?.snapshot?.database?.productVersion || '-'}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-3">
+              <div className="text-sm font-semibold text-foreground">{t.settings.dbMonitorActivity}</div>
+              <div className="space-y-3 text-sm">
+                <div className="rounded-md border border-border bg-muted/10 p-3">
+                  <div className="text-xs text-muted-foreground">{t.settings.dbMonitorDbSize}</div>
+                  <div className="text-2xl font-semibold text-foreground">
+                    {dbMonitor?.snapshot?.sizeMb !== null && dbMonitor?.snapshot?.sizeMb !== undefined
+                      ? `${Math.round(dbMonitor.snapshot.sizeMb)} MB`
+                      : '-'}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-md border border-border bg-muted/10 p-3">
+                    <div className="text-[11px] text-muted-foreground">{t.settings.dbMonitorSessions}</div>
+                    <div className="text-lg font-semibold text-foreground">{dbMonitor?.snapshot?.sessions?.userSessions ?? '-'}</div>
+                  </div>
+                  <div className="rounded-md border border-border bg-muted/10 p-3">
+                    <div className="text-[11px] text-muted-foreground">{t.settings.dbMonitorActive}</div>
+                    <div className="text-lg font-semibold text-foreground">{dbMonitor?.snapshot?.sessions?.activeRequests ?? '-'}</div>
+                  </div>
+                  <div className="rounded-md border border-border bg-muted/10 p-3">
+                    <div className="text-[11px] text-muted-foreground">{t.settings.dbMonitorBlocked}</div>
+                    <div className={cn('text-lg font-semibold', (dbMonitor?.snapshot?.sessions?.blockedRequests ?? 0) > 0 ? 'text-destructive' : 'text-foreground')}>
+                      {dbMonitor?.snapshot?.sessions?.blockedRequests ?? '-'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-foreground">{t.settings.dbMonitorTopWaits}</div>
+              </div>
+              {dbMonitor?.snapshot?.topWaits?.length ? (
+                <div className="rounded-md border border-border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t.settings.dbMonitorWaitType}</TableHead>
+                        <TableHead className="text-right">{t.settings.dbMonitorWaitMs}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dbMonitor.snapshot.topWaits.slice(0, 10).map((row, idx) => (
+                        <TableRow key={`${row.waitType}-${idx}`}>
+                          <TableCell className="font-mono text-xs break-all">{row.waitType}</TableCell>
+                          <TableCell className="text-right text-sm">{row.waitMs ?? '-'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t.settings.dbMonitorNoData}</p>
+              )}
+            </div>
+
+            <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-foreground">{t.settings.dbMonitorTopQueries}</div>
+              </div>
+              {dbMonitor?.snapshot?.topQueries?.length ? (
+                <div className="rounded-md border border-border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t.settings.dbMonitorQueryHash}</TableHead>
+                        <TableHead className="text-right">{t.settings.dbMonitorExec}</TableHead>
+                        <TableHead className="text-right">{t.settings.dbMonitorAvgMs}</TableHead>
+                        <TableHead className="text-right">{t.settings.dbMonitorTotalMs}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dbMonitor.snapshot.topQueries.slice(0, 10).map((row, idx) => (
+                        <TableRow key={`${row.queryHash}-${idx}`}>
+                          <TableCell className="font-mono text-xs break-all">{row.queryHash}</TableCell>
+                          <TableCell className="text-right text-sm">{row.execCount ?? '-'}</TableCell>
+                          <TableCell className="text-right text-sm">{row.avgMs !== null && row.avgMs !== undefined ? Math.round(row.avgMs) : '-'}</TableCell>
+                          <TableCell className="text-right text-sm">{row.totalMs !== null && row.totalMs !== undefined ? Math.round(row.totalMs) : '-'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t.settings.dbMonitorNoData}</p>
+              )}
+              <p className="text-xs text-muted-foreground">{t.settings.dbMonitorPermissionHint}</p>
+            </div>
           </div>
         </TabsContent>
 

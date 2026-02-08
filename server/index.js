@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import { apiRouter } from "./api.js";
 import { getPool } from "./db.js";
 import { startNotificationsWorker } from "./notificationsWorker.js";
+import { startDbMonitor } from "./dbMonitor.js";
 
 dotenv.config();
 
@@ -89,6 +90,12 @@ connectWithRetry()
       startNotificationsWorker({ getPool });
     } catch (e) {
       console.error("Failed to start notifications worker:", e);
+    }
+
+    try {
+      startDbMonitor();
+    } catch (e) {
+      console.error("Failed to start DB monitor:", e);
     }
   })
   .catch((error) => {

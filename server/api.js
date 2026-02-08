@@ -23,6 +23,7 @@ import {
   updateDeviceCodeSessionStatus,
   updateM365Settings,
 } from "./m365.js";
+import { getDbMonitorState, refreshDbMonitorSnapshot } from "./dbMonitor.js";
 
 const ADMIN_LIST_CATEGORIES = new Set([
   "applicationVehicles",
@@ -823,6 +824,21 @@ export const apiRouter = (() => {
           available: logContent !== null,
         },
       });
+    })
+  );
+
+  router.get(
+    "/admin/db-monitor",
+    asyncHandler(async (req, res) => {
+      res.json(getDbMonitorState());
+    })
+  );
+
+  router.post(
+    "/admin/db-monitor/refresh",
+    asyncHandler(async (req, res) => {
+      const state = await refreshDbMonitorSnapshot();
+      res.json(state);
     })
   );
 
