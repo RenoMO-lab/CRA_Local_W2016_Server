@@ -309,6 +309,28 @@ const RequestForm: React.FC = () => {
   const isDesignRole = user?.role === 'design';
   const isSalesRole = user?.role === 'sales';
   const [isMyActionsOpen, setIsMyActionsOpen] = useState(false);
+  const [myActionsResult, setMyActionsResult] = useState<null | {
+    status: RequestStatus;
+    transferredTo: string;
+  }>(null);
+  const myActionsAutoCloseRef = useRef<number | null>(null);
+
+  const clearMyActionsAutoClose = () => {
+    if (myActionsAutoCloseRef.current) {
+      window.clearTimeout(myActionsAutoCloseRef.current);
+      myActionsAutoCloseRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    if (!isMyActionsOpen) {
+      clearMyActionsAutoClose();
+      setMyActionsResult(null);
+      return;
+    }
+    // Each time the drawer opens, reset the completion banner.
+    setMyActionsResult(null);
+  }, [isMyActionsOpen, existingRequest?.id]);
 
   const isImageFile = (filename: string) => {
     const ext = filename.toLowerCase().split('.').pop();
@@ -898,7 +920,7 @@ const RequestForm: React.FC = () => {
   };
 
   const handleDesignStatusUpdate = async (status: RequestStatus, data?: { comment?: string; message?: string; date?: Date }) => {
-    if (!existingRequest) return;
+    if (!existingRequest) return false;
     
     setIsUpdating(true);
     try {
@@ -921,19 +943,21 @@ const RequestForm: React.FC = () => {
         title: t.request.statusUpdated,
         description: `${t.common.status}: ${t.statuses[status as keyof typeof t.statuses] || status}`,
       });
+      return true;
     } catch (error) {
       toast({
         title: t.request.error,
         description: t.request.failedSubmit,
         variant: 'destructive',
       });
+      return false;
     } finally {
       setIsUpdating(false);
     }
   };
 
   const handleCostingStatusUpdate = async (status: RequestStatus, notes?: string) => {
-    if (!existingRequest) return;
+    if (!existingRequest) return false;
     
     setIsUpdating(true);
     try {
@@ -948,19 +972,21 @@ const RequestForm: React.FC = () => {
         title: t.request.statusUpdated,
         description: `${t.common.status}: ${t.statuses[status as keyof typeof t.statuses] || status}`,
       });
+      return true;
     } catch (error) {
       toast({
         title: t.request.error,
         description: t.request.failedSubmit,
         variant: 'destructive',
       });
+      return false;
     } finally {
       setIsUpdating(false);
     }
   };
 
   const handleClarificationResubmit = async (response: string) => {
-    if (!existingRequest) return;
+    if (!existingRequest) return false;
     
     setIsSubmitting(true);
     try {
@@ -978,12 +1004,14 @@ const RequestForm: React.FC = () => {
         description: t.request.requestSubmittedDesc,
       });
       showSubmitConfirmation();
+      return true;
     } catch (error) {
       toast({
         title: t.request.error,
         description: t.request.failedSubmit,
         variant: 'destructive',
       });
+      return false;
     } finally {
       setIsSubmitting(false);
     }
@@ -1039,8 +1067,65 @@ const RequestForm: React.FC = () => {
     )
   );
 
+  const getTransferTarget = (status: RequestStatus) => {
+    // Keep this simple and explicit: the text is used in the completion banner.
+    if (status === 'clarification_needed') return t.roles.sales;
+    if (status === 'submitted') return t.roles.design;
+    if (status === 'design_result') return t.roles.costing;
+    if (status === 'costing_complete') return t.roles.sales;
+    if (status === 'gm_approval_pending') return t.request.roleGm;
+    if (status === 'gm_approved' || status === 'gm_rejected') return t.roles.sales;
+    if (status === 'closed') return t.request.workflowComplete;
+    return t.request.nextStepUnknown;
+  };
+
+  const markMyActionComplete = (status: RequestStatus) => {
+    const transferredTo = getTransferTarget(status);
+    setMyActionsResult({ status, transferredTo });
+    clearMyActionsAutoClose();
+    myActionsAutoCloseRef.current = window.setTimeout(() => {
+      setIsMyActionsOpen(false);
+    }, 2200);
+  };
+
   const renderMyActionsContent = () => {
     if (!existingRequest) return null;
+    if (myActionsResult) {
+      const statusLabel = t.statuses[myActionsResult.status as keyof typeof t.statuses] || myActionsResult.status;
+      return (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-success/30 bg-success/10 p-4">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 h-10 w-10 rounded-xl bg-success/20 text-success flex items-center justify-center">
+                <CheckCircle size={20} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-foreground">{t.request.actionCompletedTitle}</div>
+                <div className="mt-1 text-sm text-muted-foreground">
+                  {t.request.actionCompletedDesc}
+                </div>
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="rounded-lg border border-border bg-card/60 px-3 py-2">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.common.status}</div>
+                    <div className="text-sm font-semibold text-foreground">{statusLabel}</div>
+                  </div>
+                  <div className="rounded-lg border border-border bg-card/60 px-3 py-2">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.request.transferredTo}</div>
+                    <div className="text-sm font-semibold text-foreground">{myActionsResult.transferredTo}</div>
+                  </div>
+                </div>
+                <div className="mt-3 text-xs text-muted-foreground">{t.request.drawerAutoCloseHint}</div>
+                <div className="mt-4 flex items-center justify-end gap-2">
+                  <Button variant="outline" onClick={() => setIsMyActionsOpen(false)}>
+                    {t.common.close}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     if (user?.role === 'admin') {
       return (
@@ -1063,7 +1148,12 @@ const RequestForm: React.FC = () => {
         return (
           <ClarificationPanel
             request={existingRequest}
-            onResubmit={handleClarificationResubmit}
+            onResubmit={async (response) => {
+              const ok = await handleClarificationResubmit(response);
+              if (ok) {
+                markMyActionComplete('submitted');
+              }
+            }}
             isSubmitting={isSubmitting}
           />
         );
@@ -1073,7 +1163,13 @@ const RequestForm: React.FC = () => {
         return (
           <SalesFollowupPanel
             request={existingRequest}
-            onUpdateStatus={handleSalesStatusUpdate}
+            onUpdateStatus={async (status, comment) => {
+              const ok = await handleSalesStatusUpdate(status, comment);
+              if (!ok) return;
+              if (['gm_approval_pending', 'gm_approved', 'gm_rejected', 'closed'].includes(status)) {
+                markMyActionComplete(status);
+              }
+            }}
             onUpdateSalesData={async (data) => {
               await updateRequest(existingRequest.id, data);
             }}
@@ -1117,7 +1213,12 @@ const RequestForm: React.FC = () => {
             <>
               <DesignReviewPanel
                 request={existingRequest}
-                onUpdateStatus={handleDesignStatusUpdate}
+                onUpdateStatus={async (status, data) => {
+                  const ok = await handleDesignStatusUpdate(status, data);
+                  if (ok && status === 'clarification_needed') {
+                    markMyActionComplete(status);
+                  }
+                }}
                 isUpdating={isUpdating}
                 showActions={showDesignPanel}
                 forceEnableActions={isAdminEdit}
@@ -1145,10 +1246,15 @@ const RequestForm: React.FC = () => {
                 />
                 {canEditDesignResult && (
                   <Button
-                    onClick={() => handleDesignResultSave({
-                      comments: designResultComments,
-                      attachments: designResultAttachments,
-                    })}
+                    onClick={async () => {
+                      const ok = await handleDesignResultSave({
+                        comments: designResultComments,
+                        attachments: designResultAttachments,
+                      });
+                      if (ok) {
+                        markMyActionComplete('design_result');
+                      }
+                    }}
                     disabled={isUpdating}
                     className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
                   >
@@ -1168,7 +1274,12 @@ const RequestForm: React.FC = () => {
         return (
           <CostingPanel
             request={existingRequest}
-            onUpdateStatus={handleCostingStatusUpdate}
+            onUpdateStatus={async (status, notes) => {
+              const ok = await handleCostingStatusUpdate(status, notes);
+              if (ok && status === 'costing_complete') {
+                markMyActionComplete(status);
+              }
+            }}
             onUpdateCostingData={async (data) => {
               await updateRequest(existingRequest.id, data);
             }}
@@ -1302,7 +1413,7 @@ const RequestForm: React.FC = () => {
   };
 
   const handleDesignResultSave = async (payload: { comments: string; attachments: Attachment[] }) => {
-    if (!existingRequest) return;
+    if (!existingRequest) return false;
     setIsUpdating(true);
     try {
       await updateRequest(existingRequest.id, {
@@ -1316,19 +1427,21 @@ const RequestForm: React.FC = () => {
         title: t.request.statusUpdated,
         description: t.request.draftSavedDesc,
       });
+      return true;
     } catch (error) {
       toast({
         title: t.request.error,
         description: t.request.failedSubmit,
         variant: 'destructive',
       });
+      return false;
     } finally {
       setIsUpdating(false);
     }
   };
 
   const handleSalesStatusUpdate = async (status: RequestStatus, comment?: string) => {
-    if (!existingRequest) return;
+    if (!existingRequest) return false;
 
     setIsUpdating(true);
     try {
@@ -1340,12 +1453,14 @@ const RequestForm: React.FC = () => {
         title: t.request.statusUpdated,
         description: `${t.common.status}: ${t.statuses[status as keyof typeof t.statuses] || status}`,
       });
+      return true;
     } catch (error) {
       toast({
         title: t.request.error,
         description: t.request.failedSubmit,
         variant: 'destructive',
       });
+      return false;
     } finally {
       setIsUpdating(false);
     }
