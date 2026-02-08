@@ -836,6 +836,7 @@ const Settings: React.FC = () => {
       'expectedQty',
       'repeatability',
       'expectedDeliverySelections',
+      'clientExpectedDeliveryDate',
       'workingCondition',
       'workingConditionOther',
       'usageType',
@@ -923,6 +924,132 @@ const Settings: React.FC = () => {
     }
 
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const exportRequestsXlsx = async () => {
+    if (isLoading) {
+      toast({
+        title: t.common.loading,
+        description: t.common.loading,
+      });
+      return;
+    }
+
+    if (!requests.length) {
+      toast({
+        title: t.table.noRequestsFound,
+        description: t.table.noRequestsFound,
+      });
+      return;
+    }
+
+    // Dynamic import to avoid loading XLSX for all users.
+    const XLSX = await import('xlsx');
+
+    const headers = [
+      'id',
+      'status',
+      'clientName',
+      'clientContact',
+      'applicationVehicle',
+      'applicationVehicleOther',
+      'country',
+      'countryOther',
+      'city',
+      'expectedQty',
+      'repeatability',
+      'expectedDeliverySelections',
+      'clientExpectedDeliveryDate',
+      'workingCondition',
+      'workingConditionOther',
+      'usageType',
+      'usageTypeOther',
+      'environment',
+      'environmentOther',
+      'products',
+      'axleLocation',
+      'axleLocationOther',
+      'articulationType',
+      'articulationTypeOther',
+      'configurationType',
+      'configurationTypeOther',
+      'quantity',
+      'loadsKg',
+      'speedsKmh',
+      'tyreSize',
+      'trackMm',
+      'studsPcdMode',
+      'studsPcdStandardSelections',
+      'studsPcdSpecialText',
+      'wheelBase',
+      'finish',
+      'brakeType',
+      'brakeSize',
+      'brakePowerType',
+      'brakeCertificate',
+      'mainBodySectionType',
+      'clientSealingRequest',
+      'cupLogo',
+      'suspension',
+      'otherRequirements',
+      'attachments',
+      'createdBy',
+      'createdByName',
+      'createdAt',
+      'updatedAt',
+      'designNotes',
+      'acceptanceMessage',
+      'expectedDesignReplyDate',
+      'clarificationComment',
+      'clarificationResponse',
+      'costingNotes',
+      'deliveryLeadtime',
+      'sellingPrice',
+      'calculatedMargin',
+      'history',
+    ];
+
+    const formatValue = (value: any) => {
+      if (value === null || value === undefined) return '';
+      if (value instanceof Date) return value.toISOString();
+      if (Array.isArray(value) || typeof value === 'object') {
+        return JSON.stringify(value, (key, val) => (val instanceof Date ? val.toISOString() : val));
+      }
+      return String(value);
+    };
+
+    const data = requests.map((req) => {
+      const row: Record<string, string> = {};
+      for (const h of headers) {
+        row[h] = formatValue((req as any)[h]);
+      }
+      return row;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data, { header: headers });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Requests');
+
+    const arrayBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
+    const blob = new Blob([arrayBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const filename = `requests-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+    if (isIOS) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
   };
 
   const openEditItemDialog = (category: ListCategory, listName: string, item: ListItem) => {
@@ -1074,12 +1201,18 @@ const Settings: React.FC = () => {
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="space-y-1">
             <h2 className="text-lg font-semibold text-foreground">{t.settings.adminTools}</h2>
-            <p className="text-sm text-muted-foreground">{t.settings.exportCsvDesc}</p>
+            <p className="text-sm text-muted-foreground">{t.settings.exportDataDesc || t.settings.exportCsvDesc}</p>
           </div>
-          <Button onClick={exportRequestsCsv} className="md:self-start">
-            <Download size={16} className="mr-2" />
-            {t.settings.exportCsv}
-          </Button>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:self-start">
+            <Button onClick={exportRequestsCsv}>
+              <Download size={16} className="mr-2" />
+              {t.settings.exportCsv}
+            </Button>
+            <Button variant="outline" onClick={exportRequestsXlsx}>
+              <Download size={16} className="mr-2" />
+              {t.settings.exportXlsx}
+            </Button>
+          </div>
         </div>
       </div>
 
