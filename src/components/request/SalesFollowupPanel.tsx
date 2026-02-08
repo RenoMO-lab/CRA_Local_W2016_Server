@@ -28,22 +28,35 @@ interface SalesFollowupPanelProps {
     salesFeedbackComment?: string;
     salesAttachments?: Attachment[];
   }) => void | Promise<void>;
+  onSaveEdits?: (data: {
+    salesFinalPrice?: number;
+    salesCurrency?: 'USD' | 'EUR' | 'RMB';
+    salesIncoterm?: string;
+    salesIncotermOther?: string;
+    salesVatMode?: 'with' | 'without';
+    salesVatRate?: number | null;
+    salesFeedbackComment?: string;
+    salesAttachments?: Attachment[];
+  }) => void | Promise<void>;
   isUpdating: boolean;
   readOnly?: boolean;
   forceEnableActions?: boolean;
   isAdmin?: boolean;
   isSales?: boolean;
+  editMode?: boolean;
 }
 
 const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   request,
   onUpdateStatus,
   onUpdateSalesData,
+  onSaveEdits,
   isUpdating,
   readOnly = false,
   forceEnableActions = false,
   isAdmin = false,
   isSales = false,
+  editMode = false,
 }) => {
   const { t } = useLanguage();
   const [salesFinalPrice, setSalesFinalPrice] = useState<string>(
@@ -242,6 +255,24 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
     });
   };
 
+  const handleSaveEdits = async () => {
+    const payload = {
+      salesFinalPrice: salesFinalPrice ? parseFloat(salesFinalPrice) : undefined,
+      salesCurrency,
+      salesIncoterm,
+      salesIncotermOther,
+      salesVatMode,
+      salesVatRate: salesVatMode === 'with' ? parseFloat(salesVatRate) : null,
+      salesFeedbackComment,
+      salesAttachments,
+    };
+    if (onSaveEdits) {
+      await onSaveEdits(payload);
+      return;
+    }
+    await onUpdateSalesData(payload);
+  };
+
   const handleSubmitForApproval = async () => {
     const priceValue = parseFloat(salesFinalPrice);
     if (isNaN(priceValue) || priceValue <= 0) return;
@@ -287,7 +318,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
     ? [...request.history].reverse().find((entry) => entry.status === gmDecisionStatus)
     : undefined;
 
-  const showEditor = !readOnly && isSales && ['sales_followup', 'gm_rejected'].includes(request.status);
+  const showEditor = !readOnly && (editMode || (isSales && ['sales_followup', 'gm_rejected'].includes(request.status)));
   const hasSalesSummary = Boolean(
     request.salesFinalPrice ||
       request.salesFeedbackComment ||
@@ -487,26 +518,40 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
               rows={4}
               disabled={readOnly}
             />
-            <Button
-              variant="outline"
-              onClick={handleSaveDraft}
-              disabled={isUpdating || readOnly}
-              size="sm"
-            >
-              {isUpdating && <Loader2 size={14} className="mr-2 animate-spin" />}
-              {t.panels.saveNotes}
-            </Button>
+            {!editMode && (
+              <Button
+                variant="outline"
+                onClick={handleSaveDraft}
+                disabled={isUpdating || readOnly}
+                size="sm"
+              >
+                {isUpdating && <Loader2 size={14} className="mr-2 animate-spin" />}
+                {t.panels.saveNotes}
+              </Button>
+            )}
           </div>
 
-          <Button
-            onClick={handleSubmitForApproval}
-            disabled={!isValidSubmission || isUpdating || !canSubmitForApproval}
-            className="w-full bg-info hover:bg-info/90 text-info-foreground"
-          >
-            {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
-            <CheckCircle size={16} className="mr-2" />
-            {t.panels.submitForApproval}
-          </Button>
+          {editMode ? (
+            <Button
+              onClick={handleSaveEdits}
+              disabled={!isValidSubmission || isUpdating}
+              className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
+              {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
+              <CheckCircle size={16} className="mr-2" />
+              {t.common.save}
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSubmitForApproval}
+              disabled={!isValidSubmission || isUpdating || !canSubmitForApproval}
+              className="w-full bg-info hover:bg-info/90 text-info-foreground"
+            >
+              {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
+              <CheckCircle size={16} className="mr-2" />
+              {t.panels.submitForApproval}
+            </Button>
+          )}
         </>
       )}
 

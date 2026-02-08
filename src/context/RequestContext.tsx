@@ -6,6 +6,12 @@ type RequestUpdatePayload = Partial<CustomerRequest> & {
   historyEvent?: 'edited';
 };
 
+type RequestNotifyPayload = {
+  eventType?: 'request_created' | 'request_status_changed';
+  status?: RequestStatus;
+  comment?: string;
+};
+
 interface RequestContextType {
   requests: CustomerRequest[];
   isLoading: boolean;
@@ -14,6 +20,7 @@ interface RequestContextType {
   createRequest: (request: Omit<CustomerRequest, 'id' | 'createdAt' | 'updatedAt' | 'history' | 'createdBy' | 'createdByName'>) => Promise<CustomerRequest>;
   updateRequest: (id: string, updates: RequestUpdatePayload) => Promise<void>;
   updateStatus: (id: string, status: RequestStatus, comment?: string) => Promise<void>;
+  notifyRequest: (id: string, payload?: RequestNotifyPayload) => Promise<{ enqueued: boolean; reason?: string }>;
   deleteRequest: (id: string) => Promise<void>;
 }
 
@@ -302,6 +309,18 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setRequests(prev => prev.map(r => (r.id === id ? revived : r)));
   }, [user]);
 
+  const notifyRequest = useCallback(async (id: string, payload?: RequestNotifyPayload) => {
+    const result = await fetchJson<{ enqueued: boolean; reason?: string }>(`${API_BASE}/${id}/notify`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...(payload ?? {}),
+        actorName: user?.name || '',
+      }),
+    });
+    return result;
+  }, [user]);
+
   const deleteRequest = useCallback(async (id: string) => {
     await fetch(`${API_BASE}/${id}`, { method: 'DELETE' });
     setRequests(prev => prev.filter(r => r.id !== id));
@@ -316,6 +335,7 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
       createRequest,
       updateRequest,
       updateStatus,
+      notifyRequest,
       deleteRequest,
     }}>
       {children}

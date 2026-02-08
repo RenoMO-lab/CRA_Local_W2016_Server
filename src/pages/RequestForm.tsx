@@ -157,7 +157,7 @@ const RequestForm: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { getRequestById, getRequestByIdAsync, createRequest, updateRequest, updateStatus, isLoading } = useRequests();
+  const { getRequestById, getRequestByIdAsync, createRequest, updateRequest, updateStatus, notifyRequest, isLoading } = useRequests();
   const { t } = useLanguage();
   const {
     applicationVehicles,
@@ -310,9 +310,15 @@ const RequestForm: React.FC = () => {
   const isSalesRole = user?.role === 'sales';
   const [isMyActionsOpen, setIsMyActionsOpen] = useState(false);
   const [myActionsResult, setMyActionsResult] = useState<null | {
+    kind: 'completed' | 'edited';
     status: RequestStatus;
     transferredTo: string;
   }>(null);
+  const [myActionsEditMode, setMyActionsEditMode] = useState({
+    sales: false,
+    design: false,
+    costing: false,
+  });
   const myActionsAutoCloseRef = useRef<number | null>(null);
 
   const clearMyActionsAutoClose = () => {
@@ -326,10 +332,12 @@ const RequestForm: React.FC = () => {
     if (!isMyActionsOpen) {
       clearMyActionsAutoClose();
       setMyActionsResult(null);
+      setMyActionsEditMode({ sales: false, design: false, costing: false });
       return;
     }
     // Each time the drawer opens, reset the completion banner.
     setMyActionsResult(null);
+    setMyActionsEditMode({ sales: false, design: false, costing: false });
   }, [isMyActionsOpen, existingRequest?.id]);
 
   const isImageFile = (filename: string) => {
@@ -1058,11 +1066,40 @@ const RequestForm: React.FC = () => {
         (Array.isArray(existingRequest.designResultAttachments) && existingRequest.designResultAttachments.length > 0))
   );
   const showDesignSummary = Boolean(existingRequest && hasDesignInfo);
+  const canReopenDesignEdits = Boolean(isDesignRole && isDesignSubmitted && hasDesignInfo);
+
+  const isCostingSubmitted = Boolean(
+    existingRequest &&
+      ['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected', 'closed'].includes(existingRequest.status)
+  );
+  const hasCostingInfo = Boolean(
+    existingRequest &&
+      (typeof existingRequest.sellingPrice === 'number' ||
+        typeof existingRequest.calculatedMargin === 'number' ||
+        (existingRequest.incoterm ?? '').trim().length > 0 ||
+        (existingRequest.deliveryLeadtime ?? '').trim().length > 0 ||
+        (existingRequest.costingNotes ?? '').trim().length > 0 ||
+        (Array.isArray(existingRequest.costingAttachments) && existingRequest.costingAttachments.length > 0))
+  );
+  const canReopenCostingEdits = Boolean(user?.role === 'costing' && isCostingSubmitted && hasCostingInfo);
+
+  const isSalesSubmitted = Boolean(
+    existingRequest &&
+      ['gm_approval_pending', 'gm_approved', 'gm_rejected', 'closed'].includes(existingRequest.status)
+  );
+  const hasSalesInfo = Boolean(
+    existingRequest &&
+      (typeof existingRequest.salesFinalPrice === 'number' ||
+        (existingRequest.salesFeedbackComment ?? '').trim().length > 0 ||
+        (existingRequest.salesIncoterm ?? '').trim().length > 0 ||
+        (Array.isArray(existingRequest.salesAttachments) && existingRequest.salesAttachments.length > 0))
+  );
+  const canReopenSalesEdits = Boolean(user?.role === 'sales' && isSalesSubmitted && hasSalesInfo);
   const hasMyActions = Boolean(
     existingRequest && (
-      (user?.role === 'sales' && (showClarificationPanel || showSalesPanel)) ||
-      (user?.role === 'design' && (showDesignPanel || canEditDesignResult)) ||
-      (user?.role === 'costing' && showCostingPanel) ||
+      (user?.role === 'sales' && (showClarificationPanel || showSalesPanel || canReopenSalesEdits)) ||
+      (user?.role === 'design' && (showDesignPanel || canEditDesignResult || canReopenDesignEdits)) ||
+      (user?.role === 'costing' && (showCostingPanel || canReopenCostingEdits)) ||
       (user?.role === 'admin')
     )
   );
@@ -1071,8 +1108,11 @@ const RequestForm: React.FC = () => {
     // Keep this simple and explicit: the text is used in the completion banner.
     if (status === 'clarification_needed') return t.roles.sales;
     if (status === 'submitted') return t.roles.design;
+    if (status === 'feasibility_confirmed') return t.roles.costing;
     if (status === 'design_result') return t.roles.costing;
+    if (status === 'in_costing') return t.roles.costing;
     if (status === 'costing_complete') return t.roles.sales;
+    if (status === 'sales_followup') return t.request.roleGm;
     if (status === 'gm_approval_pending') return t.request.roleGm;
     if (status === 'gm_approved' || status === 'gm_rejected') return t.roles.sales;
     if (status === 'closed') return t.request.workflowComplete;
@@ -1081,7 +1121,16 @@ const RequestForm: React.FC = () => {
 
   const markMyActionComplete = (status: RequestStatus) => {
     const transferredTo = getTransferTarget(status);
-    setMyActionsResult({ status, transferredTo });
+    setMyActionsResult({ kind: 'completed', status, transferredTo });
+    clearMyActionsAutoClose();
+    myActionsAutoCloseRef.current = window.setTimeout(() => {
+      setIsMyActionsOpen(false);
+    }, 2200);
+  };
+
+  const markMyActionEdited = (status: RequestStatus) => {
+    const transferredTo = getTransferTarget(status);
+    setMyActionsResult({ kind: 'edited', status, transferredTo });
     clearMyActionsAutoClose();
     myActionsAutoCloseRef.current = window.setTimeout(() => {
       setIsMyActionsOpen(false);
@@ -1092,6 +1141,7 @@ const RequestForm: React.FC = () => {
     if (!existingRequest) return null;
     if (myActionsResult) {
       const statusLabel = t.statuses[myActionsResult.status as keyof typeof t.statuses] || myActionsResult.status;
+      const isEdited = myActionsResult.kind === 'edited';
       return (
         <div className="space-y-4">
           <div className="rounded-xl border border-success/30 bg-success/10 p-4">
@@ -1100,9 +1150,11 @@ const RequestForm: React.FC = () => {
                 <CheckCircle size={20} />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold text-foreground">{t.request.actionCompletedTitle}</div>
+                <div className="text-sm font-semibold text-foreground">
+                  {isEdited ? t.request.actionEditedTitle : t.request.actionCompletedTitle}
+                </div>
                 <div className="mt-1 text-sm text-muted-foreground">
-                  {t.request.actionCompletedDesc}
+                  {isEdited ? t.request.actionEditedDesc : t.request.actionCompletedDesc}
                 </div>
                 <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="rounded-lg border border-border bg-card/60 px-3 py-2">
@@ -1110,7 +1162,9 @@ const RequestForm: React.FC = () => {
                     <div className="text-sm font-semibold text-foreground">{statusLabel}</div>
                   </div>
                   <div className="rounded-lg border border-border bg-card/60 px-3 py-2">
-                    <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.request.transferredTo}</div>
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      {isEdited ? t.request.notifiedRole : t.request.transferredTo}
+                    </div>
                     <div className="text-sm font-semibold text-foreground">{myActionsResult.transferredTo}</div>
                   </div>
                 </div>
@@ -1160,6 +1214,70 @@ const RequestForm: React.FC = () => {
       }
 
       if (showSalesPanel) {
+        const showSalesEdit = canReopenSalesEdits &&
+          ['gm_approval_pending', 'gm_approved'].includes(existingRequest.status) &&
+          !myActionsEditMode.sales;
+
+        if (myActionsEditMode.sales) {
+          return (
+            <div className="space-y-3">
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setMyActionsEditMode((prev) => ({ ...prev, sales: false }))}
+                >
+                  {t.common.cancel}
+                </Button>
+              </div>
+              <SalesFollowupPanel
+                request={existingRequest}
+                onUpdateStatus={async (status, comment) => {
+                  const ok = await handleSalesStatusUpdate(status, comment);
+                  if (!ok) return;
+                  if (['gm_approval_pending', 'gm_approved', 'gm_rejected', 'closed'].includes(status)) {
+                    markMyActionComplete(status);
+                  }
+                }}
+                onUpdateSalesData={async (data) => {
+                  await updateRequest(existingRequest.id, data);
+                }}
+                onSaveEdits={async (data) => {
+                  await handleSalesEditsSave(data);
+                }}
+                isUpdating={isUpdating}
+                readOnly={false}
+                editMode={true}
+                forceEnableActions={isAdminEdit}
+                isAdmin={false}
+                isSales={true}
+              />
+            </div>
+          );
+        }
+
+        if (showSalesEdit) {
+          return (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm text-muted-foreground">{t.request.submittedInfoReadOnly}</div>
+                <Button onClick={() => setMyActionsEditMode((prev) => ({ ...prev, sales: true }))}>
+                  {t.common.edit}
+                </Button>
+              </div>
+              <SalesFollowupPanel
+                request={existingRequest}
+                onUpdateStatus={async (_status, _comment) => {}}
+                onUpdateSalesData={async (_data) => {}}
+                isUpdating={false}
+                readOnly={true}
+                forceEnableActions={false}
+                isAdmin={false}
+                isSales={true}
+              />
+            </div>
+          );
+        }
+
         return (
           <SalesFollowupPanel
             request={existingRequest}
@@ -1181,9 +1299,99 @@ const RequestForm: React.FC = () => {
           />
         );
       }
+
+      if (canReopenSalesEdits) {
+        return (
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">{t.request.submittedInfoReadOnly}</div>
+            <SalesFollowupPanel
+              request={existingRequest}
+              onUpdateStatus={async (_status, _comment) => {}}
+              onUpdateSalesData={async (_data) => {}}
+              isUpdating={false}
+              readOnly={true}
+              forceEnableActions={false}
+              isAdmin={false}
+              isSales={true}
+            />
+          </div>
+        );
+      }
     }
 
     if (user?.role === 'design') {
+      if (myActionsEditMode.design) {
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setMyActionsEditMode((prev) => ({ ...prev, design: false }))}
+              >
+                {t.common.cancel}
+              </Button>
+            </div>
+            <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+                  <ClipboardCheck size={20} />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground">{t.panels.designAction}</h3>
+                  <p className="text-sm text-muted-foreground">{t.request.editSubmittedHint}</p>
+                </div>
+              </div>
+
+              <DesignResultSection
+                comments={designResultComments}
+                attachments={designResultAttachments}
+                onCommentsChange={(value) => {
+                  setDesignResultComments(value);
+                  setDesignResultDirty(true);
+                }}
+                onAttachmentsChange={(files) => {
+                  setDesignResultAttachments(files);
+                  setDesignResultDirty(true);
+                }}
+                isReadOnly={false}
+                showEmptyState={true}
+              />
+
+              <Button
+                onClick={async () => {
+                  await handleDesignResultEditSave({
+                    comments: designResultComments,
+                    attachments: designResultAttachments,
+                  });
+                }}
+                disabled={isUpdating}
+                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
+                {t.common.save}
+              </Button>
+            </div>
+          </div>
+        );
+      }
+
+      if (canReopenDesignEdits && !myActionsEditMode.design) {
+        const allowEdit = existingRequest.status !== 'closed';
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm text-muted-foreground">{t.request.submittedInfoReadOnly}</div>
+              {allowEdit && (
+                <Button onClick={() => setMyActionsEditMode((prev) => ({ ...prev, design: true }))}>
+                  {t.common.edit}
+                </Button>
+              )}
+            </div>
+            {renderDesignSummary()}
+          </div>
+        );
+      }
+
       return (
         <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -1270,6 +1478,35 @@ const RequestForm: React.FC = () => {
     }
 
     if (user?.role === 'costing') {
+      if (myActionsEditMode.costing) {
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setMyActionsEditMode((prev) => ({ ...prev, costing: false }))}
+              >
+                {t.common.cancel}
+              </Button>
+            </div>
+            <CostingPanel
+              request={existingRequest}
+              onUpdateStatus={async (_status, _notes) => {}}
+              onUpdateCostingData={async (data) => {
+                await updateRequest(existingRequest.id, data);
+              }}
+              onSaveEdits={async (data) => {
+                await handleCostingEditsSave(data);
+              }}
+              isUpdating={isUpdating}
+              readOnly={false}
+              editMode={true}
+              forceEnableActions={isAdminEdit}
+            />
+          </div>
+        );
+      }
+
       if (showCostingPanel) {
         return (
           <CostingPanel
@@ -1287,6 +1524,30 @@ const RequestForm: React.FC = () => {
             readOnly={false}
             forceEnableActions={isAdminEdit}
           />
+        );
+      }
+
+      if (canReopenCostingEdits && !myActionsEditMode.costing) {
+        const allowEdit = existingRequest.status !== 'closed';
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm text-muted-foreground">{t.request.submittedInfoReadOnly}</div>
+              {allowEdit && (
+                <Button onClick={() => setMyActionsEditMode((prev) => ({ ...prev, costing: true }))}>
+                  {t.common.edit}
+                </Button>
+              )}
+            </div>
+            <CostingPanel
+              request={existingRequest}
+              onUpdateStatus={async (_status, _notes) => {}}
+              onUpdateCostingData={async (_data) => {}}
+              isUpdating={false}
+              readOnly={true}
+              forceEnableActions={false}
+            />
+          </div>
         );
       }
     }
@@ -1432,6 +1693,124 @@ const RequestForm: React.FC = () => {
       toast({
         title: t.request.error,
         description: t.request.failedSubmit,
+        variant: 'destructive',
+      });
+      return false;
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleDesignResultEditSave = async (payload: { comments: string; attachments: Attachment[] }) => {
+    if (!existingRequest) return false;
+    setIsUpdating(true);
+    try {
+      await updateRequest(existingRequest.id, {
+        designResultComments: payload.comments,
+        designResultAttachments: payload.attachments,
+        historyEvent: 'edited',
+      });
+      await notifyRequest(existingRequest.id, {
+        eventType: 'request_status_changed',
+        status: existingRequest.status,
+        comment: t.request.editNotifyCommentDesign,
+      });
+      setDesignResultDirty(false);
+      setMyActionsEditMode((prev) => ({ ...prev, design: false }));
+      markMyActionEdited(existingRequest.status);
+      toast({
+        title: t.request.changesSavedTitle,
+        description: t.request.changesSavedDesc,
+      });
+      return true;
+    } catch (error) {
+      toast({
+        title: t.request.error,
+        description: t.request.failedSave,
+        variant: 'destructive',
+      });
+      return false;
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleCostingEditsSave = async (data: {
+    costingNotes?: string;
+    sellingPrice?: number;
+    sellingCurrency?: 'USD' | 'EUR' | 'RMB';
+    calculatedMargin?: number;
+    incoterm?: string;
+    incotermOther?: string;
+    vatMode?: 'with' | 'without';
+    vatRate?: number | null;
+    deliveryLeadtime?: string;
+    costingAttachments?: Attachment[];
+  }) => {
+    if (!existingRequest) return false;
+    setIsUpdating(true);
+    try {
+      await updateRequest(existingRequest.id, {
+        ...data,
+        historyEvent: 'edited',
+      });
+      await notifyRequest(existingRequest.id, {
+        eventType: 'request_status_changed',
+        status: existingRequest.status,
+        comment: t.request.editNotifyCommentCosting,
+      });
+      setMyActionsEditMode((prev) => ({ ...prev, costing: false }));
+      markMyActionEdited(existingRequest.status);
+      toast({
+        title: t.request.changesSavedTitle,
+        description: t.request.changesSavedDesc,
+      });
+      return true;
+    } catch (error) {
+      toast({
+        title: t.request.error,
+        description: t.request.failedSave,
+        variant: 'destructive',
+      });
+      return false;
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleSalesEditsSave = async (data: {
+    salesFinalPrice?: number;
+    salesCurrency?: 'USD' | 'EUR' | 'RMB';
+    salesIncoterm?: string;
+    salesIncotermOther?: string;
+    salesVatMode?: 'with' | 'without';
+    salesVatRate?: number | null;
+    salesFeedbackComment?: string;
+    salesAttachments?: Attachment[];
+  }) => {
+    if (!existingRequest) return false;
+    setIsUpdating(true);
+    try {
+      await updateRequest(existingRequest.id, {
+        ...data,
+        historyEvent: 'edited',
+      });
+      await notifyRequest(existingRequest.id, {
+        eventType: 'request_status_changed',
+        status: existingRequest.status,
+        comment: t.request.editNotifyCommentSales,
+      });
+      setMyActionsEditMode((prev) => ({ ...prev, sales: false }));
+      markMyActionEdited(existingRequest.status);
+      toast({
+        title: t.request.changesSavedTitle,
+        description: t.request.changesSavedDesc,
+      });
+      return true;
+    } catch (error) {
+      toast({
+        title: t.request.error,
+        description: t.request.failedSave,
         variant: 'destructive',
       });
       return false;

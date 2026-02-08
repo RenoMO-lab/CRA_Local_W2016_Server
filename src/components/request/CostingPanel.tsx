@@ -30,18 +30,33 @@ interface CostingPanelProps {
     deliveryLeadtime?: string;
     costingAttachments?: Attachment[];
   }) => void | Promise<void>;
+  onSaveEdits?: (data: {
+    costingNotes?: string;
+    sellingPrice?: number;
+    sellingCurrency?: 'USD' | 'EUR' | 'RMB';
+    calculatedMargin?: number;
+    incoterm?: string;
+    incotermOther?: string;
+    vatMode?: 'with' | 'without';
+    vatRate?: number | null;
+    deliveryLeadtime?: string;
+    costingAttachments?: Attachment[];
+  }) => void | Promise<void>;
   isUpdating: boolean;
   readOnly?: boolean;
   forceEnableActions?: boolean;
+  editMode?: boolean;
 }
 
 const CostingPanel: React.FC<CostingPanelProps> = ({
   request,
   onUpdateStatus,
   onUpdateCostingData,
+  onSaveEdits,
   isUpdating,
   readOnly = false,
   forceEnableActions = false,
+  editMode = false,
 }) => {
   const [costingNotes, setCostingNotes] = useState(request.costingNotes || '');
   const [sellingPrice, setSellingPrice] = useState<string>(
@@ -270,8 +285,10 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
     });
   };
 
-  const canSetInCosting = forceEnableActions || ['feasibility_confirmed', 'design_result'].includes(request.status);
-  const canComplete = forceEnableActions || request.status === 'in_costing';
+  const canSetInCosting = !editMode && (forceEnableActions || ['feasibility_confirmed', 'design_result'].includes(request.status));
+  const showSetInCosting = !editMode && (forceEnableActions || ['feasibility_confirmed', 'design_result', 'in_costing'].includes(request.status));
+  const canComplete = !editMode && (forceEnableActions || request.status === 'in_costing');
+  const canEditFields = forceEnableActions || editMode || request.status === 'in_costing';
   const vatRateValid = vatMode === 'without' || (vatRate !== '' && !isNaN(parseFloat(vatRate)));
   const isValidSubmission =
     sellingPrice &&
@@ -294,7 +311,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
         </div>
       </div>
 
-      {!readOnly && (canSetInCosting || request.status === 'in_costing') && (
+      {!readOnly && showSetInCosting && (
         <Button
           variant="outline"
           onClick={handleSetInCosting}
@@ -313,7 +330,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
         </Button>
       )}
 
-      {!readOnly && canComplete && (
+      {!readOnly && canEditFields && (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -507,25 +524,45 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
               rows={4}
               disabled={readOnly}
             />
-            <Button
-              variant="outline"
-              onClick={handleSaveNotes}
-              disabled={isUpdating || readOnly}
-              size="sm"
-            >
-              {isUpdating && <Loader2 size={14} className="mr-2 animate-spin" />}
-              {t.panels.saveNotes}
-            </Button>
+            {!editMode && (
+              <Button
+                variant="outline"
+                onClick={handleSaveNotes}
+                disabled={isUpdating || readOnly}
+                size="sm"
+              >
+                {isUpdating && <Loader2 size={14} className="mr-2 animate-spin" />}
+                {t.panels.saveNotes}
+              </Button>
+            )}
           </div>
 
           <Button
-            onClick={handleSubmitCosting}
+            onClick={editMode ? async () => {
+              const payload = {
+                costingNotes,
+                sellingPrice: sellingPrice ? parseFloat(sellingPrice) : undefined,
+                sellingCurrency,
+                calculatedMargin: calculatedMargin ? parseFloat(calculatedMargin) : undefined,
+                incoterm,
+                incotermOther,
+                vatMode,
+                vatRate: vatMode === 'with' ? parseFloat(vatRate) : null,
+                deliveryLeadtime,
+                costingAttachments,
+              };
+              if (onSaveEdits) {
+                await onSaveEdits(payload);
+              } else {
+                await onUpdateCostingData(payload);
+              }
+            } : handleSubmitCosting}
             disabled={!isValidSubmission || isUpdating}
-            className="w-full bg-success hover:bg-success/90 text-success-foreground"
+            className={`w-full ${editMode ? 'bg-primary hover:bg-primary/90 text-primary-foreground' : 'bg-success hover:bg-success/90 text-success-foreground'}`}
           >
             {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
             <CheckCircle size={16} className="mr-2" />
-            {t.panels.submitCostingComplete}
+            {editMode ? t.common.save : t.panels.submitCostingComplete}
           </Button>
         </>
       )}

@@ -1818,6 +1818,78 @@ export const apiRouter = (() => {
     })
   );
 
+  // Enqueue a notification email without changing status/history.
+  // Used when a role edits its previously submitted data and we need to re-notify the next step.
+  router.post(
+    "/requests/:requestId/notify",
+    asyncHandler(async (req, res) => {
+      const { requestId } = req.params;
+      const body = safeJson(req.body) ?? {};
+      const eventType = String(body.eventType ?? "request_status_changed").trim() || "request_status_changed";
+      const actorName = String(body.actorName ?? "").trim();
+      const comment = typeof body.comment === "string" ? body.comment : "";
+
+      const pool = await getPool();
+      const existing = await getRequestById(pool, requestId);
+      if (!existing) {
+        res.status(404).json({ error: "Request not found" });
+        return;
+      }
+
+      const [settings, tokenState] = await Promise.all([
+        getM365Settings(pool),
+        getM365TokenState(pool),
+      ]);
+      if (!settings.enabled) {
+        res.json({ enqueued: false, reason: "disabled" });
+        return;
+      }
+      if (!tokenState.hasRefreshToken) {
+        res.json({ enqueued: false, reason: "not_connected" });
+        return;
+      }
+
+      const status = String(body.status ?? existing.status ?? "").trim();
+      const to = resolveRecipientsForStatus(settings, status);
+      if (!to.length) {
+        res.json({ enqueued: false, reason: "no_recipients" });
+        return;
+      }
+
+      const subjectFallback = `[CRA] Request ${requestId} updated`;
+      const link = buildRequestLink(settings.appBaseUrl, requestId);
+      const template = getTemplateForEvent(settings, eventType);
+      const subjectTpl = applyTemplateVars(template.subject, {
+        requestId,
+        status,
+      });
+      const html = renderStatusEmailHtml({
+        request: existing,
+        newStatus: status,
+        actorName,
+        comment,
+        link,
+        dashboardLink: buildDashboardLink(settings.appBaseUrl),
+        logoCid: "monroc-logo",
+        template,
+        introOverride: template.intro,
+      });
+
+      await pool
+        .request()
+        .input("event_type", sql.NVarChar(64), eventType)
+        .input("request_id", sql.NVarChar(64), requestId)
+        .input("to_emails", sql.NVarChar(sql.MAX), to.join(", "))
+        .input("subject", sql.NVarChar(255), subjectTpl || subjectFallback)
+        .input("body_html", sql.NVarChar(sql.MAX), html)
+        .query(
+          "INSERT INTO notification_outbox (event_type, request_id, to_emails, subject, body_html) VALUES (@event_type, @request_id, @to_emails, @subject, @body_html)"
+        );
+
+      res.json({ enqueued: true, to });
+    })
+  );
+
   router.get(
     "/requests/:requestId",
     asyncHandler(async (req, res) => {
