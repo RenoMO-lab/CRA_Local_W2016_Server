@@ -28,6 +28,20 @@ import { CustomerRequest, RequestStatus, STATUS_CONFIG } from '@/types';
 type FilterType = 'all' | RequestStatus | 'in_progress' | 'completed' | 'needs_attention';
 type OwnershipFilter = 'all' | 'mine';
 
+const FINAL_STATUSES: RequestStatus[] = ['gm_approved', 'gm_rejected', 'closed'];
+const NEEDS_ATTENTION_STATUSES: RequestStatus[] = ['clarification_needed'];
+const IN_PROGRESS_STATUSES: RequestStatus[] = [
+  'submitted',
+  'edited',
+  'under_review',
+  'feasibility_confirmed',
+  'design_result',
+  'in_costing',
+  'costing_complete',
+  'sales_followup',
+  'gm_approval_pending',
+];
+
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -56,26 +70,15 @@ const Dashboard: React.FC = () => {
     
     // Handle compound filters
     if (activeFilter === 'in_progress') {
-      return ownershipFilteredRequests.filter(r => 
-        [
-          'submitted',
-          'under_review',
-          'design_result',
-          'in_costing',
-          'costing_complete',
-          'sales_followup',
-          'gm_approval_pending',
-          'gm_rejected',
-        ].includes(r.status)
-      );
+      return ownershipFilteredRequests.filter(r => IN_PROGRESS_STATUSES.includes(r.status));
     }
     if (activeFilter === 'completed') {
       return ownershipFilteredRequests.filter(r => 
-        ['gm_approved', 'closed'].includes(r.status)
+        FINAL_STATUSES.includes(r.status)
       );
     }
     if (activeFilter === 'needs_attention') {
-      return ownershipFilteredRequests.filter(r => r.status === 'clarification_needed');
+      return ownershipFilteredRequests.filter(r => NEEDS_ATTENTION_STATUSES.includes(r.status));
     }
     
     // Single status filter
@@ -86,15 +89,22 @@ const Dashboard: React.FC = () => {
   const kpis = useMemo(() => {
     if (!user) return [];
     
-    const countByStatus = (statuses: RequestStatus[]) => 
-      roleFilteredRequests.filter(r => statuses.includes(r.status)).length;
+    // Keep KPI counts consistent with the table "All/My requests" scope.
+    const baseRequests = ownershipFilteredRequests;
+
+    const countByStatus = (statuses: RequestStatus[]) =>
+      baseRequests.filter(r => statuses.includes(r.status)).length;
+
+    const countInProgress = () => baseRequests.filter(r => IN_PROGRESS_STATUSES.includes(r.status)).length;
+    const countCompleted = () => baseRequests.filter(r => FINAL_STATUSES.includes(r.status)).length;
+    const countNeedsAttention = () => baseRequests.filter(r => NEEDS_ATTENTION_STATUSES.includes(r.status)).length;
 
     switch (user.role) {
       case 'sales':
         return [
-          { title: t.dashboard.totalRequests, value: roleFilteredRequests.length, icon: FileText, filterValue: 'all' as FilterType },
+          { title: t.dashboard.totalRequests, value: baseRequests.length, icon: FileText, filterValue: 'all' as FilterType },
           { title: t.dashboard.drafts, value: countByStatus(['draft']), icon: Clock, filterValue: 'draft' as FilterType },
-          { title: t.dashboard.pendingReview, value: countByStatus(['submitted', 'under_review', 'sales_followup', 'gm_approval_pending', 'gm_rejected']), icon: AlertCircle, filterValue: 'in_progress' as FilterType },
+          { title: t.dashboard.pendingReview, value: countInProgress(), icon: AlertCircle, filterValue: 'in_progress' as FilterType },
           { title: t.dashboard.clarificationNeeded, value: countByStatus(['clarification_needed']), icon: AlertCircle, filterValue: 'clarification_needed' as FilterType },
         ];
       case 'design':
@@ -108,20 +118,20 @@ const Dashboard: React.FC = () => {
         return [
           { title: t.dashboard.readyForCosting, value: countByStatus(['feasibility_confirmed', 'design_result']), icon: FileText, filterValue: 'feasibility_confirmed' as FilterType },
           { title: t.dashboard.inCosting, value: countByStatus(['in_costing']), icon: Clock, filterValue: 'in_costing' as FilterType },
-          { title: t.dashboard.completed, value: countByStatus(['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected']), icon: CheckCircle, filterValue: 'costing_complete' as FilterType },
+          { title: t.dashboard.completed, value: countByStatus(['costing_complete']), icon: CheckCircle, filterValue: 'costing_complete' as FilterType },
           { title: t.dashboard.totalProcessed, value: countByStatus(['in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected']), icon: TrendingUp, filterValue: 'all' as FilterType },
         ];
       case 'admin':
         return [
-          { title: t.dashboard.totalRequests, value: requests.length, icon: FileText, filterValue: 'all' as FilterType },
-          { title: t.dashboard.inProgress, value: countByStatus(['submitted', 'under_review', 'design_result', 'in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_rejected']), icon: Clock, filterValue: 'in_progress' as FilterType },
-          { title: t.dashboard.completed, value: countByStatus(['gm_approved', 'closed']), icon: CheckCircle, filterValue: 'completed' as FilterType },
-          { title: t.dashboard.needsAttention, value: countByStatus(['clarification_needed']), icon: AlertCircle, filterValue: 'needs_attention' as FilterType },
+          { title: t.dashboard.totalRequests, value: baseRequests.length, icon: FileText, filterValue: 'all' as FilterType },
+          { title: t.dashboard.inProgress, value: countInProgress(), icon: Clock, filterValue: 'in_progress' as FilterType },
+          { title: t.dashboard.completed, value: countCompleted(), icon: CheckCircle, filterValue: 'completed' as FilterType },
+          { title: t.dashboard.needsAttention, value: countNeedsAttention(), icon: AlertCircle, filterValue: 'needs_attention' as FilterType },
         ];
       default:
         return [];
     }
-  }, [roleFilteredRequests, requests.length, user, t]);
+  }, [ownershipFilteredRequests, user, t]);
 
   const handleDelete = async (id: string) => {
     await deleteRequest(id);
