@@ -390,7 +390,14 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
             <FieldLine label={t.panels.incoterm} value={request.incoterm ? translateOption(request.incoterm) : "-"} />
             <FieldLine
               label={t.panels.vatMode}
-              value={request.vatMode ? (request.vatMode === "with" ? t.panels.withVat : t.panels.withoutVat) : "-"}
+              value={(() => {
+                if (!request.vatMode) return "-";
+                if (request.vatMode === "with") {
+                  const rate = typeof request.vatRate === "number" ? request.vatRate : null;
+                  return rate !== null ? `${t.panels.withVat} (${rate}%)` : t.panels.withVat;
+                }
+                return t.panels.withoutVat;
+              })()}
             />
             <FieldLine label={t.panels.deliveryLeadtime} value={request.deliveryLeadtime?.trim() ? request.deliveryLeadtime : "-"} />
             <FieldLine
