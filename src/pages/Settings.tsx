@@ -49,7 +49,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, Database, RefreshCw, Mail, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, Database, RefreshCw, Mail, ChevronDown, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 import { ROLE_CONFIG, UserRole } from '@/types';
 import { cn } from '@/lib/utils';
 import ListManager from '@/components/settings/ListManager';
@@ -2161,54 +2161,87 @@ const Settings: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="dbmonitor" className="space-y-6">
-          <div className="bg-card rounded-lg border border-border p-4 md:p-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div className="space-y-1">
-                <h3 className="text-lg font-semibold text-foreground">{t.settings.dbMonitorTitle}</h3>
-                <p className="text-sm text-muted-foreground">{t.settings.dbMonitorDescription}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t.settings.dbMonitorAutoRefresh}: {t.settings.dbMonitorHourly}
-                </p>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
-                  <span
-                    className={cn(
-                      'inline-block h-2.5 w-2.5 rounded-full',
-                      dbMonitor?.health?.status === 'green'
-                        ? 'bg-emerald-500'
-                        : dbMonitor?.health?.status === 'yellow'
-                          ? 'bg-amber-500'
-                          : 'bg-red-500'
-                    )}
-                    aria-hidden="true"
-                  />
-                  <span className="text-foreground font-medium">{t.settings.dbMonitorStatus}:</span>
-                  <span>{dbMonitor?.health?.label || '-'}</span>
-                  {dbMonitor?.snapshot?.sqlserverStartTime ? (
-                    <span className="text-muted-foreground">
-                      ({t.settings.dbMonitorSqlStart}: {format(new Date(dbMonitor.snapshot.sqlserverStartTime), 'MMM d, yyyy HH:mm')})
-                    </span>
-                  ) : null}
+          {(() => {
+            const status = dbMonitor?.health?.status || 'red';
+            const label = dbMonitor?.health?.label || '-';
+            const hasPartial = (dbMonitor?.snapshot?.errors?.length ?? 0) > 0;
+            const Icon = status === 'green' ? CheckCircle2 : status === 'yellow' ? AlertTriangle : XCircle;
+            const wrapClasses =
+              status === 'green'
+                ? 'border-emerald-500/20 bg-emerald-500/10'
+                : status === 'yellow'
+                  ? 'border-amber-500/25 bg-amber-500/10'
+                  : 'border-red-500/25 bg-red-500/10';
+            const iconClasses =
+              status === 'green'
+                ? 'bg-emerald-500 text-white'
+                : status === 'yellow'
+                  ? 'bg-amber-500 text-white'
+                  : 'bg-red-500 text-white';
+
+            return (
+              <div className="bg-card rounded-lg border border-border p-4 md:p-6">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+                  <div className={cn('rounded-xl border p-4 md:p-5 lg:col-span-2', wrapClasses)}>
+                    <div className="flex items-start gap-4">
+                      <div className={cn('h-12 w-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm', iconClasses)}>
+                        <Icon className="h-6 w-6" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <div className="text-xs font-semibold tracking-wide uppercase text-muted-foreground">
+                            {t.settings.dbMonitorStatus}
+                          </div>
+                          <div className="text-2xl font-semibold text-foreground leading-none">
+                            {label}
+                          </div>
+                          {hasPartial ? (
+                            <span className="text-xs font-medium rounded-full border border-border bg-background/60 px-2 py-0.5 text-foreground">
+                              {t.settings.dbMonitorPartialTitle}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-2 text-sm text-muted-foreground flex flex-wrap gap-x-4 gap-y-1">
+                          <span>
+                            {t.settings.dbMonitorLastUpdated}:{' '}
+                            <span className="text-foreground">
+                              {dbMonitor?.snapshot?.collectedAt ? format(new Date(dbMonitor.snapshot.collectedAt), 'MMM d, yyyy HH:mm') : '-'}
+                            </span>
+                          </span>
+                          {dbMonitor?.nextRefreshAt ? (
+                            <span>
+                              {t.settings.dbMonitorNext}:{' '}
+                              <span className="text-foreground">{format(new Date(dbMonitor.nextRefreshAt), 'MMM d, HH:mm')}</span>
+                            </span>
+                          ) : null}
+                          {dbMonitor?.snapshot?.sqlserverStartTime ? (
+                            <span>
+                              {t.settings.dbMonitorSqlStart}:{' '}
+                              <span className="text-foreground">
+                                {format(new Date(dbMonitor.snapshot.sqlserverStartTime), 'MMM d, yyyy HH:mm')}
+                              </span>
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-3 text-xs text-muted-foreground">
+                          {t.settings.dbMonitorAutoRefresh}: {t.settings.dbMonitorHourly}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border bg-background p-4 md:p-5 flex flex-col justify-between gap-3">
+                    <div className="text-sm font-semibold text-foreground">{t.settings.dbMonitorTitle}</div>
+                    <p className="text-sm text-muted-foreground">{t.settings.dbMonitorDescription}</p>
+                    <Button variant="outline" onClick={refreshDbMonitor} disabled={isDbMonitorLoading} className="self-start">
+                      <RefreshCw size={16} className="mr-2" />
+                      {isDbMonitorLoading ? t.common.loading : t.settings.dbMonitorRefresh}
+                    </Button>
+                  </div>
                 </div>
               </div>
-              <div className="flex flex-col gap-2 md:items-end">
-                <div className="text-xs text-muted-foreground">
-                  {t.settings.dbMonitorLastUpdated}:{' '}
-                  <span className="text-foreground">
-                    {dbMonitor?.snapshot?.collectedAt ? format(new Date(dbMonitor.snapshot.collectedAt), 'MMM d, yyyy HH:mm') : '-'}
-                  </span>
-                  {dbMonitor?.nextRefreshAt ? (
-                    <span className="ml-2 text-muted-foreground">
-                      ({t.settings.dbMonitorNext}: {format(new Date(dbMonitor.nextRefreshAt), 'MMM d, HH:mm')})
-                    </span>
-                  ) : null}
-                </div>
-                <Button variant="outline" onClick={refreshDbMonitor} disabled={isDbMonitorLoading}>
-                  <RefreshCw size={16} className="mr-2" />
-                  {isDbMonitorLoading ? t.common.loading : t.settings.dbMonitorRefresh}
-                </Button>
-              </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {hasDbMonitorError ? (
             <div className="bg-card rounded-lg border border-destructive/30 p-4 text-sm text-destructive">
