@@ -18,10 +18,12 @@ import ClarificationPanel from '@/components/request/ClarificationPanel';
 import StatusTimeline from '@/components/request/StatusTimeline';
 import DesignResultSection from '@/components/request/DesignResultSection';
 import SalesFollowupPanel from '@/components/request/SalesFollowupPanel';
+import RequestSummaryView from '@/components/request/RequestSummaryView';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { ArrowLeft, ArrowRight, CheckCircle, ClipboardCheck, Clock, Download, Eye, File, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
 type FormStep = 'chapters' | 'product' | 'review';
 
@@ -305,6 +307,7 @@ const RequestForm: React.FC = () => {
   const isAdminEdit = user?.role === 'admin' && isEditMode;
   const isDesignRole = user?.role === 'design';
   const isSalesRole = user?.role === 'sales';
+  const [isMyActionsOpen, setIsMyActionsOpen] = useState(false);
 
   const isImageFile = (filename: string) => {
     const ext = filename.toLowerCase().split('.').pop();
@@ -1026,6 +1029,162 @@ const RequestForm: React.FC = () => {
         (Array.isArray(existingRequest.designResultAttachments) && existingRequest.designResultAttachments.length > 0))
   );
   const showDesignSummary = Boolean(existingRequest && hasDesignInfo);
+  const hasMyActions = Boolean(
+    existingRequest && (
+      (user?.role === 'sales' && (showClarificationPanel || showSalesPanel)) ||
+      (user?.role === 'design' && (showDesignPanel || canEditDesignResult)) ||
+      (user?.role === 'costing' && showCostingPanel) ||
+      (user?.role === 'admin')
+    )
+  );
+
+  const renderMyActionsContent = () => {
+    if (!existingRequest) return null;
+
+    if (user?.role === 'admin') {
+      return (
+        <div className="rounded-lg border border-border bg-muted/20 p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="space-y-1">
+              <div className="text-sm font-semibold text-foreground">{t.request.fullEditTitle}</div>
+              <div className="text-sm text-muted-foreground">{t.request.fullEditDesc}</div>
+            </div>
+            <Button onClick={() => navigate(`/requests/${existingRequest.id}/edit`)}>
+              {t.common.edit}
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    if (user?.role === 'sales') {
+      if (showClarificationPanel) {
+        return (
+          <ClarificationPanel
+            request={existingRequest}
+            onResubmit={handleClarificationResubmit}
+            isSubmitting={isSubmitting}
+          />
+        );
+      }
+
+      if (showSalesPanel) {
+        return (
+          <SalesFollowupPanel
+            request={existingRequest}
+            onUpdateStatus={handleSalesStatusUpdate}
+            onUpdateSalesData={async (data) => {
+              await updateRequest(existingRequest.id, data);
+            }}
+            isUpdating={isUpdating}
+            readOnly={!canEditSalesPanel}
+            forceEnableActions={isAdminEdit}
+            isAdmin={false}
+            isSales={true}
+          />
+        );
+      }
+    }
+
+    if (user?.role === 'design') {
+      return (
+        <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
+              <ClipboardCheck size={20} />
+            </div>
+            <div>
+              <h3 className="font-semibold text-foreground">{t.panels.designAction}</h3>
+              <p className="text-sm text-muted-foreground">{t.panels.designActionDesc}</p>
+            </div>
+          </div>
+
+          {isDesignPanelCollapsed ? (
+            <Button
+              onClick={async () => {
+                await handleDesignStatusUpdate('under_review');
+                setIsDesignPanelCollapsed(false);
+              }}
+              disabled={isUpdating}
+              className="w-full justify-start"
+              variant="outline"
+            >
+              <Clock size={16} className="mr-2 text-info" />
+              {t.panels.setInDesign}
+            </Button>
+          ) : (
+            <>
+              <DesignReviewPanel
+                request={existingRequest}
+                onUpdateStatus={handleDesignStatusUpdate}
+                isUpdating={isUpdating}
+                showActions={showDesignPanel}
+                forceEnableActions={isAdminEdit}
+                variant="embedded"
+              />
+
+              <div className="border-t border-border/60 pt-6 space-y-4">
+                <DesignResultSection
+                  comments={canEditDesignResult ? designResultComments : (existingRequest.designResultComments ?? '')}
+                  attachments={canEditDesignResult
+                    ? designResultAttachments
+                    : Array.isArray(existingRequest.designResultAttachments)
+                      ? existingRequest.designResultAttachments
+                      : []}
+                  onCommentsChange={canEditDesignResult ? (value) => {
+                    setDesignResultComments(value);
+                    setDesignResultDirty(true);
+                  } : undefined}
+                  onAttachmentsChange={canEditDesignResult ? (files) => {
+                    setDesignResultAttachments(files);
+                    setDesignResultDirty(true);
+                  } : undefined}
+                  isReadOnly={!canEditDesignResult}
+                  showEmptyState={true}
+                />
+                {canEditDesignResult && (
+                  <Button
+                    onClick={() => handleDesignResultSave({
+                      comments: designResultComments,
+                      attachments: designResultAttachments,
+                    })}
+                    disabled={isUpdating}
+                    className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+                  >
+                    {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}
+                    {t.panels.submitDesignResult}
+                  </Button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      );
+    }
+
+    if (user?.role === 'costing') {
+      if (showCostingPanel) {
+        return (
+          <CostingPanel
+            request={existingRequest}
+            onUpdateStatus={handleCostingStatusUpdate}
+            onUpdateCostingData={async (data) => {
+              await updateRequest(existingRequest.id, data);
+            }}
+            isUpdating={isUpdating}
+            readOnly={false}
+            forceEnableActions={isAdminEdit}
+          />
+        );
+      }
+    }
+
+    return (
+      <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
+        {t.request.noActionsAvailable}
+      </div>
+    );
+  };
 
 
   const renderDesignSummary = () => {
@@ -1355,6 +1514,50 @@ const RequestForm: React.FC = () => {
       <div className={existingRequest ? "grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-8" : "w-full"}>
         {/* Main Form */}
         <div className={existingRequest ? "lg:col-span-2 space-y-4 md:space-y-8" : "space-y-4 md:space-y-8"}>
+          {existingRequest && isReadOnly ? (
+            <>
+              <div className="bg-card rounded-lg border border-border p-4 md:p-6">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div className="space-y-1">
+                    <h2 className="text-base md:text-lg font-semibold text-foreground">{t.request.myActionsTitle}</h2>
+                    <p className="text-xs md:text-sm text-muted-foreground">{t.request.myActionsDesc}</p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {user?.role === 'admin' && (
+                      <Button variant="outline" onClick={() => navigate(`/requests/${existingRequest.id}/edit`)}>
+                        {t.common.edit}
+                      </Button>
+                    )}
+                    <Button onClick={() => setIsMyActionsOpen(true)} disabled={!hasMyActions} className="min-w-40">
+                      {t.request.openMyActions}
+                    </Button>
+                  </div>
+                </div>
+
+                {!hasMyActions && (
+                  <div className="mt-3 text-sm text-muted-foreground">
+                    {t.request.noActionsAvailable}
+                  </div>
+                )}
+              </div>
+
+              <RequestSummaryView request={existingRequest} />
+
+              <Sheet open={isMyActionsOpen} onOpenChange={setIsMyActionsOpen}>
+                <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+                  <SheetHeader className="pr-8">
+                    <SheetTitle>{t.request.myActionsTitle}</SheetTitle>
+                    <SheetDescription>{existingRequest.id}</SheetDescription>
+                  </SheetHeader>
+                  <div className="mt-6 space-y-4 md:space-y-6">
+                    {renderMyActionsContent()}
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </>
+          ) : (
+            <>
           {currentStep === 'chapters' && (
             <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-6 md:space-y-8">
               <SectionGeneralInfo
@@ -1774,6 +1977,8 @@ const RequestForm: React.FC = () => {
               isAdmin={user?.role === 'admin'}
               isSales={isSalesRole}
             />
+          )}
+            </>
           )}
         </div>
 
