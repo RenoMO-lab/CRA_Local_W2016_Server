@@ -42,7 +42,7 @@ const IN_PROGRESS_STATUSES: RequestStatus[] = [
   'gm_approval_pending',
 ];
 const COSTING_PROCESSED_STATUSES: RequestStatus[] = [
-  'in_costing',
+  // "Processed" means costing is completed (or later), not just started.
   'costing_complete',
   'sales_followup',
   'gm_approval_pending',
