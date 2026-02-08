@@ -185,6 +185,8 @@ export const translations = {
       editDetails: 'Edit request details',
       myActionsTitle: 'My actions',
       myActionsDesc: 'Update your role-specific information for this request.',
+      changedBy: 'Changed by',
+      comment: 'Comment',
       openMyActions: 'Open actions',
       noActionsAvailable: 'No actions available for your role at this status.',
       fullEditTitle: 'Admin full edit',
@@ -603,7 +605,7 @@ export const translations = {
 
     // Panels
     panels: {
-      designReview: 'Request Review',
+      designReview: 'Design',
       costingPanel: 'Costing',
       clarification: 'Clarification',
       clarificationComment: 'Clarification Comment',
@@ -643,7 +645,7 @@ export const translations = {
           salesApproved: 'Approved',
         designAction: 'Design Action',
         designActionDesc: 'Review feasibility and share design result',
-        designReviewActions: 'Request Review Actions',
+        designReviewActions: 'Design Actions',
         updateStatusDesc: 'Update the status of this request',
       setUnderReview: 'Set Under Review',
       setInDesign: 'Set in Design',
@@ -1045,6 +1047,8 @@ export const translations = {
       editDetails: 'Modifier les détails de la demande',
       myActionsTitle: 'Mes actions',
       myActionsDesc: 'Mettez à jour les informations liées à votre rôle pour cette demande.',
+      changedBy: 'Modifie par',
+      comment: 'Commentaire',
       openMyActions: 'Ouvrir les actions',
       noActionsAvailable: 'Aucune action disponible pour votre rôle à ce statut.',
       fullEditTitle: 'Modification complète (admin)',
@@ -1463,7 +1467,7 @@ export const translations = {
 
     // Panels
     panels: {
-      designReview: 'Revue de conception',
+      designReview: 'Conception',
       costingPanel: 'Chiffrage',
       clarification: 'Clarification',
       clarificationComment: 'Commentaire de clarification',
@@ -1503,7 +1507,7 @@ export const translations = {
             salesApproved: 'Approuvé',
           designAction: 'Action Design',
           designActionDesc: 'Évaluer la faisabilité et partager le résultat',
-          designReviewActions: 'Actions de revue de conception',
+          designReviewActions: 'Actions de conception',
         updateStatusDesc: 'Mettre à jour le statut de cette demande',
       setUnderReview: 'Mettre en revue',
       setInDesign: 'Passer en design',
@@ -1905,6 +1909,8 @@ export const translations = {
       editDetails: '编辑请求详情',
       myActionsTitle: '我的操作',
       myActionsDesc: '更新与您角色相关的请求信息。',
+      changedBy: '更新者',
+      comment: '备注',
       openMyActions: '打开操作',
       noActionsAvailable: '当前状态下您的角色没有可用操作。',
       fullEditTitle: '管理员完整编辑',
@@ -2323,7 +2329,7 @@ export const translations = {
 
     // Panels
     panels: {
-      designReview: '设计审核',
+      designReview: '设计',
       costingPanel: '成本核算',
       clarification: '澄清',
       clarificationComment: '澄清意见',
@@ -2363,7 +2369,7 @@ export const translations = {
             salesApproved: '已批准',
             designAction: '设计动作',
             designActionDesc: '评估可行性并提交设计结果',
-          designReviewActions: '设计审核操作',
+          designReviewActions: '设计操作',
         updateStatusDesc: '更新此请求的状态',
       setUnderReview: '设为审核中',
       setInDesign: '设为设计中',

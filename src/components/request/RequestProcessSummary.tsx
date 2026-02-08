@@ -3,7 +3,7 @@ import { format } from "date-fns";
 import { Download, Eye, File, Paperclip } from "lucide-react";
 
 import { useLanguage } from "@/context/LanguageContext";
-import { Attachment, CustomerRequest } from "@/types";
+import { Attachment, CustomerRequest, RequestStatus } from "@/types";
 import { cn } from "@/lib/utils";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -26,10 +26,10 @@ const Card: React.FC<{
   </div>
 );
 
-const Field: React.FC<{ label: string; value?: React.ReactNode; className?: string }> = ({ label, value, className }) => (
-  <div className={cn("space-y-1", className)}>
-    <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
-    <div className="text-sm font-medium text-foreground break-words">{value ?? "-"}</div>
+const FieldLine: React.FC<{ label: string; value?: React.ReactNode; className?: string }> = ({ label, value, className }) => (
+  <div className={cn("flex items-start justify-between gap-3", className)}>
+    <div className="text-sm text-muted-foreground">{label}</div>
+    <div className="text-sm font-medium text-foreground break-words text-right">{value ?? "-"}</div>
   </div>
 );
 
@@ -38,6 +38,13 @@ const formatDate = (d: any) => {
   const date = d instanceof Date ? d : new Date(d);
   if (Number.isNaN(+date)) return "-";
   return format(date, "MMM d, yyyy");
+};
+
+const formatDateTime = (d: any) => {
+  if (!d) return "-";
+  const date = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(+date)) return "-";
+  return format(date, "yyyy-MM-dd HH:mm");
 };
 
 const buildAttachmentHref = (attachment: Attachment) => {
@@ -181,49 +188,140 @@ const AttachmentList: React.FC<{
   );
 };
 
+const getLastHistoryEntry = (request: CustomerRequest, statuses: RequestStatus[]) => {
+  const history = Array.isArray(request.history) ? request.history : [];
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const h = history[i];
+    if (h && statuses.includes(h.status)) return h;
+  }
+  return undefined;
+};
+
+const StepTile: React.FC<{
+  title: string;
+  statusLabel?: string;
+  updatedAt?: string;
+  children: React.ReactNode;
+}> = ({ title, statusLabel, updatedAt, children }) => (
+  <div className="rounded-xl border border-border bg-muted/20 p-4 md:p-5">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+      <div className="space-y-0.5">
+        <div className="text-sm font-semibold text-foreground">{title}</div>
+        {statusLabel ? <div className="text-sm text-muted-foreground">{statusLabel}</div> : null}
+      </div>
+      {updatedAt ? (
+        <div className="text-xs text-muted-foreground sm:text-right">{updatedAt}</div>
+      ) : null}
+    </div>
+    <div className="mt-3 space-y-2">{children}</div>
+  </div>
+);
+
 const RequestProcessSummary: React.FC<Props> = ({ request }) => {
   const { t, translateOption } = useLanguage();
 
-  const showClarification = Boolean(
-    request.status === "clarification_needed" ||
-      (request.clarificationComment ?? "").trim() ||
+  // Step-based, cumulative visibility rules:
+  // - Once a step is reached/completed, it stays visible for all later steps.
+  // - Each step renders as a compact, uniform "finished action" tile, with attachments still viewable/downloadable.
+  const hasClarificationData = Boolean(
+    (request.clarificationComment ?? "").trim() ||
       (request.clarificationResponse ?? "").trim()
   );
-
-  const showDesign = Boolean(
-    request.status !== "draft" ||
-      request.expectedDesignReplyDate ||
+  const hasDesignData = Boolean(
+    request.expectedDesignReplyDate ||
       (request.acceptanceMessage ?? "").trim() ||
       (request.designResultComments ?? "").trim() ||
       (Array.isArray(request.designResultAttachments) && request.designResultAttachments.length > 0)
   );
-
-  const showCosting = Boolean(
-    ["in_costing", "costing_complete", "sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(
-      request.status
-    ) ||
-      (request.costingNotes ?? "").trim() ||
+  const hasCostingData = Boolean(
+    (request.costingNotes ?? "").trim() ||
       typeof request.sellingPrice === "number" ||
       typeof request.calculatedMargin === "number" ||
       (request.incoterm ?? "").trim() ||
       (request.deliveryLeadtime ?? "").trim() ||
       (Array.isArray(request.costingAttachments) && request.costingAttachments.length > 0)
   );
-
-  const showSales = Boolean(
-    ["sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status) ||
-      typeof request.salesFinalPrice === "number" ||
+  const hasSalesData = Boolean(
+    typeof request.salesFinalPrice === "number" ||
       (request.salesFeedbackComment ?? "").trim() ||
       (Array.isArray(request.salesAttachments) && request.salesAttachments.length > 0)
   );
+
+  const clarificationStatuses: RequestStatus[] = ["clarification_needed"];
+  const designStatuses: RequestStatus[] = ["submitted", "under_review", "feasibility_confirmed", "design_result"];
+  const costingStatuses: RequestStatus[] = ["in_costing", "costing_complete"];
+  const salesStatuses: RequestStatus[] = ["sales_followup", "gm_approval_pending"];
+  const gmStatuses: RequestStatus[] = ["gm_approved", "gm_rejected"];
+
+  const clarificationEntry = getLastHistoryEntry(request, clarificationStatuses);
+  const designEntry = getLastHistoryEntry(request, designStatuses);
+  const costingEntry = getLastHistoryEntry(request, costingStatuses);
+  const salesEntry = getLastHistoryEntry(request, salesStatuses);
+  const gmEntry = getLastHistoryEntry(request, gmStatuses);
+  const gmPendingEntry = getLastHistoryEntry(request, ["gm_approval_pending"]);
+
+  const designComplete = Boolean(
+    (designEntry && ["feasibility_confirmed", "design_result"].includes(designEntry.status)) ||
+      ["design_result", "in_costing", "costing_complete", "sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status)
+  );
+  const costingComplete = Boolean(
+    (costingEntry && costingEntry.status === "costing_complete") ||
+      ["costing_complete", "sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status)
+  );
+  const salesSubmittedToGm = Boolean(
+    (salesEntry && salesEntry.status === "gm_approval_pending") ||
+      ["gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status)
+  );
+
+  const reachedClarification = Boolean(clarificationEntry || hasClarificationData);
+  const reachedDesign = request.status !== "draft";
+  const reachedCosting = Boolean(
+    ["in_costing", "costing_complete", "sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status) ||
+      costingEntry ||
+      hasCostingData
+  );
+  const reachedSales = Boolean(
+    ["sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status) ||
+      salesEntry ||
+      hasSalesData
+  );
+  const reachedGm = Boolean(
+    ["gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status) ||
+      gmEntry
+  );
+
+  const showClarification = reachedClarification;
+  const showDesign = reachedDesign || hasDesignData;
+  const showCosting = reachedCosting;
+  const showSales = reachedSales;
+  const showGm = reachedGm;
 
   const designAttachments = Array.isArray(request.designResultAttachments) ? request.designResultAttachments : [];
   const costingAttachments = Array.isArray(request.costingAttachments) ? request.costingAttachments : [];
   const salesAttachments = Array.isArray(request.salesAttachments) ? request.salesAttachments : [];
 
-  const statusLabel = useMemo(() => t.statuses[request.status as keyof typeof t.statuses] || request.status, [request.status, t.statuses]);
+  const designStatusLabel = useMemo(() => {
+    const s = designEntry?.status;
+    if (!s) return "";
+    return t.statuses[s as keyof typeof t.statuses] || s;
+  }, [designEntry?.status, t.statuses]);
+  const costingStatusLabel = useMemo(() => {
+    const s = costingEntry?.status;
+    if (!s) return "";
+    return t.statuses[s as keyof typeof t.statuses] || s;
+  }, [costingEntry?.status, t.statuses]);
+  const salesStatusLabel = useMemo(() => {
+    const s = salesEntry?.status;
+    if (!s) return "";
+    return t.statuses[s as keyof typeof t.statuses] || s;
+  }, [salesEntry?.status, t.statuses]);
+  const gmStatusLabel = useMemo(() => {
+    const s = gmEntry?.status ?? gmPendingEntry?.status;
+    if (!s) return "";
+    return t.statuses[s as keyof typeof t.statuses] || s;
+  }, [gmEntry?.status, gmPendingEntry?.status, t.statuses]);
 
-  if (!showClarification && !showDesign && !showCosting && !showSales) {
+  if (!showClarification && !showDesign && !showCosting && !showSales && !showGm) {
     return null;
   }
 
@@ -231,53 +329,75 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
     <div className="space-y-4 md:space-y-6">
       {showClarification && (
         <Card title={t.panels.clarification} description={t.panels.designTeamNeedsInfo}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-            <Field label={t.panels.clarificationComment} value={request.clarificationComment?.trim() ? <div className="whitespace-pre-line">{request.clarificationComment}</div> : "-"} />
-            <Field label={t.panels.clarificationResponse} value={request.clarificationResponse?.trim() ? <div className="whitespace-pre-line">{request.clarificationResponse}</div> : "-"} />
-          </div>
+          <StepTile
+            title={t.panels.clarificationRequested}
+            statusLabel={clarificationEntry ? `${t.common.status}: ${t.statuses[clarificationEntry.status as keyof typeof t.statuses] || clarificationEntry.status}` : undefined}
+            updatedAt={clarificationEntry?.timestamp ? formatDateTime(clarificationEntry.timestamp) : undefined}
+          >
+            <FieldLine
+              label={t.panels.clarificationComment}
+              value={request.clarificationComment?.trim() ? <div className="whitespace-pre-line text-right">{request.clarificationComment}</div> : "-"}
+            />
+            <FieldLine
+              label={t.panels.clarificationResponse}
+              value={request.clarificationResponse?.trim() ? <div className="whitespace-pre-line text-right">{request.clarificationResponse}</div> : "-"}
+            />
+          </StepTile>
         </Card>
       )}
 
       {showDesign && (
-        <Card title={t.panels.designReview} description={`${t.common.status}: ${statusLabel}`}>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-            <Field
+        <Card title={t.panels.designReview} description={t.panels.designActionDesc}>
+          <StepTile
+            title={designComplete ? t.panels.designSubmitted : t.panels.designAction}
+            statusLabel={designStatusLabel ? `${t.common.status}: ${designStatusLabel}` : undefined}
+            updatedAt={designEntry?.timestamp ? formatDateTime(designEntry.timestamp) : undefined}
+          >
+            <FieldLine
               label={t.panels.expectedReplyDate}
               value={request.expectedDesignReplyDate ? formatDate(request.expectedDesignReplyDate) : "-"}
             />
-            <Field
+            <FieldLine
               label={t.panels.acceptanceMessage}
-              value={request.acceptanceMessage?.trim() ? <div className="whitespace-pre-line">{request.acceptanceMessage}</div> : "-"}
+              value={request.acceptanceMessage?.trim() ? <div className="whitespace-pre-line text-right">{request.acceptanceMessage}</div> : "-"}
             />
+            <FieldLine
+              label={t.panels.designResultComments}
+              value={request.designResultComments?.trim() ? <div className="whitespace-pre-line text-right">{request.designResultComments}</div> : "-"}
+            />
+          </StepTile>
+          <div className="mt-4">
+            <AttachmentList title={t.panels.designResultUploads} attachments={designAttachments} />
           </div>
-
-          {(request.designResultComments?.trim() || designAttachments.length) && (
-            <div className="mt-4 space-y-4">
-              <Field
-                label={t.panels.designResultComments}
-                value={request.designResultComments?.trim() ? <div className="whitespace-pre-line">{request.designResultComments}</div> : "-"}
-              />
-              <AttachmentList title={t.panels.designResultUploads} attachments={designAttachments} />
-            </div>
-          )}
         </Card>
       )}
 
       {showCosting && (
         <Card title={t.panels.costingPanel} description={t.panels.manageCostingProcess}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-            <Field label={t.panels.sellingPrice} value={typeof request.sellingPrice === "number" ? request.sellingPrice : "-"} />
-            <Field label={t.panels.currency} value={request.sellingCurrency ? request.sellingCurrency : "-"} />
-            <Field label={t.panels.margin} value={typeof request.calculatedMargin === "number" ? request.calculatedMargin : "-"} />
-            <Field label={t.panels.incoterm} value={request.incoterm ? translateOption(request.incoterm) : "-"} />
-            <Field label={t.panels.vatMode} value={request.vatMode ? (request.vatMode === "with" ? t.panels.withVat : t.panels.withoutVat) : "-"} />
-            <Field label={t.panels.deliveryLeadtime} value={request.deliveryLeadtime?.trim() ? request.deliveryLeadtime : "-"} />
-          </div>
-          {request.costingNotes?.trim() ? (
-            <div className="mt-4">
-              <Field label={t.panels.costingNotesInternal} value={<div className="whitespace-pre-line">{request.costingNotes}</div>} />
-            </div>
-          ) : null}
+          <StepTile
+            title={costingComplete ? t.panels.costingCompleted : (costingStatusLabel || t.panels.costingActions)}
+            statusLabel={costingStatusLabel ? `${t.common.status}: ${costingStatusLabel}` : undefined}
+            updatedAt={costingEntry?.timestamp ? formatDateTime(costingEntry.timestamp) : undefined}
+          >
+            <FieldLine
+              label={t.panels.sellingPrice}
+              value={typeof request.sellingPrice === "number" ? `${request.sellingCurrency ?? "EUR"} ${request.sellingPrice.toFixed(2)}` : "-"}
+            />
+            <FieldLine
+              label={t.panels.margin}
+              value={typeof request.calculatedMargin === "number" ? `${request.calculatedMargin.toFixed(1)}%` : "-"}
+            />
+            <FieldLine label={t.panels.incoterm} value={request.incoterm ? translateOption(request.incoterm) : "-"} />
+            <FieldLine
+              label={t.panels.vatMode}
+              value={request.vatMode ? (request.vatMode === "with" ? t.panels.withVat : t.panels.withoutVat) : "-"}
+            />
+            <FieldLine label={t.panels.deliveryLeadtime} value={request.deliveryLeadtime?.trim() ? request.deliveryLeadtime : "-"} />
+            <FieldLine
+              label={t.panels.costingNotesInternal}
+              value={request.costingNotes?.trim() ? <div className="whitespace-pre-line text-right">{request.costingNotes}</div> : "-"}
+            />
+          </StepTile>
           <div className="mt-4">
             <AttachmentList title={t.panels.costingAttachments} attachments={costingAttachments} />
           </div>
@@ -286,14 +406,46 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
 
       {showSales && (
         <Card title={t.panels.salesFollowup} description={t.panels.salesFollowupDesc}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-            <Field label={t.panels.salesFinalPrice} value={typeof request.salesFinalPrice === "number" ? request.salesFinalPrice : "-"} />
-            <Field label={t.panels.currency} value={request.salesCurrency ? request.salesCurrency : "-"} />
-            <Field label={t.panels.salesFeedback} value={request.salesFeedbackComment?.trim() ? <div className="whitespace-pre-line">{request.salesFeedbackComment}</div> : "-"} className="sm:col-span-2 lg:col-span-3" />
-          </div>
+          <StepTile
+            title={salesSubmittedToGm ? t.panels.submittedToGm : (salesStatusLabel || t.panels.salesFollowup)}
+            statusLabel={salesStatusLabel ? `${t.common.status}: ${salesStatusLabel}` : undefined}
+            updatedAt={salesEntry?.timestamp ? formatDateTime(salesEntry.timestamp) : undefined}
+          >
+            <FieldLine
+              label={t.panels.salesFinalPrice}
+              value={typeof request.salesFinalPrice === "number" ? `${request.salesCurrency ?? "EUR"} ${request.salesFinalPrice.toFixed(2)}` : "-"}
+            />
+            <FieldLine
+              label={t.panels.salesFeedback}
+              value={request.salesFeedbackComment?.trim() ? <div className="whitespace-pre-line text-right">{request.salesFeedbackComment}</div> : "-"}
+            />
+          </StepTile>
           <div className="mt-4">
             <AttachmentList title={t.panels.salesAttachments} attachments={salesAttachments} />
           </div>
+        </Card>
+      )}
+
+      {showGm && (
+        <Card title={t.panels.gmApproval} description={t.panels.gmApprovalDesc}>
+          {(() => {
+            const entry = gmEntry ?? gmPendingEntry;
+            const statusKey = entry?.status ?? "gm_approval_pending";
+            const statusText = t.statuses[statusKey as keyof typeof t.statuses] || statusKey;
+            return (
+          <StepTile
+            title={statusText}
+            statusLabel={gmStatusLabel ? `${t.common.status}: ${gmStatusLabel}` : undefined}
+            updatedAt={entry?.timestamp ? formatDateTime(entry.timestamp) : undefined}
+          >
+            <FieldLine label={t.request.changedBy} value={entry?.userName ? entry.userName : "-"} />
+            <FieldLine
+              label={t.request.comment}
+              value={entry?.comment?.trim() ? <div className="whitespace-pre-line text-right">{entry.comment}</div> : "-"}
+            />
+          </StepTile>
+            );
+          })()}
         </Card>
       )}
     </div>
@@ -301,4 +453,3 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
 };
 
 export default RequestProcessSummary;
-
