@@ -118,7 +118,11 @@ try {
   # so don't rely on per-user ssh-agent state.
   $sshKey = $SshKeyPath -replace '\\', '/'
   $knownHosts = $KnownHostsPath -replace '\\', '/'
-  $sshBase = "ssh -i `"$sshKey`" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=`"$knownHosts`" -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=2"
+  # Note: keep this compatible with Windows PowerShell 5.1 (no PowerShell 7-only syntax).
+  # Use StrictHostKeyChecking=no to avoid interactive prompts and older OpenSSH clients
+  # that might not support "accept-new". If you want strict host key pinning, pre-populate
+  # $KnownHostsPath and switch this to "yes".
+  $sshBase = "ssh -i `"$sshKey`" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=`"$knownHosts`" -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=2"
 
   # Prefer SSH over 443 (more firewall-friendly) if requested, or if github.com:22 is flaky.
   if ($PreferSsh443) {
@@ -139,8 +143,12 @@ try {
     Write-Log "Origin: $remoteUrl"
   }
   if ($remoteUrl -and $remoteUrl -match "github.com") {
-    $hostToCheck = $PreferSsh443 ? "ssh.github.com" : "github.com"
-    $portToCheck = $PreferSsh443 ? 443 : 22
+    $hostToCheck = "github.com"
+    $portToCheck = 22
+    if ($PreferSsh443) {
+      $hostToCheck = "ssh.github.com"
+      $portToCheck = 443
+    }
 
     $dnsOk = $false
     for ($i = 0; $i -lt 3; $i++) {
