@@ -284,7 +284,7 @@ const MetricsCharts: React.FC<MetricsChartsProps> = ({ requests }) => {
     if (showTotalSeries) {
       config[TOTAL_SERIES_KEY] = {
         label: t.performance.totalSeries,
-        color: 'hsl(0, 0%, 100%)',
+        color: 'hsl(var(--foreground))',
       };
     }
     return config;
@@ -301,7 +301,7 @@ const MetricsCharts: React.FC<MetricsChartsProps> = ({ requests }) => {
     if (showTotalSeries) {
       config[TOTAL_SERIES_KEY] = {
         label: t.performance.totalSeries,
-        color: 'hsl(0, 0%, 100%)',
+        color: 'hsl(var(--foreground))',
       };
     }
     return config;
@@ -509,7 +509,7 @@ const MetricsCharts: React.FC<MetricsChartsProps> = ({ requests }) => {
                     <Line
                       type="monotone"
                       dataKey={TOTAL_SERIES_KEY}
-                      stroke="hsl(0, 0%, 100%)"
+                      stroke="hsl(var(--foreground))"
                       strokeWidth={3}
                       dot={false}
                       activeDot={{ r: 4 }}
@@ -531,7 +531,7 @@ const MetricsCharts: React.FC<MetricsChartsProps> = ({ requests }) => {
               <div className="flex flex-wrap gap-2 justify-center">
                 {showTotalSeries && (
                   <div className="flex items-center gap-1.5 text-xs">
-                    <div className="w-3 h-3 rounded-full bg-white" />
+                    <div className="w-3 h-3 rounded-full bg-foreground" />
                     <span className="text-muted-foreground">{t.performance.totalSeries}</span>
                   </div>
                 )}
@@ -578,7 +578,7 @@ const MetricsCharts: React.FC<MetricsChartsProps> = ({ requests }) => {
                     <Line
                       type="monotone"
                       dataKey={TOTAL_SERIES_KEY}
-                      stroke="hsl(0, 0%, 100%)"
+                      stroke="hsl(var(--foreground))"
                       strokeWidth={3}
                       dot={false}
                       activeDot={{ r: 4 }}
@@ -600,7 +600,7 @@ const MetricsCharts: React.FC<MetricsChartsProps> = ({ requests }) => {
               <div className="flex flex-wrap gap-2 justify-center">
                 {showTotalSeries && (
                   <div className="flex items-center gap-1.5 text-xs">
-                    <div className="w-3 h-3 rounded-full bg-white" />
+                    <div className="w-3 h-3 rounded-full bg-foreground" />
                     <span className="text-muted-foreground">{t.performance.totalSeries}</span>
                   </div>
                 )}
