@@ -123,7 +123,8 @@ const Dashboard: React.FC = () => {
           { title: t.dashboard.toReview, value: countByStatus(['submitted']), icon: FileText, filterValue: 'submitted' as FilterType },
           { title: t.dashboard.underReview, value: countByStatus(['under_review']), icon: Clock, filterValue: 'under_review' as FilterType },
           { title: t.dashboard.awaitingClarification, value: countByStatus(['clarification_needed']), icon: AlertCircle, filterValue: 'clarification_needed' as FilterType },
-          { title: t.dashboard.approved, value: countByStatus(['feasibility_confirmed', 'design_result']), icon: CheckCircle, filterValue: 'feasibility_confirmed' as FilterType },
+          // For Design: "approved" means Design Result is submitted (ready for costing).
+          { title: t.dashboard.approved, value: countByStatus(['design_result']), icon: CheckCircle, filterValue: 'design_result' as FilterType },
         ];
       case 'costing':
         return [
