@@ -1270,6 +1270,10 @@ const Settings: React.FC = () => {
             <Server size={16} className="mr-2" />
             {t.settings.deploymentsTab}
           </TabsTrigger>
+          <TabsTrigger value="test" className="data-[state=active]:bg-background">
+            <CheckCircle2 size={16} className="mr-2" />
+            {t.settings.testTab}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="lists" className="space-y-6">
@@ -2684,6 +2688,32 @@ const Settings: React.FC = () => {
                   {isDeployLoading ? t.common.loading : (deployInfo?.log?.content || t.settings.deployLogEmpty)}
                 </pre>
               )}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="test" className="space-y-6">
+          <div className="bg-card rounded-lg border border-border p-4 md:p-6">
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold text-foreground">{t.settings.testTab}</h3>
+              <p className="text-sm text-muted-foreground">
+                Internal test area for admin diagnostics and feature validation.
+              </p>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-lg border border-border bg-muted/30 p-4">
+                <div className="text-sm font-semibold text-foreground">Quick checks</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Place future test utilities here (DB, email, exports, etc.).
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 p-4">
+                <div className="text-sm font-semibold text-foreground">Coming next</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  This is a placeholder page for now.
+                </div>
+              </div>
             </div>
           </div>
         </TabsContent>
