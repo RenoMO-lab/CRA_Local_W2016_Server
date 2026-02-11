@@ -247,6 +247,12 @@ type DbMonitorState = {
   nextRefreshAt: string | null;
 };
 
+type DbBackupItem = {
+  fileName: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
 const Settings: React.FC = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -306,6 +312,11 @@ const Settings: React.FC = () => {
   const [isDbMonitorLoading, setIsDbMonitorLoading] = useState(false);
   const [hasDbMonitorError, setHasDbMonitorError] = useState(false);
   const [dbWaitsShowNoise, setDbWaitsShowNoise] = useState(false);
+  const [dbBackups, setDbBackups] = useState<DbBackupItem[]>([]);
+  const [dbBackupDirectory, setDbBackupDirectory] = useState<string>('');
+  const [isDbBackupsLoading, setIsDbBackupsLoading] = useState(false);
+  const [isDbBackupCreating, setIsDbBackupCreating] = useState(false);
+  const [dbBackupError, setDbBackupError] = useState<string | null>(null);
   const [m365Info, setM365Info] = useState<M365AdminResponse | null>(null);
   const [isM365Loading, setIsM365Loading] = useState(false);
   const [hasM365Error, setHasM365Error] = useState(false);
@@ -420,6 +431,18 @@ const Settings: React.FC = () => {
   const getStatusLabel = (status: string) => {
     const key = status as keyof typeof t.statuses;
     return (t.statuses && t.statuses[key]) || status;
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (!Number.isFinite(bytes) || bytes < 0) return '-';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = bytes;
+    let idx = 0;
+    while (value >= 1024 && idx < units.length - 1) {
+      value /= 1024;
+      idx += 1;
+    }
+    return `${value >= 10 || idx === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[idx]}`;
   };
 
   const getFlowValue = (status: string, role: M365RoleKey) => {
@@ -715,6 +738,52 @@ const Settings: React.FC = () => {
     }
   };
 
+  const loadDbBackups = async () => {
+    setIsDbBackupsLoading(true);
+    setDbBackupError(null);
+    try {
+      const res = await fetch('/api/admin/db-backups');
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Failed to load backups: ${res.status}`);
+      setDbBackups(Array.isArray(data?.items) ? data.items : []);
+      setDbBackupDirectory(String(data?.directory ?? ''));
+    } catch (error) {
+      console.error('Failed to load DB backups:', error);
+      setDbBackupError(String((error as any)?.message ?? error));
+      setDbBackups([]);
+    } finally {
+      setIsDbBackupsLoading(false);
+    }
+  };
+
+  const createDbBackup = async () => {
+    setIsDbBackupCreating(true);
+    setDbBackupError(null);
+    try {
+      const res = await fetch('/api/admin/db-backups', { method: 'POST' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Backup failed: ${res.status}`);
+      setDbBackups(Array.isArray(data?.items) ? data.items : []);
+      setDbBackupDirectory(String(data?.directory ?? dbBackupDirectory));
+      const createdName = String(data?.created?.fileName ?? '').trim();
+      toast({
+        title: 'Backup created',
+        description: createdName ? `${createdName}` : 'Database backup completed.',
+      });
+    } catch (error) {
+      console.error('Failed to create DB backup:', error);
+      const message = String((error as any)?.message ?? error);
+      setDbBackupError(message);
+      toast({
+        title: t.request.error,
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDbBackupCreating(false);
+    }
+  };
+
   const refreshDbMonitor = async () => {
     setIsDbMonitorLoading(true);
     setHasDbMonitorError(false);
@@ -740,6 +809,7 @@ const Settings: React.FC = () => {
     loadDeployInfo();
     loadM365Info();
     loadDbMonitor();
+    loadDbBackups();
   }, []);
 
   const loadFeedback = useCallback(async () => {
@@ -2437,6 +2507,81 @@ const Settings: React.FC = () => {
               </div>
             );
           })()}
+
+          <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-4">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-1">
+                <h3 className="text-lg font-semibold text-foreground">Manual Database Backups</h3>
+                <p className="text-sm text-muted-foreground">
+                  Create and download PostgreSQL backups stored on the VM.
+                </p>
+                <p className="text-xs text-muted-foreground break-all">
+                  Storage path: {dbBackupDirectory || 'C:\\CRA_Local_W2016_Main\\db-backups'}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={loadDbBackups} disabled={isDbBackupsLoading || isDbBackupCreating}>
+                  <RefreshCw size={16} className="mr-2" />
+                  {isDbBackupsLoading ? t.common.loading : 'Refresh list'}
+                </Button>
+                <Button onClick={createDbBackup} disabled={isDbBackupCreating || isDbBackupsLoading}>
+                  <Database size={16} className="mr-2" />
+                  {isDbBackupCreating ? 'Creating backup...' : 'Create backup'}
+                </Button>
+              </div>
+            </div>
+
+            {dbBackupError ? (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                {dbBackupError}
+              </div>
+            ) : null}
+
+            {isDbBackupsLoading ? (
+              <p className="text-sm text-muted-foreground">{t.common.loading}</p>
+            ) : dbBackups.length ? (
+              <div className="rounded-md border border-border overflow-hidden">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>File</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead className="text-right">Size</TableHead>
+                      <TableHead className="text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {dbBackups.map((item) => {
+                      const createdDate = new Date(item.createdAt);
+                      const createdLabel = Number.isNaN(createdDate.getTime())
+                        ? item.createdAt
+                        : format(createdDate, 'MMM d, yyyy HH:mm');
+
+                      return (
+                        <TableRow key={item.fileName}>
+                          <TableCell className="font-mono text-xs break-all">{item.fileName}</TableCell>
+                          <TableCell className="text-sm">{createdLabel || '-'}</TableCell>
+                          <TableCell className="text-right text-sm">{formatBytes(item.sizeBytes)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button asChild size="sm" variant="outline">
+                              <a
+                                href={`/api/admin/db-backups/${encodeURIComponent(item.fileName)}/download`}
+                              >
+                                <Download size={14} className="mr-2" />
+                                Download
+                              </a>
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No backups found yet. Create the first backup to start.</p>
+            )}
+          </div>
 
           {hasDbMonitorError ? (
             <div className="bg-card rounded-lg border border-destructive/30 p-4 text-sm text-destructive">

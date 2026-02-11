@@ -148,7 +148,7 @@ Deploy script: `CRA_Local/deploy/deploy.ps1`
 
 This app stores all business data in PostgreSQL (`PGDATABASE` or `DATABASE_URL`). If the VM/server is lost, **your recovery depends on having recent backups stored off the VM** (NAS).
 
-Current VM note: the deploy script performs a `BACKUP DATABASE` before deployment, but that backup is only useful if it is stored/copied to a safe location (NAS) and restores are tested.
+Current VM note: the deploy script runs `pg_dump` before deployment. That backup is still tied to deploy activity and should not replace a fixed daily backup schedule.
 
 ### Recommended Setup (Best Practice)
 
@@ -161,3 +161,27 @@ Current VM note: the deploy script performs a `BACKUP DATABASE` before deploymen
 ### PostgreSQL Backups
 
 Recommended: a Windows Scheduled Task that runs `pg_dump` nightly and copies results to NAS.
+
+Install the built-in daily backup task (on the VM):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\CRA_Local_W2016_Main\deploy\install-daily-db-backup-task.ps1 `
+  -TaskName CRA_Local_DailyDbBackup `
+  -AppPath C:\CRA_Local_W2016_Main `
+  -BackupDir C:\CRA_Local_W2016_Main\db-backups `
+  -RetentionDays 14 `
+  -StartTime 01:00
+```
+
+Run once immediately (optional):
+
+```powershell
+schtasks /Run /TN "CRA_Local_DailyDbBackup"
+```
+
+Check task status and latest backups:
+
+```powershell
+schtasks /Query /TN "CRA_Local_DailyDbBackup" /FO LIST /V
+Get-ChildItem C:\CRA_Local_W2016_Main\db-backups -File | Sort-Object LastWriteTime -Descending | Select-Object -First 5
+```

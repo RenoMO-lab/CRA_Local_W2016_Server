@@ -1,6 +1,6 @@
 param(
-  [string]$AppPath = "C:\apps\CRA_Local",
-  [string]$BackupDir = "C:\db_backups\CRA_Local",
+  [string]$AppPath = "C:\CRA_Local_W2016_Main",
+  [string]$BackupDir = "",
   [int]$RetentionDays = 7,
   [string]$DatabaseUrl,
   [string]$PgHost,
@@ -11,6 +11,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $BackupDir) {
+  $BackupDir = Join-Path $AppPath "db-backups"
+}
 
 function Parse-EnvFile {
   param([string]$Path)
@@ -65,14 +69,35 @@ function Log([string]$Message) {
 Log "Starting pg_dump backup to $backupFile"
 
 $pgDump = $null
-try {
-  $pgDump = (Get-Command pg_dump -ErrorAction Stop).Source
-} catch {
-  $pgDump = $null
+$pgDumpCandidates = @()
+if ($envVars["PG_DUMP_PATH"]) { $pgDumpCandidates += $envVars["PG_DUMP_PATH"] }
+if ($envVars["PG_BIN_DIR"]) { $pgDumpCandidates += (Join-Path $envVars["PG_BIN_DIR"] "pg_dump.exe") }
+$pgDumpCandidates += (Join-Path $AppPath "tools\postgresql\bin\pg_dump.exe")
+$pgDumpCandidates += "pg_dump.exe"
+$pgDumpCandidates += "pg_dump"
+
+foreach ($candidate in $pgDumpCandidates) {
+  if (-not $candidate) { continue }
+  try {
+    if ($candidate -match "[\\/]") {
+      if (Test-Path $candidate) {
+        $pgDump = $candidate
+        break
+      }
+    } else {
+      $resolved = (Get-Command $candidate -ErrorAction Stop).Source
+      if ($resolved) {
+        $pgDump = $resolved
+        break
+      }
+    }
+  } catch {
+    # try next candidate
+  }
 }
 
 if (-not $pgDump) {
-  throw "pg_dump not found in PATH. Install PostgreSQL client tools or add it to PATH."
+  throw "pg_dump not found. Set PG_DUMP_PATH/PG_BIN_DIR, install PostgreSQL client tools, or add pg_dump to PATH."
 }
 
 try {
@@ -102,4 +127,3 @@ Get-ChildItem -Path $BackupDir -Filter ("{0}_*.dump" -f $dbNameForFile) -File | 
 } | ForEach-Object {
   Remove-Item -Force $_.FullName
 }
-

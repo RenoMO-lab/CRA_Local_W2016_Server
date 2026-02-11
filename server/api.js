@@ -794,6 +794,9 @@ const DEFAULT_LOG_LINES = 200;
 const MAX_LOG_LINES = 1000;
 const LOG_PATH = path.join(REPO_ROOT, "deploy", "logs", "auto-deploy.log");
 const BUILD_INFO_PATH = path.join(REPO_ROOT, "dist", "build-info.json");
+const DB_BACKUP_DIR = path.resolve(process.env.DB_BACKUP_DIR || "C:\\CRA_Local_W2016_Main\\db-backups");
+const MAX_DB_BACKUP_LIST = 100;
+let dbBackupInProgress = false;
 
 const clampLineCount = (value) => {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -838,6 +841,172 @@ const readBuildInfo = async () => {
   } catch {
     return null;
   }
+};
+
+const formatBackupTimestamp = (date = new Date()) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  const ss = String(date.getSeconds()).padStart(2, "0");
+  return `${y}${m}${d}_${hh}${mm}${ss}`;
+};
+
+const isSafeBackupFileName = (value) => /^[A-Za-z0-9._-]+\.dump$/i.test(String(value ?? ""));
+
+const resolveBackupFilePath = (fileName) => {
+  if (!isSafeBackupFileName(fileName)) return null;
+  const resolved = path.resolve(DB_BACKUP_DIR, fileName);
+  const base = DB_BACKUP_DIR.toLowerCase();
+  const target = resolved.toLowerCase();
+  const baseWithSep = base.endsWith(path.sep) ? base : `${base}${path.sep}`;
+  if (!target.startsWith(baseWithSep)) return null;
+  return resolved;
+};
+
+const resolvePgDumpPath = async () => {
+  const fromBinDir = process.env.PG_BIN_DIR
+    ? path.join(process.env.PG_BIN_DIR, process.platform === "win32" ? "pg_dump.exe" : "pg_dump")
+    : null;
+
+  const candidates = [
+    process.env.PG_DUMP_PATH,
+    fromBinDir,
+    "C:\\CRA_Local_W2016_Main\\tools\\postgresql\\bin\\pg_dump.exe",
+    "pg_dump.exe",
+    "pg_dump",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const value = String(candidate);
+    if (path.isAbsolute(value)) {
+      try {
+        await fs.access(value);
+        return value;
+      } catch {
+        continue;
+      }
+    }
+
+    try {
+      await execFileAsync(value, ["--version"]);
+      return value;
+    } catch {
+      // try next candidate
+    }
+  }
+
+  return null;
+};
+
+const getBackupConnectionConfig = () => {
+  const fallback = {
+    host: process.env.PGHOST || "localhost",
+    port: Number.parseInt(process.env.PGPORT || "5432", 10),
+    database: process.env.PGDATABASE || "cra_local",
+    user: process.env.PGUSER || "",
+    password: process.env.PGPASSWORD || "",
+  };
+
+  const raw = String(process.env.DATABASE_URL ?? "").trim();
+  if (!raw) return fallback;
+
+  try {
+    const parsed = new URL(raw);
+    const protocol = String(parsed.protocol || "").toLowerCase();
+    if (protocol !== "postgres:" && protocol !== "postgresql:") {
+      return fallback;
+    }
+
+    const dbName = String(parsed.pathname || "").replace(/^\/+/, "");
+    return {
+      host: parsed.hostname || fallback.host,
+      port: Number.parseInt(parsed.port || String(fallback.port), 10),
+      database: dbName || fallback.database,
+      user: decodeURIComponent(parsed.username || fallback.user),
+      password: decodeURIComponent(parsed.password || fallback.password),
+    };
+  } catch {
+    return fallback;
+  }
+};
+
+const listDbBackups = async () => {
+  await fs.mkdir(DB_BACKUP_DIR, { recursive: true });
+
+  const entries = await fs.readdir(DB_BACKUP_DIR, { withFileTypes: true });
+  const items = [];
+
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (!entry.name.toLowerCase().endsWith(".dump")) continue;
+    if (!isSafeBackupFileName(entry.name)) continue;
+
+    const filePath = path.join(DB_BACKUP_DIR, entry.name);
+    try {
+      const stat = await fs.stat(filePath);
+      items.push({
+        fileName: entry.name,
+        sizeBytes: stat.size,
+        createdAt: stat.mtime.toISOString(),
+      });
+    } catch {
+      // Ignore files that disappear during listing.
+    }
+  }
+
+  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return items.slice(0, MAX_DB_BACKUP_LIST);
+};
+
+const createDbBackup = async () => {
+  const pgDumpPath = await resolvePgDumpPath();
+  if (!pgDumpPath) {
+    throw new Error("pg_dump executable not found. Set PG_DUMP_PATH or PG_BIN_DIR.");
+  }
+
+  const config = getBackupConnectionConfig();
+  if (!config.user) {
+    throw new Error("Missing database user. Set PGUSER or DATABASE_URL.");
+  }
+  if (!config.database) {
+    throw new Error("Missing database name. Set PGDATABASE or DATABASE_URL.");
+  }
+
+  await fs.mkdir(DB_BACKUP_DIR, { recursive: true });
+
+  const fileName = `${config.database}_${formatBackupTimestamp()}.dump`;
+  const filePath = path.join(DB_BACKUP_DIR, fileName);
+
+  const args = [
+    "--format=custom",
+    "--no-owner",
+    "--no-privileges",
+    "--file",
+    filePath,
+    "--host",
+    config.host,
+    "--port",
+    String(config.port),
+    "--username",
+    config.user,
+    config.database,
+  ];
+
+  const env = { ...process.env };
+  if (config.password) {
+    env.PGPASSWORD = config.password;
+  }
+
+  await execFileAsync(pgDumpPath, args, { env, maxBuffer: 10 * 1024 * 1024 });
+  const stat = await fs.stat(filePath);
+
+  return {
+    fileName,
+    sizeBytes: stat.size,
+    createdAt: stat.mtime.toISOString(),
+  };
 };
 
 const getGitInfo = async () => {
@@ -1041,6 +1210,66 @@ export const apiRouter = (() => {
           available: logContent !== null,
         },
       });
+    })
+  );
+
+  router.get(
+    "/admin/db-backups",
+    asyncHandler(async (req, res) => {
+      const items = await listDbBackups();
+      res.json({
+        directory: DB_BACKUP_DIR,
+        inProgress: dbBackupInProgress,
+        items,
+      });
+    })
+  );
+
+  router.post(
+    "/admin/db-backups",
+    asyncHandler(async (req, res) => {
+      if (dbBackupInProgress) {
+        res.status(409).json({ error: "A database backup is already running." });
+        return;
+      }
+
+      dbBackupInProgress = true;
+      try {
+        const created = await createDbBackup();
+        const items = await listDbBackups();
+        res.status(201).json({
+          directory: DB_BACKUP_DIR,
+          created,
+          items,
+        });
+      } catch (error) {
+        console.error("Failed to create database backup:", error);
+        res.status(500).json({ error: String(error?.message ?? error) });
+      } finally {
+        dbBackupInProgress = false;
+      }
+    })
+  );
+
+  router.get(
+    "/admin/db-backups/:fileName/download",
+    asyncHandler(async (req, res) => {
+      const fileName = String(req.params.fileName ?? "").trim();
+      const filePath = resolveBackupFilePath(fileName);
+      if (!filePath) {
+        res.status(400).json({ error: "Invalid backup file name." });
+        return;
+      }
+
+      try {
+        await fs.access(filePath);
+      } catch {
+        res.status(404).json({ error: "Backup file not found." });
+        return;
+      }
+
+      res.setHeader("Cache-Control", "no-store");
+      res.download(filePath, fileName);
     })
   );
 
