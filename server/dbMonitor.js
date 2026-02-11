@@ -1,4 +1,4 @@
-import { getPool, sql } from "./db.js";
+import { getPool } from "./db.js";
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 const KEEP_SNAPSHOTS = 168; // 7 days of hourly samples
@@ -27,13 +27,9 @@ const safeNumber = (value) => {
   return Number.isFinite(n) ? n : null;
 };
 
-const runQuery = async (pool, query) => {
-  const result = await pool.request().query(query);
-  return Array.isArray(result?.recordset) ? result.recordset : [];
-};
-
 const parseJsonOrNull = (value) => {
   if (!value) return null;
+  if (typeof value === "object") return value;
   try {
     return JSON.parse(value);
   } catch {
@@ -42,48 +38,41 @@ const parseJsonOrNull = (value) => {
 };
 
 const isNoiseWait = (waitType) => {
-  const w = String(waitType ?? "").toUpperCase();
+  const w = String(waitType ?? "").toLowerCase();
   if (!w) return true;
-  if (w.startsWith("SLEEP")) return true;
-  if (w.endsWith("_SLEEP")) return true;
-  if (w.startsWith("BROKER_")) return true;
-  if (w.startsWith("QDS_")) return true; // Query Store background
-  if (w.startsWith("XE_")) return true;
-  if (w.includes("DIAGNOSTICS_SLEEP")) return true;
-  if (w.includes("SQLTRACE")) return true;
-  if (w === "DIRTY_PAGE_POLL") return true;
-  if (w === "SOS_WORK_DISPATCHER") return true;
-  if (w === "HADR_FILESTREAM_IOMGR_IOCOMPLETION") return true;
+  // Common "idle" or low-signal events in pg_stat_activity.
+  if (w.includes("client")) return true;
+  if (w.includes("idle")) return true;
+  if (w.includes("timeout")) return true;
   return false;
 };
 
 const readSnapshots = async (pool, limit) => {
-  const { recordset } = await pool
-    .request()
-    .input("limit", sql.Int, limit)
-    .query(
-      `
-      SELECT TOP (@limit)
-        id,
-        collected_at AS collectedAt,
-        sqlserver_start_time AS sqlserverStartTime,
-        database_name AS databaseName,
-        server_name AS serverName,
-        product_version AS productVersion,
-        edition,
-        size_mb AS sizeMb,
-        user_sessions AS userSessions,
-        active_requests AS activeRequests,
-        blocked_requests AS blockedRequests,
-        waits_json AS waitsJson,
-        queries_json AS queriesJson,
-        collector_errors_json AS collectorErrorsJson
-      FROM dbo.db_monitor_snapshots
-      ORDER BY collected_at DESC
-      `
-    );
+  const { rows } = await pool.query(
+    `
+    SELECT
+      id,
+      collected_at AS "collectedAt",
+      db_start_time AS "dbStartTime",
+      database_name AS "databaseName",
+      server_name AS "serverName",
+      product_version AS "productVersion",
+      edition,
+      size_mb AS "sizeMb",
+      user_sessions AS "userSessions",
+      active_requests AS "activeRequests",
+      blocked_requests AS "blockedRequests",
+      waits_json AS "waitsJson",
+      queries_json AS "queriesJson",
+      collector_errors_json AS "collectorErrorsJson"
+    FROM db_monitor_snapshots
+    ORDER BY collected_at DESC
+    LIMIT $1
+    `,
+    [limit]
+  );
 
-  return (recordset ?? []).map((row) => {
+  return (rows ?? []).map((row) => {
     const database =
       row.databaseName || row.serverName || row.productVersion || row.edition
         ? {
@@ -98,7 +87,8 @@ const readSnapshots = async (pool, limit) => {
     return {
       id: row.id,
       collectedAt: toIsoOrNull(row.collectedAt),
-      sqlserverStartTime: toIsoOrNull(row.sqlserverStartTime),
+      // Keep the existing API field name for the frontend; this is the DB engine start time now.
+      sqlserverStartTime: toIsoOrNull(row.dbStartTime),
       database,
       sizeMb: safeNumber(row.sizeMb),
       sessions: {
@@ -114,30 +104,11 @@ const readSnapshots = async (pool, limit) => {
 };
 
 const insertSnapshot = async (pool, snapshot) => {
-  const req = pool.request();
-  req.input("collectedAt", sql.DateTime2(3), new Date(snapshot.collectedAt));
-  req.input(
-    "sqlserverStartTime",
-    sql.DateTime2(3),
-    snapshot.sqlserverStartTime ? new Date(snapshot.sqlserverStartTime) : null
-  );
-  req.input("databaseName", sql.NVarChar(128), snapshot.database?.databaseName || null);
-  req.input("serverName", sql.NVarChar(128), snapshot.database?.serverName || null);
-  req.input("productVersion", sql.NVarChar(128), snapshot.database?.productVersion || null);
-  req.input("edition", sql.NVarChar(256), snapshot.database?.edition || null);
-  req.input("sizeMb", sql.Float, snapshot.sizeMb ?? null);
-  req.input("userSessions", sql.Int, snapshot.sessions?.userSessions ?? null);
-  req.input("activeRequests", sql.Int, snapshot.sessions?.activeRequests ?? null);
-  req.input("blockedRequests", sql.Int, snapshot.sessions?.blockedRequests ?? null);
-  req.input("waitsJson", sql.NVarChar(sql.MAX), JSON.stringify(snapshot.waits ?? []));
-  req.input("queriesJson", sql.NVarChar(sql.MAX), JSON.stringify(snapshot.topQueries ?? []));
-  req.input("collectorErrorsJson", sql.NVarChar(sql.MAX), JSON.stringify(snapshot.errors ?? []));
-
-  await req.query(
+  await pool.query(
     `
-    INSERT INTO dbo.db_monitor_snapshots (
+    INSERT INTO db_monitor_snapshots (
       collected_at,
-      sqlserver_start_time,
+      db_start_time,
       database_name,
       server_name,
       product_version,
@@ -150,38 +121,39 @@ const insertSnapshot = async (pool, snapshot) => {
       queries_json,
       collector_errors_json
     ) VALUES (
-      @collectedAt,
-      @sqlserverStartTime,
-      @databaseName,
-      @serverName,
-      @productVersion,
-      @edition,
-      @sizeMb,
-      @userSessions,
-      @activeRequests,
-      @blockedRequests,
-      @waitsJson,
-      @queriesJson,
-      @collectorErrorsJson
-    );
-    `
+      $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13::jsonb
+    )
+    `,
+    [
+      new Date(snapshot.collectedAt),
+      snapshot.sqlserverStartTime ? new Date(snapshot.sqlserverStartTime) : null,
+      snapshot.database?.databaseName || null,
+      snapshot.database?.serverName || null,
+      snapshot.database?.productVersion || null,
+      snapshot.database?.edition || null,
+      snapshot.sizeMb ?? null,
+      snapshot.sessions?.userSessions ?? null,
+      snapshot.sessions?.activeRequests ?? null,
+      snapshot.sessions?.blockedRequests ?? null,
+      JSON.stringify(snapshot.waits ?? []),
+      JSON.stringify(snapshot.topQueries ?? []),
+      JSON.stringify(snapshot.errors ?? []),
+    ]
   );
 
   // Retention: keep latest KEEP_SNAPSHOTS rows.
-  await pool
-    .request()
-    .input("keep", sql.Int, KEEP_SNAPSHOTS)
-    .query(
-      `
-      ;WITH keep_rows AS (
-        SELECT TOP (@keep) id
-        FROM dbo.db_monitor_snapshots
-        ORDER BY collected_at DESC
-      )
-      DELETE FROM dbo.db_monitor_snapshots
-      WHERE id NOT IN (SELECT id FROM keep_rows);
-      `
-    );
+  await pool.query(
+    `
+    DELETE FROM db_monitor_snapshots
+    WHERE id NOT IN (
+      SELECT id
+      FROM db_monitor_snapshots
+      ORDER BY collected_at DESC
+      LIMIT $1
+    )
+    `,
+    [KEEP_SNAPSHOTS]
+  );
 };
 
 const collectDbSnapshot = async (pool) => {
@@ -203,14 +175,13 @@ const collectDbSnapshot = async (pool) => {
   };
 
   try {
-    const rows = await runQuery(
-      pool,
+    const { rows } = await pool.query(
       `
       SELECT
-        DB_NAME() AS databaseName,
-        @@SERVERNAME AS serverName,
-        CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128)) AS productVersion,
-        CAST(SERVERPROPERTY('Edition') AS nvarchar(128)) AS edition
+        current_database() AS "databaseName",
+        COALESCE(inet_server_addr()::text, '') AS "serverName",
+        current_setting('server_version') AS "productVersion",
+        version() AS "edition"
       `
     );
     const r = rows[0] ?? null;
@@ -227,11 +198,20 @@ const collectDbSnapshot = async (pool) => {
   }
 
   try {
-    const rows = await runQuery(
-      pool,
+    const { rows } = await pool.query(
       `
-      SELECT SUM(size) * 8.0 / 1024.0 AS sizeMb
-      FROM sys.database_files
+      SELECT pg_postmaster_start_time() AS "dbStartTime"
+      `
+    );
+    snapshot.sqlserverStartTime = toIsoOrNull(rows?.[0]?.dbStartTime);
+  } catch (e) {
+    errors.push({ section: "db_start_time", message: String(e?.message ?? e) });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT pg_database_size(current_database()) / 1024.0 / 1024.0 AS "sizeMb"
       `
     );
     snapshot.sizeMb = safeNumber(rows?.[0]?.sizeMb);
@@ -239,92 +219,81 @@ const collectDbSnapshot = async (pool) => {
     errors.push({ section: "size", message: String(e?.message ?? e) });
   }
 
-  // Note: these DMVs typically require VIEW SERVER STATE. If not granted, we surface
-  // a readable error and keep the rest of the snapshot.
   try {
-    const rows = await runQuery(
-      pool,
+    const { rows } = await pool.query(
       `
-      SELECT COUNT(*) AS userSessions
-      FROM sys.dm_exec_sessions
-      WHERE is_user_process = 1
+      SELECT
+        COUNT(*)::int AS "userSessions",
+        COUNT(*) FILTER (WHERE state = 'active')::int AS "activeRequests",
+        COUNT(*) FILTER (WHERE array_length(pg_blocking_pids(pid), 1) > 0)::int AS "blockedRequests"
+      FROM pg_stat_activity
+      WHERE datname = current_database()
       `
     );
     snapshot.sessions.userSessions = safeNumber(rows?.[0]?.userSessions);
+    snapshot.sessions.activeRequests = safeNumber(rows?.[0]?.activeRequests);
+    snapshot.sessions.blockedRequests = safeNumber(rows?.[0]?.blockedRequests);
   } catch (e) {
     errors.push({ section: "sessions", message: String(e?.message ?? e) });
   }
 
+  // Waits: Postgres doesn't expose cumulative "wait ms" like SQL Server DMVs by default.
+  // We approximate by counting sessions per wait event (useful for spotting lock contention).
   try {
-    const rows = await runQuery(
-      pool,
+    const { rows } = await pool.query(
       `
       SELECT
-        SUM(CASE WHEN status IN ('running','runnable','suspended') THEN 1 ELSE 0 END) AS activeRequests,
-        SUM(CASE WHEN blocking_session_id > 0 THEN 1 ELSE 0 END) AS blockedRequests
-      FROM sys.dm_exec_requests
+        COALESCE(wait_event_type, '') AS "waitEventType",
+        COALESCE(wait_event, '') AS "waitEvent",
+        COUNT(*)::int AS "sessions"
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND wait_event IS NOT NULL
+      GROUP BY wait_event_type, wait_event
+      ORDER BY COUNT(*) DESC
+      LIMIT 200
       `
     );
-    snapshot.sessions.activeRequests = safeNumber(rows?.[0]?.activeRequests);
-    snapshot.sessions.blockedRequests = safeNumber(rows?.[0]?.blockedRequests);
-  } catch (e) {
-    errors.push({ section: "requests", message: String(e?.message ?? e) });
-  }
-
-  try {
-    const rows = await runQuery(
-      pool,
-      `
-      SELECT sqlserver_start_time AS sqlserverStartTime
-      FROM sys.dm_os_sys_info
-      `
-    );
-    snapshot.sqlserverStartTime = toIsoOrNull(rows?.[0]?.sqlserverStartTime);
-  } catch (e) {
-    errors.push({ section: "sqlserver_start_time", message: String(e?.message ?? e) });
-  }
-
-  try {
-    const rows = await runQuery(
-      pool,
-      `
-      SELECT
-        wait_type AS waitType,
-        wait_time_ms AS waitMs
-      FROM sys.dm_os_wait_stats
-      `
-    );
-    snapshot.waits = rows.map((r) => ({
-      waitType: String(r.waitType ?? ""),
-      waitMs: safeNumber(r.waitMs),
+    snapshot.waits = (rows ?? []).map((r) => ({
+      waitType: `${String(r.waitEventType ?? "").trim()}:${String(r.waitEvent ?? "").trim()}`.replace(/^:/, ""),
+      // Keep the numeric field name for the frontend; represents "sessions", not ms.
+      waitMs: safeNumber(r.sessions),
     }));
   } catch (e) {
     errors.push({ section: "waits", message: String(e?.message ?? e) });
   }
 
   try {
-    const rows = await runQuery(
-      pool,
-      `
-      SELECT TOP (10)
-        CONVERT(varchar(34), qs.query_hash, 1) AS queryHash,
-        qs.execution_count AS execCount,
-        qs.total_elapsed_time / 1000.0 AS totalMs,
-        (qs.total_elapsed_time / NULLIF(qs.execution_count, 0)) / 1000.0 AS avgMs,
-        qs.total_worker_time / 1000.0 AS cpuMs,
-        qs.total_logical_reads AS logicalReads
-      FROM sys.dm_exec_query_stats qs
-      ORDER BY qs.total_elapsed_time DESC
-      `
-    );
-    snapshot.topQueries = rows.map((r) => ({
-      queryHash: String(r.queryHash ?? ""),
-      execCount: safeNumber(r.execCount),
-      totalMs: safeNumber(r.totalMs),
-      avgMs: safeNumber(r.avgMs),
-      cpuMs: safeNumber(r.cpuMs),
-      logicalReads: safeNumber(r.logicalReads),
-    }));
+    const ext = await pool.query("SELECT 1 FROM pg_extension WHERE extname='pg_stat_statements' LIMIT 1");
+    if (!ext.rows.length) {
+      errors.push({
+        section: "queries",
+        message: "pg_stat_statements is not installed; install the extension to see top query stats.",
+      });
+    } else {
+      const { rows } = await pool.query(
+        `
+        SELECT
+          queryid::text AS "queryHash",
+          calls::bigint AS "execCount",
+          total_exec_time AS "totalMs",
+          mean_exec_time AS "avgMs",
+          NULL::double precision AS "cpuMs",
+          (shared_blks_read + shared_blks_hit)::bigint AS "logicalReads"
+        FROM pg_stat_statements
+        ORDER BY total_exec_time DESC
+        LIMIT 10
+        `
+      );
+      snapshot.topQueries = (rows ?? []).map((r) => ({
+        queryHash: String(r.queryHash ?? ""),
+        execCount: safeNumber(r.execCount),
+        totalMs: safeNumber(r.totalMs),
+        avgMs: safeNumber(r.avgMs),
+        cpuMs: safeNumber(r.cpuMs),
+        logicalReads: safeNumber(r.logicalReads),
+      }));
+    }
   } catch (e) {
     errors.push({ section: "queries", message: String(e?.message ?? e) });
   }
@@ -349,27 +318,24 @@ const computeWaitDeltas = () => {
   const prev = monitorState.baseline;
   if (!current) return { baselineCollectedAt: null, waits: [], recommended: [] };
 
-  // If we don't have a baseline yet, still return a useful "top waits by total" view.
   if (!prev) {
     const waits = (current.waits ?? [])
       .map((w) => {
         const key = String(w.waitType ?? "");
-        const curMs = safeNumber(w.waitMs);
+        const cur = safeNumber(w.waitMs);
         return {
           waitType: key,
-          waitMs: curMs,
+          waitMs: cur,
           deltaWaitMs: null,
           isNoise: isNoiseWait(key),
         };
       })
       .filter((w) => w.waitType)
-      .sort((a, b) => (Number(b.waitMs ?? 0) - Number(a.waitMs ?? 0)))
+      .sort((a, b) => Number(b.waitMs ?? 0) - Number(a.waitMs ?? 0))
       .slice(0, 200);
 
     const recommended = waits
       .filter((w) => !w.isNoise && (w.waitMs ?? 0) > 0)
-      .slice()
-      .sort((a, b) => (Number(b.waitMs ?? 0) - Number(a.waitMs ?? 0)))
       .slice(0, 10);
 
     return { baselineCollectedAt: null, waits, recommended };
@@ -379,7 +345,7 @@ const computeWaitDeltas = () => {
     return { baselineCollectedAt: prev.collectedAt ?? null, waits: [], recommended: [] };
   }
   if (current.sqlserverStartTime !== prev.sqlserverStartTime) {
-    // SQL Server restart: deltas are meaningless.
+    // DB restart: deltas are meaningless.
     return { baselineCollectedAt: prev.collectedAt ?? null, waits: [], recommended: [] };
   }
 
@@ -400,12 +366,12 @@ const computeWaitDeltas = () => {
   const waitsAll = (current.waits ?? [])
     .map((w) => {
       const key = String(w.waitType ?? "");
-      const curMs = safeNumber(w.waitMs);
-      const prevMs = prevMap.has(key) ? prevMap.get(key) : null;
-      const delta = curMs !== null && prevMs !== null ? (curMs - prevMs) / hours : null;
+      const cur = safeNumber(w.waitMs);
+      const prevVal = prevMap.has(key) ? prevMap.get(key) : null;
+      const delta = cur !== null && prevVal !== null ? (cur - prevVal) / hours : null;
       return {
         waitType: key,
-        waitMs: curMs,
+        waitMs: cur,
         deltaWaitMs: delta !== null && delta >= 0 ? delta : null,
         isNoise: isNoiseWait(key),
       };
@@ -479,7 +445,6 @@ export const refreshDbMonitorSnapshot = async () => {
   monitorState.refreshing = true;
   try {
     const pool = await getPool();
-    // Ensure we have history loaded at least once (persisted view).
     if (!Array.isArray(monitorState.history) || monitorState.history.length === 0) {
       try {
         monitorState.history = await readSnapshots(pool, KEEP_SNAPSHOTS);
@@ -489,6 +454,7 @@ export const refreshDbMonitorSnapshot = async () => {
         // ignore
       }
     }
+
     const snapshot = await collectDbSnapshot(pool);
     await insertSnapshot(pool, snapshot);
 
@@ -509,7 +475,6 @@ export const refreshDbMonitorSnapshot = async () => {
 };
 
 export const startDbMonitor = () => {
-  // Load persisted snapshots (if any), then kick off once at startup, then hourly.
   (async () => {
     try {
       const pool = await getPool();
@@ -526,6 +491,6 @@ export const startDbMonitor = () => {
   const timer = setInterval(() => {
     refreshDbMonitorSnapshot().catch(() => {});
   }, ONE_HOUR_MS);
-  // Do not keep the process alive just for this timer.
   timer.unref?.();
 };
+

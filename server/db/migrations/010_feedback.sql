@@ -1,16 +1,17 @@
-IF OBJECT_ID(N'dbo.feedback', N'U') IS NULL
-BEGIN
-  CREATE TABLE dbo.feedback (
-    id NVARCHAR(64) NOT NULL PRIMARY KEY,
-    type NVARCHAR(50) NOT NULL,
-    title NVARCHAR(255) NOT NULL,
-    description NVARCHAR(MAX) NOT NULL,
-    steps NVARCHAR(MAX) NULL,
-    severity NVARCHAR(50) NULL,
-    page_path NVARCHAR(255) NULL,
-    user_name NVARCHAR(255) NULL,
-    user_email NVARCHAR(255) NULL,
-    user_role NVARCHAR(255) NULL,
-    created_at DATETIME2 NOT NULL
-  );
-END;
+CREATE TABLE IF NOT EXISTS feedback (
+  id text PRIMARY KEY,
+  type text NOT NULL,
+  title text NOT NULL,
+  description text NOT NULL,
+  steps text NULL,
+  severity text NULL,
+  page_path text NULL,
+  user_name text NULL,
+  user_email text NULL,
+  user_role text NULL,
+  status text NOT NULL DEFAULT 'submitted',
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback (created_at DESC);

@@ -14,6 +14,8 @@ if (Test-Path $backupScript) {
   Write-Warning "db-backup.ps1 not found. Skipping backup."
 }
 
+$env:NODE_ENV = "production"
+
 git fetch --prune
 $currentBranch = git rev-parse --abbrev-ref HEAD
 if ($LASTEXITCODE -ne 0) {
@@ -24,15 +26,11 @@ if ($currentBranch -ne "main") {
 }
 git pull --ff-only
 
-if (Get-Command bun -ErrorAction SilentlyContinue) {
-  bun install --frozen-lockfile
-  bun run migrate
-  bun run build
-} else {
-  npm ci
-  npm run migrate
-  npm run build
-}
+# Server 2016: keep tooling simple and predictable (npm + package-lock.json).
+# Use npm.cmd to avoid PowerShell execution policy issues with npm.ps1.
+& npm.cmd ci
+& npm.cmd run migrate
+& npm.cmd run build
 
 function Restart-AppService {
   param(

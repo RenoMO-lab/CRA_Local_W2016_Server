@@ -1,86 +1,69 @@
-IF OBJECT_ID(N'dbo.m365_mail_settings', N'U') IS NULL
-BEGIN
-  CREATE TABLE dbo.m365_mail_settings (
-    id INT NOT NULL PRIMARY KEY,
-    enabled BIT NOT NULL DEFAULT 0,
-    tenant_id NVARCHAR(100) NULL,
-    client_id NVARCHAR(100) NULL,
-    sender_upn NVARCHAR(255) NULL,
-    app_base_url NVARCHAR(255) NULL,
-    recipients_sales NVARCHAR(2000) NULL,
-    recipients_design NVARCHAR(2000) NULL,
-    recipients_costing NVARCHAR(2000) NULL,
-    recipients_admin NVARCHAR(2000) NULL,
-    created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-  );
-END;
+CREATE TABLE IF NOT EXISTS m365_mail_settings (
+  id integer PRIMARY KEY,
+  enabled boolean NOT NULL DEFAULT false,
+  tenant_id text NULL,
+  client_id text NULL,
+  sender_upn text NULL,
+  app_base_url text NULL,
+  recipients_sales text NULL,
+  recipients_design text NULL,
+  recipients_costing text NULL,
+  recipients_admin text NULL,
+  test_mode boolean NOT NULL DEFAULT false,
+  test_email text NULL,
+  flow_map jsonb NULL,
+  templates_json jsonb NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 
-IF NOT EXISTS (SELECT 1 FROM dbo.m365_mail_settings WHERE id = 1)
-BEGIN
-  INSERT INTO dbo.m365_mail_settings (id, enabled) VALUES (1, 0);
-END;
+INSERT INTO m365_mail_settings (id, enabled)
+VALUES (1, false)
+ON CONFLICT (id) DO NOTHING;
 
-IF OBJECT_ID(N'dbo.m365_mail_tokens', N'U') IS NULL
-BEGIN
-  CREATE TABLE dbo.m365_mail_tokens (
-    id INT NOT NULL PRIMARY KEY,
-    access_token NVARCHAR(MAX) NULL,
-    refresh_token NVARCHAR(MAX) NULL,
-    expires_at DATETIME2 NULL,
-    scope NVARCHAR(4000) NULL,
-    token_type NVARCHAR(50) NULL,
-    updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-  );
-END;
+CREATE TABLE IF NOT EXISTS m365_mail_tokens (
+  id integer PRIMARY KEY,
+  access_token text NULL,
+  refresh_token text NULL,
+  expires_at timestamptz NULL,
+  scope text NULL,
+  token_type text NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 
-IF NOT EXISTS (SELECT 1 FROM dbo.m365_mail_tokens WHERE id = 1)
-BEGIN
-  INSERT INTO dbo.m365_mail_tokens (id) VALUES (1);
-END;
+INSERT INTO m365_mail_tokens (id)
+VALUES (1)
+ON CONFLICT (id) DO NOTHING;
 
-IF OBJECT_ID(N'dbo.m365_device_code_sessions', N'U') IS NULL
-BEGIN
-  CREATE TABLE dbo.m365_device_code_sessions (
-    id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY DEFAULT NEWID(),
-    device_code NVARCHAR(MAX) NOT NULL,
-    user_code NVARCHAR(64) NULL,
-    verification_uri NVARCHAR(255) NULL,
-    verification_uri_complete NVARCHAR(512) NULL,
-    message NVARCHAR(MAX) NULL,
-    interval_seconds INT NULL,
-    expires_at DATETIME2 NULL,
-    status NVARCHAR(32) NOT NULL DEFAULT 'pending',
-    created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-  );
-END;
+CREATE TABLE IF NOT EXISTS m365_device_code_sessions (
+  id text PRIMARY KEY,
+  device_code text NOT NULL,
+  user_code text NULL,
+  verification_uri text NULL,
+  verification_uri_complete text NULL,
+  message text NULL,
+  interval_seconds integer NULL,
+  expires_at timestamptz NULL,
+  status text NOT NULL DEFAULT 'pending',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 
-IF OBJECT_ID(N'dbo.notification_outbox', N'U') IS NULL
-BEGIN
-  CREATE TABLE dbo.notification_outbox (
-    id UNIQUEIDENTIFIER NOT NULL PRIMARY KEY DEFAULT NEWID(),
-    event_type NVARCHAR(64) NOT NULL,
-    request_id NVARCHAR(64) NOT NULL,
-    to_emails NVARCHAR(MAX) NOT NULL,
-    subject NVARCHAR(255) NOT NULL,
-    body_html NVARCHAR(MAX) NOT NULL,
-    status NVARCHAR(16) NOT NULL DEFAULT 'pending',
-    attempts INT NOT NULL DEFAULT 0,
-    next_attempt_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    last_error NVARCHAR(MAX) NULL,
-    created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    sent_at DATETIME2 NULL
-  );
-END;
+CREATE TABLE IF NOT EXISTS notification_outbox (
+  id text PRIMARY KEY,
+  event_type text NOT NULL,
+  request_id text NOT NULL,
+  to_emails text NOT NULL,
+  subject text NOT NULL,
+  body_html text NOT NULL,
+  status text NOT NULL DEFAULT 'pending',
+  attempts integer NOT NULL DEFAULT 0,
+  next_attempt_at timestamptz NOT NULL DEFAULT now(),
+  last_error text NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  sent_at timestamptz NULL
+);
 
-IF NOT EXISTS (
-  SELECT 1
-  FROM sys.indexes
-  WHERE name = 'IX_notification_outbox_status_next'
-    AND object_id = OBJECT_ID(N'dbo.notification_outbox')
-)
-BEGIN
-  CREATE INDEX IX_notification_outbox_status_next
-  ON dbo.notification_outbox (status, next_attempt_at);
-END;
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_status_next
+  ON notification_outbox (status, next_attempt_at);
+

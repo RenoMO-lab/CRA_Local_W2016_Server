@@ -1,19 +1,10 @@
--- Note: use dynamic SQL so the batch compiles even before the columns exist.
+ALTER TABLE feedback
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'submitted';
 
-IF COL_LENGTH('dbo.feedback', 'status') IS NULL
-BEGIN
-  EXEC(N'ALTER TABLE dbo.feedback
-    ADD status NVARCHAR(50) NOT NULL
-      CONSTRAINT DF_feedback_status DEFAULT ''submitted'';');
-END;
+ALTER TABLE feedback
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NULL;
 
-IF COL_LENGTH('dbo.feedback', 'updated_at') IS NULL
-BEGIN
-  EXEC(N'ALTER TABLE dbo.feedback
-    ADD updated_at DATETIME2 NULL;');
-END;
-
-EXEC(N'UPDATE dbo.feedback
+UPDATE feedback
 SET
-  status = COALESCE(NULLIF(status, ''''), ''submitted''),
-  updated_at = COALESCE(updated_at, created_at);');
+  status = COALESCE(NULLIF(status, ''), 'submitted'),
+  updated_at = COALESCE(updated_at, created_at);

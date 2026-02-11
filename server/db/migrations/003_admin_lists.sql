@@ -1,25 +1,14 @@
-IF OBJECT_ID(N'dbo.admin_list_items', N'U') IS NULL
-BEGIN
-  CREATE TABLE dbo.admin_list_items (
-    id NVARCHAR(64) NOT NULL PRIMARY KEY,
-    category NVARCHAR(64) NOT NULL,
-    value NVARCHAR(255) NOT NULL,
-    sort_order INT NOT NULL CONSTRAINT DF_admin_list_items_sort_order DEFAULT (0)
-  );
-END;
+CREATE TABLE IF NOT EXISTS admin_list_items (
+  id text PRIMARY KEY,
+  category text NOT NULL,
+  value text NOT NULL,
+  sort_order integer NOT NULL DEFAULT 0
+);
 
-IF NOT EXISTS (
-  SELECT 1
-  FROM sys.indexes
-  WHERE name = 'idx_admin_list_items_category'
-    AND object_id = OBJECT_ID(N'dbo.admin_list_items')
-)
-BEGIN
-  CREATE INDEX idx_admin_list_items_category ON dbo.admin_list_items (category, sort_order);
-END;
+CREATE INDEX IF NOT EXISTS idx_admin_list_items_category
+  ON admin_list_items (category, sort_order);
 
-MERGE dbo.admin_list_items AS target
-USING (VALUES
+INSERT INTO admin_list_items (id, category, value, sort_order) VALUES
   ('applicationVehicles-1', 'applicationVehicles', 'Agricultural Trailer', 1),
   ('applicationVehicles-2', 'applicationVehicles', 'Construction Equipment Trailer', 2),
   ('applicationVehicles-3', 'applicationVehicles', 'Forestry Trailer', 3),
@@ -62,8 +51,5 @@ USING (VALUES
   ('configurationTypes-4', 'configurationTypes', 'Industrial Axles', 4),
   ('configurationTypes-5', 'configurationTypes', 'Stud Axles', 5),
   ('configurationTypes-6', 'configurationTypes', 'Single Axles', 6)
-) AS source (id, category, value, sort_order)
-ON target.id = source.id
-WHEN NOT MATCHED THEN
-  INSERT (id, category, value, sort_order)
-  VALUES (source.id, source.category, source.value, source.sort_order);
+ON CONFLICT (id) DO NOTHING;
+

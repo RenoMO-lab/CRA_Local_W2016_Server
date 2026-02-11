@@ -1,6 +1,6 @@
 # CRA_Local
 
-Production-ready Vite + React + TypeScript SPA with a Node API server and SQL Server backend.
+Production-ready Vite + React + TypeScript SPA with a Node API server and PostgreSQL backend.
 
 ## Table of contents
 
@@ -17,20 +17,20 @@ Production-ready Vite + React + TypeScript SPA with a Node API server and SQL Se
 
 ## Overview
 
-This repo hosts a single application that serves the frontend and the API on the same host/port. The API mirrors the former Cloudflare Worker routes and uses SQL Server as the datastore.
+This repo hosts a single application that serves the frontend and the API on the same host/port. The API mirrors the former Cloudflare Worker routes and uses PostgreSQL as the datastore.
 
 ## Architecture
 
 - Frontend: Vite + React SPA
 - Backend: Node.js (Express) API under `/api`
-- Database: SQL Server (SQL login)
+- Database: PostgreSQL
 - Static assets: built to `dist/` and served by Node
 
 ## Prerequisites
 
 - Node.js 20 LTS
 - Bun (recommended) or npm
-- SQL Server (local instance)
+- PostgreSQL (local instance)
 - Git
 
 ## Configuration
@@ -47,14 +47,15 @@ Environment variables:
 HOST=0.0.0.0
 PORT=3000
 VITE_API_PROXY=http://localhost:3000
-DB_SERVER=localhost
-DB_INSTANCE=
-DB_PORT=1433
-DB_NAME=request_navigator
-DB_USER=your_sql_login
-DB_PASSWORD=your_sql_password
-DB_ENCRYPT=false
-DB_TRUST_CERT=true
+# Option A (recommended)
+DATABASE_URL=postgres://cra_app:password@localhost:5432/cra_local
+
+# Option B (used if DATABASE_URL is not set)
+PGHOST=localhost
+PGPORT=5432
+PGDATABASE=cra_local
+PGUSER=cra_app
+PGPASSWORD=your_postgres_password
 ```
 
 Notes:
@@ -86,7 +87,7 @@ npm run dev:api
 
 ## Migrations
 
-SQL Server migrations live in `server/db/migrations/`.
+PostgreSQL migrations live in `server/db/migrations/`.
 Run them with:
 
 ```sh
@@ -139,31 +140,24 @@ Deploy script: `CRA_Local/deploy/deploy.ps1`
 
 ## Troubleshooting
 
-- API errors on load: check `.env` and SQL Server connectivity.
+- API errors on load: check `.env` and PostgreSQL connectivity.
 - `login failed`: verify SQL login permissions and database name.
 - Port conflicts: update `PORT` (API) and `VITE_API_PROXY`.
 
 ## Backup And Disaster Recovery (RPO 24h / RTO 2h)
 
-This app stores all business data in SQL Server (`DB_NAME`, defaults to `request_navigator`). If the VM/server is lost, **your recovery depends on having recent `.bak` backups stored off the VM** (NAS).
+This app stores all business data in PostgreSQL (`PGDATABASE` or `DATABASE_URL`). If the VM/server is lost, **your recovery depends on having recent backups stored off the VM** (NAS).
 
 Current VM note: the deploy script performs a `BACKUP DATABASE` before deployment, but that backup is only useful if it is stored/copied to a safe location (NAS) and restores are tested.
 
 ### Recommended Setup (Best Practice)
 
-- Daily full backup to NAS (meets RPO 24h).
-- Optional (recommended): differential backups every 6 hours + transaction log backups hourly (improves RPO/RTO).
-- Always use `WITH CHECKSUM` and run `RESTORE VERIFYONLY`.
+- Daily `pg_dump` backup to NAS (meets RPO 24h).
+- Optional (recommended): WAL archiving / PITR if your RPO needs improve.
+- Periodically test restore to a staging database (fire drill).
 - Keep at least 14 days of backups on NAS (or follow your company policy).
 - Test restore monthly to a separate DB name (fire drill).
 
-### SQL Server Edition
+### PostgreSQL Backups
 
-The production VM is running **Enterprise Evaluation Edition (64-bit)** which includes SQL Server Agent. Use SQL Agent jobs for scheduled backups.
-
-### SQL Scripts For IT
-
-- SQL Agent jobs (full + optional diff/log + cleanup): `CRA_Local/docs/sqlserver/backup-jobs.sql`
-- Restore runbook (step-by-step): `CRA_Local/docs/sqlserver/backup-and-restore.md`
-
-Important: the SQL Server service account (or SQL Agent proxy) must have write permissions to the NAS share path used for backups (example: `\\\\NAS\\SQLBackups\\CRA_Local`).
+Recommended: a Windows Scheduled Task that runs `pg_dump` nightly and copies results to NAS.

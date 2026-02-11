@@ -2,10 +2,12 @@ param(
   [string]$AppPath = "C:\apps\CRA_Local",
   [string]$BackupDir = "C:\db_backups\CRA_Local",
   [int]$RetentionDays = 7,
-  [string]$DbName,
-  [string]$DbServer,
-  [string]$DbUser,
-  [string]$DbPassword
+  [string]$DatabaseUrl,
+  [string]$PgHost,
+  [int]$PgPort = 5432,
+  [string]$PgDatabase,
+  [string]$PgUser,
+  [string]$PgPassword
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,9 +15,7 @@ $ErrorActionPreference = "Stop"
 function Parse-EnvFile {
   param([string]$Path)
   $vars = @{}
-  if (-not (Test-Path $Path)) {
-    return $vars
-  }
+  if (-not (Test-Path $Path)) { return $vars }
   Get-Content $Path | ForEach-Object {
     $line = $_.Trim()
     if (-not $line) { return }
@@ -37,14 +37,12 @@ function Parse-EnvFile {
 $envPath = Join-Path $AppPath ".env"
 $envVars = Parse-EnvFile -Path $envPath
 
-if (-not $DbName) { $DbName = $envVars["DB_NAME"] }
-if (-not $DbName) { $DbName = "request_navigator" }
-
-if (-not $DbServer) { $DbServer = $envVars["DB_SERVER"] }
-if (-not $DbServer) { $DbServer = "localhost" }
-
-if (-not $DbUser) { $DbUser = $envVars["DB_USER"] }
-if (-not $DbPassword) { $DbPassword = $envVars["DB_PASSWORD"] }
+if (-not $DatabaseUrl) { $DatabaseUrl = $envVars["DATABASE_URL"] }
+if (-not $PgHost) { $PgHost = $envVars["PGHOST"] }
+if (-not $PgDatabase) { $PgDatabase = $envVars["PGDATABASE"] }
+if (-not $PgUser) { $PgUser = $envVars["PGUSER"] }
+if (-not $PgPassword) { $PgPassword = $envVars["PGPASSWORD"] }
+if ($envVars["PGPORT"]) { $PgPort = [int]$envVars["PGPORT"] }
 
 if (-not (Test-Path $BackupDir)) {
   New-Item -ItemType Directory -Force -Path $BackupDir | Out-Null
@@ -57,29 +55,51 @@ if (-not (Test-Path $logDir)) {
 $logFile = Join-Path $logDir "db-backup.log"
 
 $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$backupFile = Join-Path $BackupDir ("{0}_{1}.bak" -f $DbName, $timestamp)
+$dbNameForFile = if ($PgDatabase) { $PgDatabase } else { "postgres" }
+$backupFile = Join-Path $BackupDir ("{0}_{1}.dump" -f $dbNameForFile, $timestamp)
 
-$startMsg = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Starting backup to $backupFile"
-Add-Content -Path $logFile -Value $startMsg -Encoding ASCII
-
-if ($DbUser -and $DbPassword) {
-  & sqlcmd -S $DbServer -U $DbUser -P $DbPassword -Q "BACKUP DATABASE [$DbName] TO DISK = N'$backupFile' WITH INIT"
-} else {
-  & sqlcmd -S $DbServer -E -Q "BACKUP DATABASE [$DbName] TO DISK = N'$backupFile' WITH INIT"
+function Log([string]$Message) {
+  Add-Content -Path $logFile -Value ("[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message) -Encoding ASCII
 }
 
-if ($LASTEXITCODE -ne 0) {
-  $errMsg = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Backup failed with exit code $LASTEXITCODE"
-  Add-Content -Path $logFile -Value $errMsg -Encoding ASCII
-  throw $errMsg
+Log "Starting pg_dump backup to $backupFile"
+
+$pgDump = $null
+try {
+  $pgDump = (Get-Command pg_dump -ErrorAction Stop).Source
+} catch {
+  $pgDump = $null
 }
 
-$doneMsg = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Backup completed"
-Add-Content -Path $logFile -Value $doneMsg -Encoding ASCII
+if (-not $pgDump) {
+  throw "pg_dump not found in PATH. Install PostgreSQL client tools or add it to PATH."
+}
+
+try {
+  if ($PgPassword) { $env:PGPASSWORD = $PgPassword }
+
+  if ($DatabaseUrl) {
+    & $pgDump --no-owner --no-acl -Fc --file $backupFile --dbname $DatabaseUrl
+  } else {
+    if (-not $PgHost -or -not $PgDatabase -or -not $PgUser) {
+      throw "Missing Postgres connection settings. Provide DATABASE_URL or PGHOST/PGDATABASE/PGUSER/PGPASSWORD."
+    }
+    & $pgDump --no-owner --no-acl -Fc --file $backupFile -h $PgHost -p $PgPort -U $PgUser $PgDatabase
+  }
+
+  if ($LASTEXITCODE -ne 0) {
+    throw "pg_dump failed with exit code $LASTEXITCODE"
+  }
+} finally {
+  if (Test-Path Env:\PGPASSWORD) { Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue }
+}
+
+Log "Backup completed"
 
 $cutoff = (Get-Date).AddDays(-1 * $RetentionDays)
-Get-ChildItem -Path $BackupDir -Filter ("{0}_*.bak" -f $DbName) -File | Where-Object {
+Get-ChildItem -Path $BackupDir -Filter ("{0}_*.dump" -f $dbNameForFile) -File | Where-Object {
   $_.LastWriteTime -lt $cutoff
 } | ForEach-Object {
   Remove-Item -Force $_.FullName
 }
+

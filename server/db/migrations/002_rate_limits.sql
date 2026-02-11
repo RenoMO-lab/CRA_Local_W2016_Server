@@ -1,8 +1,7 @@
-IF OBJECT_ID(N'dbo.rate_limits', N'U') IS NULL
-BEGIN
-  CREATE TABLE dbo.rate_limits (
-    [key] NVARCHAR(200) NOT NULL PRIMARY KEY,
-    window_start DATETIME2 NOT NULL,
-    [count] INT NOT NULL
-  );
-END;
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key text PRIMARY KEY,
+  window_start timestamptz NOT NULL,
+  count integer NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_limits_window_start ON rate_limits (window_start);

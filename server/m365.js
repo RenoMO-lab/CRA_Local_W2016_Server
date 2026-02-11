@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
 const getTenant = (tenantId) => (tenantId && tenantId.trim() ? tenantId.trim() : "common");
@@ -36,37 +38,32 @@ export const parseEmailList = (raw) => {
   return out;
 };
 
-const safeParseFlowMap = (raw) => {
+const safeParseJson = (raw) => {
   if (!raw) return null;
   if (typeof raw === "object") return raw;
   if (typeof raw !== "string") return null;
   try {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object") return parsed;
-  } catch (e) {
+  } catch {
     return null;
   }
   return null;
 };
 
-const safeParseTemplates = (raw) => {
-  return safeParseFlowMap(raw);
-};
-
 const ensureTemplatesColumn = async (pool) => {
   // Older DBs may not have this column yet. Avoid breaking "Save changes" by creating it lazily.
-  // Note: requires DDL privileges for the SQL user.
-  const { recordset } = await pool
-    .request()
-    .query("SELECT COL_LENGTH('dbo.m365_mail_settings', 'templates_json') AS col_len");
-  const colLen = recordset?.[0]?.col_len ?? null;
-  if (colLen !== null) return;
-  await pool.request().query("ALTER TABLE dbo.m365_mail_settings ADD templates_json NVARCHAR(MAX) NULL");
+  // Note: requires DDL privileges for the DB user.
+  const { rows } = await pool.query(
+    "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='m365_mail_settings' AND column_name='templates_json' LIMIT 1"
+  );
+  if (rows.length) return;
+  await pool.query("ALTER TABLE m365_mail_settings ADD COLUMN templates_json jsonb NULL");
 };
 
 export const getM365Settings = async (pool) => {
-  const { recordset } = await pool.request().query("SELECT TOP 1 * FROM m365_mail_settings WHERE id = 1");
-  const row = recordset[0] ?? {};
+  const { rows } = await pool.query("SELECT * FROM m365_mail_settings WHERE id = 1");
+  const row = rows[0] ?? {};
   return {
     enabled: Boolean(row.enabled),
     tenantId: row.tenant_id ?? "",
@@ -79,15 +76,15 @@ export const getM365Settings = async (pool) => {
     recipientsAdmin: row.recipients_admin ?? "",
     testMode: Boolean(row.test_mode),
     testEmail: row.test_email ?? "",
-    flowMap: safeParseFlowMap(row.flow_map),
-    templates: safeParseTemplates(row.templates_json),
+    flowMap: safeParseJson(row.flow_map),
+    templates: safeParseJson(row.templates_json),
   };
 };
 
 export const updateM365Settings = async (pool, input) => {
   await ensureTemplatesColumn(pool);
 
-  const enabled = input?.enabled ? 1 : 0;
+  const enabled = !!input?.enabled;
   const tenantId = String(input?.tenantId ?? "").trim();
   const clientId = String(input?.clientId ?? "").trim();
   const senderUpn = String(input?.senderUpn ?? "").trim();
@@ -96,36 +93,55 @@ export const updateM365Settings = async (pool, input) => {
   const recipientsDesign = String(input?.recipientsDesign ?? "").trim();
   const recipientsCosting = String(input?.recipientsCosting ?? "").trim();
   const recipientsAdmin = String(input?.recipientsAdmin ?? "").trim();
-  const testMode = input?.testMode ? 1 : 0;
+  const testMode = !!input?.testMode;
   const testEmail = String(input?.testEmail ?? "").trim();
-  const flowMap = safeParseFlowMap(input?.flowMap);
+
+  const flowMap = safeParseJson(input?.flowMap);
   const flowMapJson = flowMap ? JSON.stringify(flowMap) : null;
-  const templates = safeParseTemplates(input?.templates);
+  const templates = safeParseJson(input?.templates);
   const templatesJson = templates ? JSON.stringify(templates) : null;
 
-  await pool
-    .request()
-    .input("enabled", enabled)
-    .input("tenant_id", tenantId || null)
-    .input("client_id", clientId || null)
-    .input("sender_upn", senderUpn || null)
-    .input("app_base_url", appBaseUrl || null)
-    .input("recipients_sales", recipientsSales || null)
-    .input("recipients_design", recipientsDesign || null)
-    .input("recipients_costing", recipientsCosting || null)
-    .input("recipients_admin", recipientsAdmin || null)
-    .input("test_mode", testMode)
-    .input("test_email", testEmail || null)
-    .input("flow_map", flowMapJson)
-    .input("templates_json", templatesJson)
-    .query(
-      "UPDATE m365_mail_settings SET enabled=@enabled, tenant_id=@tenant_id, client_id=@client_id, sender_upn=@sender_upn, app_base_url=@app_base_url, recipients_sales=@recipients_sales, recipients_design=@recipients_design, recipients_costing=@recipients_costing, recipients_admin=@recipients_admin, test_mode=@test_mode, test_email=@test_email, flow_map=@flow_map, templates_json=@templates_json, updated_at=SYSUTCDATETIME() WHERE id = 1"
-    );
+  await pool.query(
+    `
+    UPDATE m365_mail_settings
+    SET
+      enabled=$1,
+      tenant_id=$2,
+      client_id=$3,
+      sender_upn=$4,
+      app_base_url=$5,
+      recipients_sales=$6,
+      recipients_design=$7,
+      recipients_costing=$8,
+      recipients_admin=$9,
+      test_mode=$10,
+      test_email=$11,
+      flow_map=$12::jsonb,
+      templates_json=$13::jsonb,
+      updated_at=now()
+    WHERE id=1
+    `,
+    [
+      enabled,
+      tenantId || null,
+      clientId || null,
+      senderUpn || null,
+      appBaseUrl || null,
+      recipientsSales || null,
+      recipientsDesign || null,
+      recipientsCosting || null,
+      recipientsAdmin || null,
+      testMode,
+      testEmail || null,
+      flowMapJson,
+      templatesJson,
+    ]
+  );
 };
 
 export const getM365TokenState = async (pool) => {
-  const { recordset } = await pool.request().query("SELECT TOP 1 refresh_token, expires_at FROM m365_mail_tokens WHERE id = 1");
-  const row = recordset[0] ?? {};
+  const { rows } = await pool.query("SELECT refresh_token, expires_at FROM m365_mail_tokens WHERE id = 1");
+  const row = rows[0] ?? {};
   return {
     hasRefreshToken: Boolean(row.refresh_token),
     expiresAt: row.expires_at ?? null,
@@ -133,9 +149,19 @@ export const getM365TokenState = async (pool) => {
 };
 
 export const clearM365Tokens = async (pool) => {
-  await pool
-    .request()
-    .query("UPDATE m365_mail_tokens SET access_token=NULL, refresh_token=NULL, expires_at=NULL, scope=NULL, token_type=NULL, updated_at=SYSUTCDATETIME() WHERE id = 1");
+  await pool.query(
+    `
+    UPDATE m365_mail_tokens
+    SET
+      access_token=NULL,
+      refresh_token=NULL,
+      expires_at=NULL,
+      scope=NULL,
+      token_type=NULL,
+      updated_at=now()
+    WHERE id=1
+    `
+  );
 };
 
 export const startDeviceCodeFlow = async ({ tenantId, clientId, scope }) => {
@@ -161,31 +187,43 @@ export const storeDeviceCodeSession = async (pool, dc) => {
   const intervalSeconds = Number.parseInt(String(dc?.interval ?? ""), 10);
   const expiresIn = Number.parseInt(String(dc?.expires_in ?? ""), 10);
   const expiresAt = Number.isFinite(expiresIn) ? new Date(Date.now() + expiresIn * 1000) : null;
+  const id = randomUUID();
 
   // Avoid having multiple "pending" codes in the UI. Old ones become confusing fast.
-  await pool.request().query("UPDATE m365_device_code_sessions SET status='superseded' WHERE status='pending'");
+  await pool.query("UPDATE m365_device_code_sessions SET status='superseded' WHERE status='pending'");
 
-  await pool
-    .request()
-    .input("device_code", dc.device_code)
-    .input("user_code", dc.user_code ?? null)
-    .input("verification_uri", dc.verification_uri ?? null)
-    .input("verification_uri_complete", dc.verification_uri_complete ?? null)
-    .input("message", dc.message ?? null)
-    .input("interval_seconds", Number.isFinite(intervalSeconds) ? intervalSeconds : null)
-    .input("expires_at", expiresAt)
-    .query(
-      "INSERT INTO m365_device_code_sessions (device_code, user_code, verification_uri, verification_uri_complete, message, interval_seconds, expires_at) VALUES (@device_code, @user_code, @verification_uri, @verification_uri_complete, @message, @interval_seconds, @expires_at)"
-    );
+  await pool.query(
+    `
+    INSERT INTO m365_device_code_sessions
+      (id, device_code, user_code, verification_uri, verification_uri_complete, message, interval_seconds, expires_at)
+    VALUES
+      ($1,$2,$3,$4,$5,$6,$7,$8)
+    `,
+    [
+      id,
+      dc.device_code,
+      dc.user_code ?? null,
+      dc.verification_uri ?? null,
+      dc.verification_uri_complete ?? null,
+      dc.message ?? null,
+      Number.isFinite(intervalSeconds) ? intervalSeconds : null,
+      expiresAt,
+    ]
+  );
+
+  return id;
 };
 
 export const getLatestDeviceCodeSession = async (pool) => {
-  const { recordset } = await pool
-    .request()
-    .query(
-      "SELECT TOP 1 id, device_code, user_code, verification_uri, verification_uri_complete, message, interval_seconds, expires_at, status, created_at FROM m365_device_code_sessions ORDER BY created_at DESC"
-    );
-  const row = recordset[0] ?? null;
+  const { rows } = await pool.query(
+    `
+    SELECT id, device_code, user_code, verification_uri, verification_uri_complete, message, interval_seconds, expires_at, status, created_at
+    FROM m365_device_code_sessions
+    ORDER BY created_at DESC
+    LIMIT 1
+    `
+  );
+  const row = rows[0] ?? null;
   if (!row) return null;
   return {
     id: row.id,
@@ -229,36 +267,42 @@ export const storeTokenResponse = async (pool, tokenJson) => {
       ? (tokenJson.refresh_token ?? null)
       : undefined;
 
-  await pool
-    .request()
-    .input("access_token", tokenJson?.access_token ?? null)
-    .input("refresh_token", refreshToken ?? null)
-    .input("expires_at", expiresAt)
-    .input("scope", tokenJson?.scope ?? null)
-    .input("token_type", tokenJson?.token_type ?? null)
-    .query(
-      "UPDATE m365_mail_tokens SET access_token=@access_token, refresh_token=COALESCE(@refresh_token, refresh_token), expires_at=@expires_at, scope=COALESCE(@scope, scope), token_type=COALESCE(@token_type, token_type), updated_at=SYSUTCDATETIME() WHERE id = 1"
-    );
+  await pool.query(
+    `
+    UPDATE m365_mail_tokens
+    SET
+      access_token=$1,
+      refresh_token=COALESCE($2, refresh_token),
+      expires_at=$3,
+      scope=COALESCE($4, scope),
+      token_type=COALESCE($5, token_type),
+      updated_at=now()
+    WHERE id=1
+    `,
+    [
+      tokenJson?.access_token ?? null,
+      refreshToken ?? null,
+      expiresAt,
+      tokenJson?.scope ?? null,
+      tokenJson?.token_type ?? null,
+    ]
+  );
 };
 
 export const updateDeviceCodeSessionStatus = async (pool, { id, status }) => {
   const next = String(status ?? "").trim();
   if (!next) return;
-  await pool
-    .request()
-    .input("id", id)
-    .input("status", next)
-    .query("UPDATE m365_device_code_sessions SET status=@status WHERE id=@id");
+  await pool.query("UPDATE m365_device_code_sessions SET status=$1 WHERE id=$2", [next, id]);
 };
 
 // Concurrency guard for device-code polling: only one request should attempt redemption at a time.
 // Returns the number of affected rows (1 if lock acquired, 0 otherwise).
 export const claimDeviceCodeSessionForRedeem = async (pool, { id }) => {
-  const result = await pool
-    .request()
-    .input("id", id)
-    .query("UPDATE m365_device_code_sessions SET status='redeeming' WHERE id=@id AND status='pending'");
-  return result?.rowsAffected?.[0] ?? 0;
+  const result = await pool.query(
+    "UPDATE m365_device_code_sessions SET status='redeeming' WHERE id=$1 AND status='pending'",
+    [id]
+  );
+  return result?.rowCount ?? 0;
 };
 
 const refreshAccessToken = async ({ tenantId, clientId, refreshToken, scope }) => {
@@ -288,8 +332,8 @@ export const getValidAccessToken = async (pool) => {
   if (!settings.clientId) throw new Error("Missing Microsoft 365 client id.");
   if (!settings.tenantId) throw new Error("Missing Microsoft 365 tenant id.");
 
-  const { recordset } = await pool.request().query("SELECT TOP 1 access_token, refresh_token, expires_at FROM m365_mail_tokens WHERE id = 1");
-  const row = recordset[0] ?? {};
+  const { rows } = await pool.query("SELECT access_token, refresh_token, expires_at FROM m365_mail_tokens WHERE id = 1");
+  const row = rows[0] ?? {};
   const accessToken = row.access_token ?? null;
   const refreshToken = row.refresh_token ?? null;
   const expiresAt = row.expires_at ? new Date(row.expires_at) : null;
@@ -319,8 +363,8 @@ export const forceRefreshAccessToken = async (pool) => {
   if (!settings.clientId) throw new Error("Missing Microsoft 365 client id.");
   if (!settings.tenantId) throw new Error("Missing Microsoft 365 tenant id.");
 
-  const { recordset } = await pool.request().query("SELECT TOP 1 refresh_token FROM m365_mail_tokens WHERE id = 1");
-  const row = recordset[0] ?? {};
+  const { rows } = await pool.query("SELECT refresh_token FROM m365_mail_tokens WHERE id = 1");
+  const row = rows[0] ?? {};
   const refreshToken = row.refresh_token ?? null;
   if (!refreshToken) {
     throw new Error("Microsoft 365 is not connected (missing refresh token).");
@@ -369,3 +413,4 @@ export const sendMail = async ({ accessToken, subject, bodyHtml, toEmails, attac
     throw new Error(`Graph sendMail failed: ${res.status} ${text}`.trim());
   }
 };
+

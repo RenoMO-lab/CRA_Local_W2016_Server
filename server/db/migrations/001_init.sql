@@ -1,23 +1,18 @@
-IF OBJECT_ID(N'dbo.requests', N'U') IS NULL
-BEGIN
-  CREATE TABLE dbo.requests (
-    id NVARCHAR(64) NOT NULL PRIMARY KEY,
-    data NVARCHAR(MAX) NOT NULL,
-    status NVARCHAR(50) NOT NULL,
-    created_at DATETIME2 NOT NULL,
-    updated_at DATETIME2 NOT NULL
-  );
-END;
+CREATE TABLE IF NOT EXISTS requests (
+  id text PRIMARY KEY,
+  data jsonb NOT NULL,
+  status text NOT NULL,
+  created_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL
+);
 
-IF OBJECT_ID(N'dbo.counters', N'U') IS NULL
-BEGIN
-  CREATE TABLE dbo.counters (
-    name NVARCHAR(64) NOT NULL PRIMARY KEY,
-    value INT NOT NULL
-  );
-END;
+CREATE INDEX IF NOT EXISTS idx_requests_updated_at ON requests (updated_at DESC);
 
-IF NOT EXISTS (SELECT 1 FROM dbo.counters WHERE name = 'request')
-BEGIN
-  INSERT INTO dbo.counters (name, value) VALUES ('request', 0);
-END;
+CREATE TABLE IF NOT EXISTS counters (
+  name text PRIMARY KEY,
+  value integer NOT NULL
+);
+
+INSERT INTO counters (name, value)
+VALUES ('request', 0)
+ON CONFLICT (name) DO NOTHING;

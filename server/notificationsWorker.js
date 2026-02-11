@@ -1,3 +1,4 @@
+import { getPool } from "./db.js";
 import { getM365Settings, getM365TokenState, getValidAccessToken, parseEmailList, sendMail } from "./m365.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -49,12 +50,9 @@ const backoffMs = (attempt) => {
   return Math.floor(jitter);
 };
 
-export const startNotificationsWorker = ({ getPool, intervalMs = 10_000 } = {}) => {
-  if (typeof getPool !== "function") {
-    throw new Error("startNotificationsWorker requires getPool()");
-  }
-
+export const startNotificationsWorker = ({ intervalMs = 10_000 } = {}) => {
   let running = false;
+
   const tick = async () => {
     if (running) return;
     running = true;
@@ -66,23 +64,31 @@ export const startNotificationsWorker = ({ getPool, intervalMs = 10_000 } = {}) 
       const tokenState = await getM365TokenState(pool);
       if (!tokenState.hasRefreshToken) return;
 
-      const { recordset } = await pool
-        .request()
-        .query(
-          "SELECT TOP 10 id, to_emails, subject, body_html, attempts FROM notification_outbox WHERE status = 'pending' AND next_attempt_at <= SYSUTCDATETIME() ORDER BY created_at ASC"
-        );
-      if (!recordset.length) return;
+      // Claim a small batch without holding locks while sending.
+      const claimed = await pool.query(
+        `
+        UPDATE notification_outbox
+        SET status='sending', updated_at=now()
+        WHERE id IN (
+          SELECT id
+          FROM notification_outbox
+          WHERE status='pending' AND next_attempt_at <= now()
+          ORDER BY created_at ASC
+          LIMIT 10
+          FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id, to_emails, subject, body_html, attempts
+        `
+      );
+
+      const rows = claimed.rows ?? [];
+      if (!rows.length) return;
 
       const accessToken = await getValidAccessToken(pool);
-      for (const row of recordset) {
+      for (const row of rows) {
         const id = row.id;
         const toEmails = parseEmailList(row.to_emails);
         try {
-          await pool
-            .request()
-            .input("id", id)
-            .query("UPDATE notification_outbox SET updated_at=SYSUTCDATETIME() WHERE id = @id");
-
           const bodyHtml = String(row.body_html ?? "");
           let attachments = [];
           if (bodyHtml.includes(`cid:${LOGO_CID}`)) {
@@ -98,26 +104,33 @@ export const startNotificationsWorker = ({ getPool, intervalMs = 10_000 } = {}) 
             attachments,
           });
 
-          await pool
-            .request()
-            .input("id", id)
-            .query(
-              "UPDATE notification_outbox SET status='sent', sent_at=SYSUTCDATETIME(), updated_at=SYSUTCDATETIME(), last_error=NULL WHERE id = @id"
-            );
+          await pool.query(
+            `
+            UPDATE notification_outbox
+            SET status='sent', sent_at=now(), updated_at=now(), last_error=NULL
+            WHERE id=$1
+            `,
+            [id]
+          );
         } catch (err) {
           const attempts = Number.parseInt(String(row.attempts ?? 0), 10) || 0;
           const nextMs = backoffMs(attempts + 1);
           const nextAt = new Date(Date.now() + nextMs);
           const message = String(err?.message ?? err);
 
-          await pool
-            .request()
-            .input("id", id)
-            .input("last_error", message)
-            .input("next_attempt_at", nextAt)
-            .query(
-              "UPDATE notification_outbox SET attempts = attempts + 1, last_error=@last_error, next_attempt_at=@next_attempt_at, updated_at=SYSUTCDATETIME() WHERE id = @id"
-            );
+          await pool.query(
+            `
+            UPDATE notification_outbox
+            SET
+              status='pending',
+              attempts=attempts+1,
+              last_error=$2,
+              next_attempt_at=$3,
+              updated_at=now()
+            WHERE id=$1
+            `,
+            [id, message, nextAt]
+          );
         }
 
         // Yield a bit between sends to avoid bursts.
@@ -137,3 +150,4 @@ export const startNotificationsWorker = ({ getPool, intervalMs = 10_000 } = {}) 
 
   return () => clearInterval(timer);
 };
+

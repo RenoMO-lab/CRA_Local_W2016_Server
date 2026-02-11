@@ -2,71 +2,69 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
-import { getPool, sql } from "./db.js";
+import { getPool } from "./db.js";
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.join(__dirname, "db", "migrations");
 
-const ensureMigrationsTable = async (pool) => {
-  await pool.request().batch(`
-    IF OBJECT_ID(N'dbo.schema_migrations', N'U') IS NULL
-    BEGIN
-      CREATE TABLE dbo.schema_migrations (
-        id INT IDENTITY(1,1) PRIMARY KEY,
-        filename NVARCHAR(255) NOT NULL UNIQUE,
-        applied_at DATETIME2 NOT NULL
-      );
-    END;
+const ensureMigrationsTable = async (client) => {
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      filename text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    );
   `);
 };
 
-const getAppliedMigrations = async (pool) => {
-  const { recordset } = await pool.request().query("SELECT filename FROM dbo.schema_migrations");
-  return new Set(recordset.map((row) => row.filename));
+const getAppliedMigrations = async (client) => {
+  const { rows } = await client.query("SELECT filename FROM schema_migrations");
+  return new Set(rows.map((row) => row.filename));
 };
 
-const applyMigration = async (pool, filename, sqlText) => {
-  const transaction = new sql.Transaction(pool);
-  await transaction.begin();
+const applyMigration = async (client, filename, sqlText) => {
+  await client.query("BEGIN");
   try {
-    await new sql.Request(transaction).batch(sqlText);
-    await new sql.Request(transaction)
-      .input("filename", sql.NVarChar(255), filename)
-      .query("INSERT INTO dbo.schema_migrations (filename, applied_at) VALUES (@filename, SYSUTCDATETIME())");
-    await transaction.commit();
+    await client.query(sqlText);
+    await client.query("INSERT INTO schema_migrations (filename) VALUES ($1)", [filename]);
+    await client.query("COMMIT");
   } catch (error) {
-    await transaction.rollback();
+    await client.query("ROLLBACK");
     throw error;
   }
 };
 
 const main = async () => {
   const pool = await getPool();
-  await ensureMigrationsTable(pool);
+  const client = await pool.connect();
+  try {
+    await ensureMigrationsTable(client);
 
-  const files = (await fs.readdir(migrationsDir))
-    .filter((name) => name.endsWith(".sql"))
-    .sort((a, b) => a.localeCompare(b));
+    const files = (await fs.readdir(migrationsDir))
+      .filter((name) => name.endsWith(".sql"))
+      .sort((a, b) => a.localeCompare(b));
 
-  const applied = await getAppliedMigrations(pool);
+    const applied = await getAppliedMigrations(client);
 
-  for (const filename of files) {
-    if (applied.has(filename)) {
-      continue;
+    for (const filename of files) {
+      if (applied.has(filename)) continue;
+      const fullPath = path.join(migrationsDir, filename);
+      const sqlText = await fs.readFile(fullPath, "utf8");
+      await applyMigration(client, filename, sqlText);
+      console.log(`Applied ${filename}`);
     }
-    const fullPath = path.join(migrationsDir, filename);
-    const sqlText = await fs.readFile(fullPath, "utf8");
-    await applyMigration(pool, filename, sqlText);
-    console.log(`Applied ${filename}`);
-  }
 
-  console.log("Migrations complete");
-  await pool.close();
+    console.log("Migrations complete");
+  } finally {
+    client.release();
+    // Note: do not pool.end() in long-running processes; migrate is a one-shot.
+    await pool.end();
+  }
 };
 
 main().catch((error) => {
   console.error("Migration failed:", error);
   process.exit(1);
 });
+

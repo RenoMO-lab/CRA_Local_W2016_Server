@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 import { apiRouter } from "./api.js";
-import { getPool } from "./db.js";
+import { pingDb } from "./db.js";
 import { startNotificationsWorker } from "./notificationsWorker.js";
 import { startDbMonitor } from "./dbMonitor.js";
 
@@ -12,7 +12,8 @@ dotenv.config();
 
 const app = express();
 app.disable("x-powered-by");
-app.use(express.json({ limit: "10mb" }));
+// Attachments are uploaded as base64 within JSON today; allow moderate payloads.
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "50mb" }));
 
 app.use("/api", apiRouter);
 
@@ -70,7 +71,7 @@ const sleepMs = (ms) => new Promise((r) => setTimeout(r, ms));
 const connectWithRetry = async ({ maxAttempts = 60, delayMs = 5000 } = {}) => {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      await getPool();
+      await pingDb();
       return;
     } catch (error) {
       console.error(`Database connection failed (attempt ${attempt}/${maxAttempts}):`, error?.message ?? error);
@@ -87,7 +88,7 @@ connectWithRetry()
     });
 
     try {
-      startNotificationsWorker({ getPool });
+      startNotificationsWorker();
     } catch (e) {
       console.error("Failed to start notifications worker:", e);
     }

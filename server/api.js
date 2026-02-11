@@ -5,7 +5,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { getPool, sql } from "./db.js";
+import { getPool, withTransaction } from "./db.js";
 import {
   claimDeviceCodeSessionForRedeem,
   clearM365Tokens,
@@ -573,6 +573,7 @@ const normalizeRequestData = (data, nowIso) => {
 const safeParseRequest = (value, context) => {
   if (!value) return null;
   try {
+    if (typeof value === "object") return value;
     return JSON.parse(value);
   } catch (error) {
     console.error("Failed to parse request data", context ?? "", error);
@@ -583,10 +584,196 @@ const safeParseRequest = (value, context) => {
 const parseJsonArray = (value) => {
   if (!value) return [];
   try {
-    const parsed = JSON.parse(value);
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+};
+
+const isAttachmentUrl = (url) => typeof url === "string" && url.startsWith("/api/attachments/");
+
+const looksLikeInlineData = (url) => {
+  if (typeof url !== "string") return false;
+  if (!url) return false;
+  if (url.startsWith("data:")) return true;
+  // Some older stored attachments used base64 without a prefix.
+  if (url.startsWith("/") || url.startsWith("http://") || url.startsWith("https://") || url.startsWith("blob:")) {
+    return false;
+  }
+  return true;
+};
+
+const guessContentTypeFromFilename = (filename) => {
+  const name = String(filename ?? "").toLowerCase();
+  if (name.endsWith(".pdf")) return "application/pdf";
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+  if (name.endsWith(".gif")) return "image/gif";
+  if (name.endsWith(".webp")) return "image/webp";
+  if (name.endsWith(".bmp")) return "image/bmp";
+  if (name.endsWith(".csv")) return "text/csv";
+  if (name.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (name.endsWith(".xls")) return "application/vnd.ms-excel";
+  if (name.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (name.endsWith(".doc")) return "application/msword";
+  return "application/octet-stream";
+};
+
+const parseDataUrl = (value) => {
+  const raw = String(value ?? "");
+  if (!raw.startsWith("data:")) return null;
+  const idx = raw.indexOf(",");
+  if (idx < 0) return null;
+  const meta = raw.slice(5, idx); // after "data:"
+  const dataPart = raw.slice(idx + 1);
+  const isBase64 = meta.includes(";base64");
+  const contentType = meta.split(";")[0] || "";
+  return {
+    contentType: contentType || null,
+    isBase64,
+    dataPart,
+  };
+};
+
+const normalizeFilenameForHeader = (filename) =>
+  String(filename ?? "file")
+    .replaceAll("\r", "")
+    .replaceAll("\n", "")
+    .replaceAll('"', "'");
+
+const collectAttachmentIds = (request) => {
+  const ids = new Set();
+  const visitArray = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const item of arr) {
+      const id = String(item?.id ?? "").trim();
+      if (id) ids.add(id);
+    }
+  };
+
+  visitArray(request?.attachments);
+  visitArray(request?.designResultAttachments);
+  visitArray(request?.costingAttachments);
+  visitArray(request?.salesAttachments);
+
+  if (Array.isArray(request?.products)) {
+    for (const p of request.products) {
+      visitArray(p?.attachments);
+    }
+  }
+
+  return Array.from(ids);
+};
+
+const extractInlineAttachments = (request) => {
+  const inserts = [];
+
+  const visitArray = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const item of arr) {
+      if (!item || typeof item !== "object") continue;
+      const currentUrl = String(item.url ?? "");
+      if (!currentUrl) continue;
+      if (isAttachmentUrl(currentUrl)) continue;
+      if (!looksLikeInlineData(currentUrl)) continue;
+
+      let id = String(item.id ?? "").trim();
+      if (!id) {
+        id = randomUUID();
+        item.id = id;
+      }
+
+      let contentType = null;
+      let buffer = null;
+
+      if (currentUrl.startsWith("data:")) {
+        const parsed = parseDataUrl(currentUrl);
+        if (parsed?.isBase64) {
+          contentType = parsed.contentType;
+          buffer = Buffer.from(parsed.dataPart, "base64");
+        } else if (parsed) {
+          contentType = parsed.contentType;
+          buffer = Buffer.from(decodeURIComponent(parsed.dataPart), "utf8");
+        }
+      } else {
+        // Bare base64 payload (no prefix).
+        contentType = guessContentTypeFromFilename(item.filename);
+        buffer = Buffer.from(currentUrl, "base64");
+      }
+
+      if (!buffer || !buffer.length) continue;
+      if (!contentType) contentType = guessContentTypeFromFilename(item.filename);
+
+      const uploadedAt = item.uploadedAt ? new Date(item.uploadedAt) : new Date();
+      const uploadedBy = item.uploadedBy ? String(item.uploadedBy) : null;
+      const attachmentType = item.type ? String(item.type) : "other";
+      const filename = String(item.filename ?? "file");
+
+      inserts.push({
+        id,
+        attachmentType,
+        filename,
+        contentType,
+        byteSize: buffer.length,
+        uploadedAt,
+        uploadedBy,
+        data: buffer,
+      });
+
+      // Replace the inlined data with a stable URL.
+      item.url = `/api/attachments/${encodeURIComponent(id)}`;
+    }
+  };
+
+  visitArray(request?.attachments);
+  visitArray(request?.designResultAttachments);
+  visitArray(request?.costingAttachments);
+  visitArray(request?.salesAttachments);
+
+  if (Array.isArray(request?.products)) {
+    for (const p of request.products) {
+      visitArray(p?.attachments);
+    }
+  }
+
+  const keepIds = collectAttachmentIds(request);
+  return { inserts, keepIds };
+};
+
+const materializeRequestAttachments = async (pool, requestId, request) => {
+  const { inserts, keepIds } = extractInlineAttachments(request);
+
+  for (const att of inserts) {
+    await pool.query(
+      `
+      INSERT INTO request_attachments
+        (id, request_id, attachment_type, filename, content_type, byte_size, uploaded_at, uploaded_by, data)
+      VALUES
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      ON CONFLICT (id) DO NOTHING
+      `,
+      [
+        att.id,
+        requestId,
+        att.attachmentType,
+        att.filename,
+        att.contentType,
+        att.byteSize,
+        att.uploadedAt,
+        att.uploadedBy,
+        att.data,
+      ]
+    );
+  }
+
+  if (!keepIds.length) {
+    await pool.query("DELETE FROM request_attachments WHERE request_id=$1", [requestId]);
+  } else {
+    await pool.query("DELETE FROM request_attachments WHERE request_id=$1 AND NOT (id = ANY($2::text[]))", [
+      requestId,
+      keepIds,
+    ]);
   }
 };
 
@@ -662,24 +849,19 @@ const checkRateLimit = async (pool, req) => {
   const windowStart = new Date(windowStartMs);
   const key = `${getClientKey(req)}:${windowStartMs}`;
 
-  // Atomic upsert to avoid race conditions (duplicate key errors) under concurrent requests.
-  const result = await pool
-    .request()
-    .input("key", sql.NVarChar(200), key)
-    .input("window_start", sql.DateTime2, windowStart)
-    .query(`
-      MERGE rate_limits WITH (HOLDLOCK) AS target
-      USING (SELECT @key AS [key], @window_start AS window_start) AS source
-        ON target.[key] = source.[key]
-      WHEN MATCHED THEN
-        UPDATE SET [count] = target.[count] + 1
-      WHEN NOT MATCHED THEN
-        INSERT ([key], window_start, [count])
-        VALUES (source.[key], source.window_start, 1)
-      OUTPUT inserted.[count] AS [count];
-    `);
+  // Atomic upsert to avoid race conditions under concurrent requests.
+  const result = await pool.query(
+    `
+    INSERT INTO rate_limits (key, window_start, count)
+    VALUES ($1, $2, 1)
+    ON CONFLICT (key)
+    DO UPDATE SET count = rate_limits.count + 1
+    RETURNING count
+    `,
+    [key, windowStart]
+  );
 
-  const newCount = Number(result.recordset?.[0]?.count ?? 0);
+  const newCount = Number(result.rows?.[0]?.count ?? 0);
   if (newCount > limit) {
     return windowStartMs + windowMs;
   }
@@ -694,62 +876,49 @@ const generateRequestId = async (pool) => {
   const dateStamp = `${year}${month}${day}`;
   const counterName = `request_${dateStamp}`;
 
-  const transaction = new sql.Transaction(pool);
-  await transaction.begin();
-  try {
-    await new sql.Request(transaction)
-      .input("name", sql.NVarChar(64), counterName)
-      .query(
-        "IF NOT EXISTS (SELECT 1 FROM counters WHERE name = @name) INSERT INTO counters (name, value) VALUES (@name, 0);"
-      );
+  return withTransaction(pool, async (client) => {
+    await client.query("INSERT INTO counters (name, value) VALUES ($1, 0) ON CONFLICT (name) DO NOTHING", [
+      counterName,
+    ]);
 
-    const result = await new sql.Request(transaction)
-      .input("name", sql.NVarChar(64), counterName)
-      .query("UPDATE counters SET value = value + 1 OUTPUT inserted.value WHERE name = @name;");
+    const result = await client.query("UPDATE counters SET value = value + 1 WHERE name = $1 RETURNING value", [
+      counterName,
+    ]);
 
-    await transaction.commit();
-
-    const value = result.recordset[0]?.value;
-    if (!value) {
-      throw new Error("Failed to generate request id");
-    }
+    const value = result.rows?.[0]?.value;
+    if (!value) throw new Error("Failed to generate request id");
     return `CRA${dateStamp}${String(value).padStart(2, "0")}`;
-  } catch (error) {
-    await transaction.rollback();
-    throw error;
-  }
+  });
 };
 
 const getRequestById = async (pool, id) => {
-  const row = await pool
-    .request()
-    .input("id", sql.NVarChar(64), id)
-    .query("SELECT id, data FROM requests WHERE id = @id");
+  const row = await pool.query("SELECT id, data FROM requests WHERE id = $1", [id]);
 
-  const data = row.recordset[0]?.data;
-  const rowId = row.recordset[0]?.id ?? id;
+  const data = row.rows?.[0]?.data;
+  const rowId = row.rows?.[0]?.id ?? id;
   return safeParseRequest(data, { id: rowId });
 };
 
 const requestSummarySelect =
-  "SELECT id, status, created_at, updated_at, JSON_VALUE(data, '$.clientName') as clientName, " +
-  "JSON_VALUE(data, '$.applicationVehicle') as applicationVehicle, " +
-  "JSON_VALUE(data, '$.country') as country, " +
-  "JSON_VALUE(data, '$.createdBy') as createdBy, " +
-  "JSON_VALUE(data, '$.createdByName') as createdByName " +
+  'SELECT id, status, created_at, updated_at, ' +
+  "data->>'clientName' as \"clientName\", " +
+  "data->>'applicationVehicle' as \"applicationVehicle\", " +
+  "data->>'country' as \"country\", " +
+  "data->>'createdBy' as \"createdBy\", " +
+  "data->>'createdByName' as \"createdByName\" " +
   "FROM requests ORDER BY updated_at DESC";
 
 const fetchAdminLists = async (pool) => {
-  const { recordset } = await pool
-    .request()
-    .query("SELECT id, category, value FROM admin_list_items ORDER BY category, sort_order, value");
+  const { rows } = await pool.query(
+    "SELECT id, category, value FROM admin_list_items ORDER BY category, sort_order, value"
+  );
 
   const lists = {};
   for (const category of ADMIN_LIST_CATEGORIES) {
     lists[category] = [];
   }
 
-  for (const row of recordset) {
+  for (const row of rows) {
     if (!lists[row.category]) {
       lists[row.category] = [];
     }
@@ -777,6 +946,40 @@ export const apiRouter = (() => {
     })
   );
 
+  // Serve uploaded attachments stored in Postgres (request_attachments.data).
+  router.get(
+    "/attachments/:attachmentId",
+    asyncHandler(async (req, res) => {
+      const { attachmentId } = req.params;
+      const id = String(attachmentId ?? "").trim();
+      if (!id) {
+        res.status(400).json({ error: "Missing attachment id" });
+        return;
+      }
+
+      const pool = await getPool();
+      const { rows } = await pool.query(
+        "SELECT filename, content_type, data FROM request_attachments WHERE id=$1 LIMIT 1",
+        [id]
+      );
+      const row = rows[0] ?? null;
+      if (!row) {
+        res.status(404).json({ error: "Attachment not found" });
+        return;
+      }
+
+      const filename = normalizeFilenameForHeader(row.filename);
+      const contentType = String(row.content_type ?? "") || guessContentTypeFromFilename(filename);
+      const bytes = row.data;
+
+      res.status(200);
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      res.send(bytes);
+    })
+  );
+
   router.get(
     "/admin/lists",
     asyncHandler(async (req, res) => {
@@ -796,14 +999,12 @@ export const apiRouter = (() => {
       }
 
       const pool = await getPool();
-      const { recordset } = await pool
-        .request()
-        .input("category", sql.NVarChar(64), category)
-        .query(
-          "SELECT id, value FROM admin_list_items WHERE category = @category ORDER BY sort_order, value"
-        );
+      const { rows } = await pool.query(
+        "SELECT id, value FROM admin_list_items WHERE category = $1 ORDER BY sort_order, value",
+        [category]
+      );
 
-      res.json(recordset.map((row) => ({ id: row.id, value: row.value })));
+      res.json(rows.map((row) => ({ id: row.id, value: row.value })));
     })
   );
 
@@ -1175,22 +1376,17 @@ export const apiRouter = (() => {
       }
 
       const pool = await getPool();
-      const sortRow = await pool
-        .request()
-        .input("category", sql.NVarChar(64), category)
-        .query("SELECT ISNULL(MAX(sort_order), 0) + 1 as next FROM admin_list_items WHERE category = @category");
-      const sortOrder = sortRow.recordset[0]?.next ?? 1;
+      const sortRow = await pool.query(
+        "SELECT COALESCE(MAX(sort_order), 0) + 1 as next FROM admin_list_items WHERE category = $1",
+        [category]
+      );
+      const sortOrder = sortRow.rows?.[0]?.next ?? 1;
 
       const id = randomUUID();
-      await pool
-        .request()
-        .input("id", sql.NVarChar(64), id)
-        .input("category", sql.NVarChar(64), category)
-        .input("value", sql.NVarChar(255), value)
-        .input("sort_order", sql.Int, sortOrder)
-        .query(
-          "INSERT INTO admin_list_items (id, category, value, sort_order) VALUES (@id, @category, @value, @sort_order)"
-        );
+      await pool.query(
+        "INSERT INTO admin_list_items (id, category, value, sort_order) VALUES ($1, $2, $3, $4)",
+        [id, category, value, sortOrder]
+      );
 
       res.status(201).json({ id, value });
     })
@@ -1225,16 +1421,13 @@ export const apiRouter = (() => {
       }
 
       const pool = await getPool();
-      const transaction = new sql.Transaction(pool);
-      await transaction.begin();
-      try {
-        const existing = await new sql.Request(transaction)
-          .input("category", sql.NVarChar(64), category)
-          .query(
-            "SELECT id FROM admin_list_items WHERE category = @category ORDER BY sort_order, value"
-          );
+      await withTransaction(pool, async (client) => {
+        const existing = await client.query(
+          "SELECT id FROM admin_list_items WHERE category = $1 ORDER BY sort_order, value",
+          [category]
+        );
 
-        const existingIds = existing.recordset.map((r) => r.id);
+        const existingIds = (existing.rows ?? []).map((r) => r.id);
         const existingSet = new Set(existingIds);
 
         // Keep only ids that currently exist for the category, then append any ids
@@ -1253,21 +1446,13 @@ export const apiRouter = (() => {
         }
 
         for (let i = 0; i < finalIds.length; i++) {
-          await new sql.Request(transaction)
-            .input("id", sql.NVarChar(64), finalIds[i])
-            .input("category", sql.NVarChar(64), category)
-            .input("sort_order", sql.Int, i + 1)
-            .query(
-              "UPDATE admin_list_items SET sort_order = @sort_order WHERE id = @id AND category = @category"
-            );
+          await client.query(
+            "UPDATE admin_list_items SET sort_order = $1 WHERE id = $2 AND category = $3",
+            [i + 1, finalIds[i], category]
+          );
         }
-
-        await transaction.commit();
-        res.json({ ok: true });
-      } catch (error) {
-        await transaction.rollback();
-        throw error;
-      }
+      });
+      res.json({ ok: true });
     })
   );
 
@@ -1287,12 +1472,11 @@ export const apiRouter = (() => {
       }
 
       const pool = await getPool();
-      await pool
-        .request()
-        .input("id", sql.NVarChar(64), itemId)
-        .input("category", sql.NVarChar(64), category)
-        .input("value", sql.NVarChar(255), value)
-        .query("UPDATE admin_list_items SET value = @value WHERE id = @id AND category = @category");
+      await pool.query("UPDATE admin_list_items SET value = $1 WHERE id = $2 AND category = $3", [
+        value,
+        itemId,
+        category,
+      ]);
 
       res.json({ id: itemId, value });
     })
@@ -1308,11 +1492,7 @@ export const apiRouter = (() => {
       }
 
       const pool = await getPool();
-      await pool
-        .request()
-        .input("id", sql.NVarChar(64), itemId)
-        .input("category", sql.NVarChar(64), category)
-        .query("DELETE FROM admin_list_items WHERE id = @id AND category = @category");
+      await pool.query("DELETE FROM admin_list_items WHERE id = $1 AND category = $2", [itemId, category]);
 
       res.status(204).send();
     })
@@ -1322,11 +1502,11 @@ export const apiRouter = (() => {
     "/feedback",
     asyncHandler(async (req, res) => {
       const pool = await getPool();
-      const { recordset } = await pool.request().query(
+      const { rows } = await pool.query(
         "SELECT id, type, title, description, steps, severity, page_path, user_name, user_email, user_role, status, created_at, updated_at FROM feedback ORDER BY created_at DESC"
       );
 
-      const data = recordset.map((row) => ({
+      const data = rows.map((row) => ({
         id: row.id,
         type: row.type,
         title: row.title,
@@ -1374,24 +1554,29 @@ export const apiRouter = (() => {
       const nowIso = new Date().toISOString();
 
       const pool = await getPool();
-      await pool
-        .request()
-        .input("id", sql.NVarChar(64), id)
-        .input("type", sql.NVarChar(50), type)
-        .input("title", sql.NVarChar(255), title)
-        .input("description", sql.NVarChar(sql.MAX), description)
-        .input("steps", sql.NVarChar(sql.MAX), steps || null)
-        .input("severity", sql.NVarChar(50), severity || null)
-        .input("page_path", sql.NVarChar(255), pagePath || null)
-        .input("user_name", sql.NVarChar(255), userName || null)
-        .input("user_email", sql.NVarChar(255), userEmail || null)
-        .input("user_role", sql.NVarChar(255), userRole || null)
-        .input("status", sql.NVarChar(50), "submitted")
-        .input("created_at", sql.DateTime2, new Date(nowIso))
-        .input("updated_at", sql.DateTime2, new Date(nowIso))
-        .query(
-          "INSERT INTO feedback (id, type, title, description, steps, severity, page_path, user_name, user_email, user_role, status, created_at, updated_at) VALUES (@id, @type, @title, @description, @steps, @severity, @page_path, @user_name, @user_email, @user_role, @status, @created_at, @updated_at)"
-        );
+      await pool.query(
+        `
+        INSERT INTO feedback
+          (id, type, title, description, steps, severity, page_path, user_name, user_email, user_role, status, created_at, updated_at)
+        VALUES
+          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        `,
+        [
+          id,
+          type,
+          title,
+          description,
+          steps || null,
+          severity || null,
+          pagePath || null,
+          userName || null,
+          userEmail || null,
+          userRole || null,
+          "submitted",
+          new Date(nowIso),
+          new Date(nowIso),
+        ]
+      );
 
       res.status(201).json({
         id,
@@ -1431,14 +1616,13 @@ export const apiRouter = (() => {
 
       const pool = await getPool();
       const nowIso = new Date().toISOString();
-      const result = await pool
-        .request()
-        .input("id", sql.NVarChar(64), feedbackId)
-        .input("status", sql.NVarChar(50), status)
-        .input("updated_at", sql.DateTime2, new Date(nowIso))
-        .query("UPDATE feedback SET status=@status, updated_at=@updated_at WHERE id=@id");
+      const result = await pool.query("UPDATE feedback SET status=$1, updated_at=$2 WHERE id=$3", [
+        status,
+        new Date(nowIso),
+        feedbackId,
+      ]);
 
-      if (!result.rowsAffected?.[0]) {
+      if (!result.rowCount) {
         res.status(404).json({ error: "Feedback not found" });
         return;
       }
@@ -1457,12 +1641,9 @@ export const apiRouter = (() => {
       }
 
       const pool = await getPool();
-      const result = await pool
-        .request()
-        .input("id", sql.NVarChar(64), feedbackId)
-        .query("DELETE FROM feedback WHERE id=@id");
+      const result = await pool.query("DELETE FROM feedback WHERE id=$1", [feedbackId]);
 
-      if (!result.rowsAffected?.[0]) {
+      if (!result.rowCount) {
         res.status(404).json({ error: "Feedback not found" });
         return;
       }
@@ -1475,11 +1656,11 @@ export const apiRouter = (() => {
     "/price-list",
     asyncHandler(async (req, res) => {
       const pool = await getPool();
-      const { recordset } = await pool.request().query(
+      const { rows } = await pool.query(
         "SELECT id, configuration_type, articulation_type, brake_type, brake_size, studs_pcd_standards, created_at, updated_at FROM reference_products ORDER BY updated_at DESC"
       );
 
-      const data = recordset.map((row) => ({
+      const data = rows.map((row) => ({
         id: row.id,
         configurationType: row.configuration_type ?? "",
         articulationType: row.articulation_type ?? "",
@@ -1508,19 +1689,24 @@ export const apiRouter = (() => {
       const studs = Array.isArray(body.studsPcdStandards) ? body.studsPcdStandards : [];
 
       const pool = await getPool();
-      await pool
-        .request()
-        .input("id", sql.NVarChar(64), id)
-        .input("configuration_type", sql.NVarChar(255), body.configurationType ?? "")
-        .input("articulation_type", sql.NVarChar(255), body.articulationType ?? "")
-        .input("brake_type", sql.NVarChar(255), body.brakeType ?? "")
-        .input("brake_size", sql.NVarChar(255), body.brakeSize ?? "")
-        .input("studs_pcd_standards", sql.NVarChar(sql.MAX), JSON.stringify(studs))
-        .input("created_at", sql.DateTime2, new Date(nowIso))
-        .input("updated_at", sql.DateTime2, new Date(nowIso))
-        .query(
-          "INSERT INTO reference_products (id, configuration_type, articulation_type, brake_type, brake_size, studs_pcd_standards, created_at, updated_at) VALUES (@id, @configuration_type, @articulation_type, @brake_type, @brake_size, @studs_pcd_standards, @created_at, @updated_at)"
-        );
+      await pool.query(
+        `
+        INSERT INTO reference_products
+          (id, configuration_type, articulation_type, brake_type, brake_size, studs_pcd_standards, created_at, updated_at)
+        VALUES
+          ($1,$2,$3,$4,$5,$6::jsonb,$7,$8)
+        `,
+        [
+          id,
+          body.configurationType ?? "",
+          body.articulationType ?? "",
+          body.brakeType ?? "",
+          body.brakeSize ?? "",
+          JSON.stringify(studs),
+          new Date(nowIso),
+          new Date(nowIso),
+        ]
+      );
 
       res.status(201).json({
         id,
@@ -1549,18 +1735,28 @@ export const apiRouter = (() => {
       const studs = Array.isArray(body.studsPcdStandards) ? body.studsPcdStandards : [];
 
       const pool = await getPool();
-      await pool
-        .request()
-        .input("id", sql.NVarChar(64), itemId)
-        .input("configuration_type", sql.NVarChar(255), body.configurationType ?? "")
-        .input("articulation_type", sql.NVarChar(255), body.articulationType ?? "")
-        .input("brake_type", sql.NVarChar(255), body.brakeType ?? "")
-        .input("brake_size", sql.NVarChar(255), body.brakeSize ?? "")
-        .input("studs_pcd_standards", sql.NVarChar(sql.MAX), JSON.stringify(studs))
-        .input("updated_at", sql.DateTime2, new Date(nowIso))
-        .query(
-          "UPDATE reference_products SET configuration_type = @configuration_type, articulation_type = @articulation_type, brake_type = @brake_type, brake_size = @brake_size, studs_pcd_standards = @studs_pcd_standards, updated_at = @updated_at WHERE id = @id"
-        );
+      await pool.query(
+        `
+        UPDATE reference_products
+        SET
+          configuration_type=$2,
+          articulation_type=$3,
+          brake_type=$4,
+          brake_size=$5,
+          studs_pcd_standards=$6::jsonb,
+          updated_at=$7
+        WHERE id=$1
+        `,
+        [
+          itemId,
+          body.configurationType ?? "",
+          body.articulationType ?? "",
+          body.brakeType ?? "",
+          body.brakeSize ?? "",
+          JSON.stringify(studs),
+          new Date(nowIso),
+        ]
+      );
 
       res.json({
         id: itemId,
@@ -1579,10 +1775,7 @@ export const apiRouter = (() => {
     asyncHandler(async (req, res) => {
       const { itemId } = req.params;
       const pool = await getPool();
-      await pool
-        .request()
-        .input("id", sql.NVarChar(64), itemId)
-        .query("DELETE FROM reference_products WHERE id = @id");
+      await pool.query("DELETE FROM reference_products WHERE id = $1", [itemId]);
 
       res.status(204).send();
     })
@@ -1592,11 +1785,9 @@ export const apiRouter = (() => {
     "/requests",
     asyncHandler(async (req, res) => {
       const pool = await getPool();
-      const { recordset } = await pool
-        .request()
-        .query("SELECT id, data FROM requests ORDER BY updated_at DESC");
+      const { rows } = await pool.query("SELECT id, data FROM requests ORDER BY updated_at DESC");
 
-      const parsed = recordset
+      const parsed = rows
         .map((row) => safeParseRequest(row.data, { id: row.id }))
         .filter(Boolean);
       res.json(parsed);
@@ -1608,9 +1799,9 @@ export const apiRouter = (() => {
     "/requests/summary",
     asyncHandler(async (req, res) => {
       const pool = await getPool();
-      const { recordset } = await pool.request().query(requestSummarySelect);
+      const { rows } = await pool.query(requestSummarySelect);
       res.json(
-        recordset.map((row) => ({
+        rows.map((row) => ({
           id: row.id,
           status: row.status,
           clientName: row.clientName ?? "",
@@ -1661,16 +1852,36 @@ export const apiRouter = (() => {
         nowIso
       );
 
-      await pool
-        .request()
-        .input("id", sql.NVarChar(64), id)
-        .input("data", sql.NVarChar(sql.MAX), JSON.stringify(requestData))
-        .input("status", sql.NVarChar(50), status)
-        .input("created_at", sql.DateTime2, new Date(nowIso))
-        .input("updated_at", sql.DateTime2, new Date(nowIso))
-        .query(
-          "INSERT INTO requests (id, data, status, created_at, updated_at) VALUES (@id, @data, @status, @created_at, @updated_at)"
+      const { inserts: attachmentInserts } = extractInlineAttachments(requestData);
+
+      await pool.query(
+        "INSERT INTO requests (id, data, status, created_at, updated_at) VALUES ($1, $2::jsonb, $3, $4, $5)",
+        [id, JSON.stringify(requestData), status, new Date(nowIso), new Date(nowIso)]
+      );
+
+      // Persist attachment binaries (urls were already rewritten to /api/attachments/:id above).
+      for (const att of attachmentInserts) {
+        await pool.query(
+          `
+          INSERT INTO request_attachments
+            (id, request_id, attachment_type, filename, content_type, byte_size, uploaded_at, uploaded_by, data)
+          VALUES
+            ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+          ON CONFLICT (id) DO NOTHING
+          `,
+          [
+            att.id,
+            id,
+            att.attachmentType,
+            att.filename,
+            att.contentType,
+            att.byteSize,
+            att.uploadedAt,
+            att.uploadedBy,
+            att.data,
+          ]
         );
+      }
 
       // Best-effort email notification enqueue for non-draft creates (ex: create+submit from the UI).
       try {
@@ -1701,16 +1912,13 @@ export const apiRouter = (() => {
                 template,
                 introOverride: template.intro,
               });
-              await pool
-                .request()
-                .input("event_type", sql.NVarChar(64), "request_created")
-                .input("request_id", sql.NVarChar(64), id)
-                .input("to_emails", sql.NVarChar(sql.MAX), to.join(", "))
-                .input("subject", sql.NVarChar(255), subjectTpl || subject)
-                .input("body_html", sql.NVarChar(sql.MAX), html)
-                .query(
-                  "INSERT INTO notification_outbox (event_type, request_id, to_emails, subject, body_html) VALUES (@event_type, @request_id, @to_emails, @subject, @body_html)"
-                );
+              await pool.query(
+                `
+                INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+                VALUES ($1,$2,$3,$4,$5,$6)
+                `,
+                [randomUUID(), "request_created", id, to.join(", "), subjectTpl || subject, html]
+              );
             }
           }
         }
@@ -1760,13 +1968,12 @@ export const apiRouter = (() => {
         nowIso
       );
 
-      await pool
-        .request()
-        .input("id", sql.NVarChar(64), requestId)
-        .input("data", sql.NVarChar(sql.MAX), JSON.stringify(updated))
-        .input("status", sql.NVarChar(50), updated.status)
-        .input("updated_at", sql.DateTime2, new Date(nowIso))
-        .query("UPDATE requests SET data = @data, status = @status, updated_at = @updated_at WHERE id = @id");
+      await pool.query("UPDATE requests SET data=$2::jsonb, status=$3, updated_at=$4 WHERE id=$1", [
+        requestId,
+        JSON.stringify(updated),
+        updated.status,
+        new Date(nowIso),
+      ]);
 
       // Best-effort email notification enqueue (do not block status updates if email config is missing).
       try {
@@ -1797,16 +2004,13 @@ export const apiRouter = (() => {
                 template,
                 introOverride: template.intro,
               });
-              await pool
-                .request()
-                .input("event_type", sql.NVarChar(64), "request_status_changed")
-                .input("request_id", sql.NVarChar(64), requestId)
-                .input("to_emails", sql.NVarChar(sql.MAX), to.join(", "))
-                .input("subject", sql.NVarChar(255), subjectTpl || subject)
-                .input("body_html", sql.NVarChar(sql.MAX), html)
-                .query(
-                  "INSERT INTO notification_outbox (event_type, request_id, to_emails, subject, body_html) VALUES (@event_type, @request_id, @to_emails, @subject, @body_html)"
-                );
+              await pool.query(
+                `
+                INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+                VALUES ($1,$2,$3,$4,$5,$6)
+                `,
+                [randomUUID(), "request_status_changed", requestId, to.join(", "), subjectTpl || subject, html]
+              );
             }
           }
         }
@@ -1875,16 +2079,13 @@ export const apiRouter = (() => {
         introOverride: template.intro,
       });
 
-      await pool
-        .request()
-        .input("event_type", sql.NVarChar(64), eventType)
-        .input("request_id", sql.NVarChar(64), requestId)
-        .input("to_emails", sql.NVarChar(sql.MAX), to.join(", "))
-        .input("subject", sql.NVarChar(255), subjectTpl || subjectFallback)
-        .input("body_html", sql.NVarChar(sql.MAX), html)
-        .query(
-          "INSERT INTO notification_outbox (event_type, request_id, to_emails, subject, body_html) VALUES (@event_type, @request_id, @to_emails, @subject, @body_html)"
-        );
+      await pool.query(
+        `
+        INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+        VALUES ($1,$2,$3,$4,$5,$6)
+        `,
+        [randomUUID(), eventType, requestId, to.join(", "), subjectTpl || subjectFallback, html]
+      );
 
       res.json({ enqueued: true, to });
     })
@@ -1972,13 +2173,14 @@ export const apiRouter = (() => {
         Object.assign(updated, syncLegacyFromProduct(updated, updated.products[0]));
       }
 
-      await pool
-        .request()
-        .input("id", sql.NVarChar(64), requestId)
-        .input("data", sql.NVarChar(sql.MAX), JSON.stringify(updated))
-        .input("status", sql.NVarChar(50), updated.status ?? existing.status)
-        .input("updated_at", sql.DateTime2, new Date(nowIso))
-        .query("UPDATE requests SET data = @data, status = @status, updated_at = @updated_at WHERE id = @id");
+      await materializeRequestAttachments(pool, requestId, updated);
+
+      await pool.query("UPDATE requests SET data=$2::jsonb, status=$3, updated_at=$4 WHERE id=$1", [
+        requestId,
+        JSON.stringify(updated),
+        updated.status ?? existing.status,
+        new Date(nowIso),
+      ]);
 
       res.json(updated);
     })
@@ -1989,7 +2191,7 @@ export const apiRouter = (() => {
     asyncHandler(async (req, res) => {
       const { requestId } = req.params;
       const pool = await getPool();
-      await pool.request().input("id", sql.NVarChar(64), requestId).query("DELETE FROM requests WHERE id = @id");
+      await pool.query("DELETE FROM requests WHERE id = $1", [requestId]);
       res.status(204).send();
     })
   );
