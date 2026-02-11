@@ -793,6 +793,7 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 const DEFAULT_LOG_LINES = 200;
 const MAX_LOG_LINES = 1000;
 const LOG_PATH = path.join(REPO_ROOT, "deploy", "logs", "auto-deploy.log");
+const BUILD_INFO_PATH = path.join(REPO_ROOT, "dist", "build-info.json");
 
 const clampLineCount = (value) => {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -824,6 +825,21 @@ const readLogTail = async (filePath, maxLines) => {
   }
 };
 
+const readBuildInfo = async () => {
+  try {
+    const raw = await fs.readFile(BUILD_INFO_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    const hash = String(parsed?.hash ?? "").trim();
+    const message = String(parsed?.message ?? "").trim();
+    const author = String(parsed?.author ?? "").trim();
+    const date = String(parsed?.date ?? "").trim();
+    if (!hash && !message && !author && !date) return null;
+    return { hash, message, author, date };
+  } catch {
+    return null;
+  }
+};
+
 const getGitInfo = async () => {
   try {
     const { stdout } = await execFileAsync("git", [
@@ -836,8 +852,8 @@ const getGitInfo = async () => {
     ]);
     const [hash, message, author, date] = stdout.trim().split("\n");
     return { hash, message, author, date };
-  } catch (error) {
-    return null;
+  } catch {
+    return readBuildInfo();
   }
 };
 

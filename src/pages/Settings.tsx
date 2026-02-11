@@ -658,7 +658,37 @@ const Settings: React.FC = () => {
       const res = await fetch('/api/admin/deploy-info?lines=200');
       if (!res.ok) throw new Error(`Failed to load deploy info: ${res.status}`);
       const data = await res.json();
-      setDeployInfo(data);
+
+      const hasGitInfo = Boolean(
+        data?.git?.hash || data?.git?.message || data?.git?.author || data?.git?.date
+      );
+
+      if (hasGitInfo) {
+        setDeployInfo(data);
+        return;
+      }
+
+      // Fallback for deployments that only ship `dist/` without a local git repo.
+      try {
+        const buildRes = await fetch('/build-info.json', { cache: 'no-store' });
+        if (!buildRes.ok) {
+          setDeployInfo(data);
+          return;
+        }
+
+        const buildInfo = await buildRes.json();
+        setDeployInfo({
+          ...data,
+          git: {
+            hash: String(buildInfo?.hash ?? ''),
+            message: String(buildInfo?.message ?? ''),
+            author: String(buildInfo?.author ?? ''),
+            date: String(buildInfo?.date ?? ''),
+          },
+        });
+      } catch {
+        setDeployInfo(data);
+      }
     } catch (error) {
       console.error('Failed to load deploy info:', error);
       setDeployInfo(null);
