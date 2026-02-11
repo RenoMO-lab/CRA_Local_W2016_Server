@@ -1270,6 +1270,10 @@ const Settings: React.FC = () => {
             <Server size={16} className="mr-2" />
             {t.settings.deploymentsTab}
           </TabsTrigger>
+          <TabsTrigger value="test-page" className="data-[state=active]:bg-background">
+            <SettingsIcon size={16} className="mr-2" />
+            Test Page
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="lists" className="space-y-6">
@@ -2685,6 +2689,15 @@ const Settings: React.FC = () => {
                 </pre>
               )}
             </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="test-page" className="space-y-6">
+          <div className="bg-card rounded-lg border border-border p-4 md:p-6">
+            <h3 className="text-lg font-semibold text-foreground">Test Page</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              This is a test page inside Settings.
+            </p>
           </div>
         </TabsContent>
       </Tabs>
