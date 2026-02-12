@@ -253,6 +253,19 @@ type DbBackupItem = {
   createdAt: string;
 };
 
+const LEGACY_DB_BACKUP_DIR = 'C:\\CRA_Local_W2016_Main\\db-backups';
+const CANONICAL_DB_BACKUP_DIR = 'C:\\CRA_Local_W2016_Main\\backups\\postgres';
+
+const normalizeDbBackupDirectory = (value: unknown): string => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const normalized = raw.replace(/\//g, '\\');
+  if (normalized.toLowerCase() === LEGACY_DB_BACKUP_DIR.toLowerCase()) {
+    return CANONICAL_DB_BACKUP_DIR;
+  }
+  return normalized;
+};
+
 const Settings: React.FC = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -746,7 +759,7 @@ const Settings: React.FC = () => {
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || `Failed to load backups: ${res.status}`);
       setDbBackups(Array.isArray(data?.items) ? data.items : []);
-      setDbBackupDirectory(String(data?.directory ?? ''));
+      setDbBackupDirectory(normalizeDbBackupDirectory(data?.directory));
     } catch (error) {
       console.error('Failed to load DB backups:', error);
       setDbBackupError(String((error as any)?.message ?? error));
@@ -764,7 +777,7 @@ const Settings: React.FC = () => {
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || `Backup failed: ${res.status}`);
       setDbBackups(Array.isArray(data?.items) ? data.items : []);
-      setDbBackupDirectory(String(data?.directory ?? dbBackupDirectory));
+      setDbBackupDirectory(normalizeDbBackupDirectory(data?.directory ?? dbBackupDirectory));
       const createdName = String(data?.created?.fileName ?? '').trim();
       toast({
         title: 'Backup created',
@@ -2516,7 +2529,7 @@ const Settings: React.FC = () => {
                   Create and download PostgreSQL backups stored on the VM.
                 </p>
                 <p className="text-xs text-muted-foreground break-all">
-                  Storage path: {dbBackupDirectory || 'C:\\CRA_Local_W2016_Main\\backups\\postgres'}
+                  Storage path: {dbBackupDirectory || CANONICAL_DB_BACKUP_DIR}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
