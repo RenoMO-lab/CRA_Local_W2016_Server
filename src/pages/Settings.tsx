@@ -261,6 +261,7 @@ type DbBackupRetentionKept = {
 
 const LEGACY_DB_BACKUP_DIR = 'C:\\CRA_Local_W2016_Main\\db-backups';
 const CANONICAL_DB_BACKUP_DIR = 'C:\\CRA_Local_W2016_Main\\backups\\postgres';
+const LEGACY_USERS_STORAGE_KEYS = ['monroc_admin_settings_v5', 'monroc_admin_settings_v4'] as const;
 
 const normalizeDbBackupDirectory = (value: unknown): string => {
   const raw = String(value ?? '').trim();
@@ -315,7 +316,12 @@ const Settings: React.FC = () => {
     deleteListItem,
     reorderListItems,
     users,
-    setUsers,
+    isUsersLoading,
+    refreshUsers,
+    createUser,
+    updateUser,
+    deleteUser,
+    importLegacyUsers,
   } = useAdminSettings();
 
   if (user?.role !== 'admin') {
@@ -331,6 +337,7 @@ const Settings: React.FC = () => {
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<(UserItem & { newPassword?: string }) | null>(null);
   const [newUserForm, setNewUserForm] = useState({ name: '', email: '', role: 'sales' as UserRole, password: '' });
+  const [isLegacyUserImporting, setIsLegacyUserImporting] = useState(false);
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
   const [hasFeedbackError, setHasFeedbackError] = useState(false);
@@ -849,6 +856,9 @@ const Settings: React.FC = () => {
     loadM365Info();
     loadDbMonitor();
     loadDbBackups();
+    refreshUsers().catch((error) => {
+      console.error('Failed to load users:', error);
+    });
   }, []);
 
   const loadFeedback = useCallback(async () => {
@@ -1224,7 +1234,7 @@ const Settings: React.FC = () => {
     toast({ title, description });
   };
 
-  const handleAddUser = () => {
+  const handleAddUser = async () => {
     if (!newUserForm.name.trim() || !newUserForm.email.trim() || !newUserForm.password.trim()) {
       toast({
         title: t.settings.validationError,
@@ -1244,25 +1254,30 @@ const Settings: React.FC = () => {
       return;
     }
 
-    const newUser: UserItem = {
-      id: Date.now().toString(),
-      name: newUserForm.name.trim(),
-      email: newUserForm.email.trim(),
-      role: newUserForm.role,
-      password: newUserForm.password,
-    };
-
-    setUsers([...users, newUser]);
-    setNewUserForm({ name: '', email: '', role: 'sales', password: '' });
-    setIsAddUserOpen(false);
-
-    toast({
-      title: t.settings.userAdded,
-      description: `${newUser.name} ${t.settings.userAddedDesc}`,
-    });
+    try {
+      const newUser = await createUser({
+        name: newUserForm.name,
+        email: newUserForm.email,
+        role: newUserForm.role,
+        password: newUserForm.password,
+      });
+      setNewUserForm({ name: '', email: '', role: 'sales', password: '' });
+      setIsAddUserOpen(false);
+      toast({
+        title: t.settings.userAdded,
+        description: `${newUser.name} ${t.settings.userAddedDesc}`,
+      });
+    } catch (error) {
+      console.error('Failed to add user:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    }
   };
 
-  const handleEditUser = () => {
+  const handleEditUser = async () => {
     if (!editingUser) return;
 
     if (!editingUser.name.trim() || !editingUser.email.trim()) {
@@ -1284,25 +1299,30 @@ const Settings: React.FC = () => {
       return;
     }
 
-    const updatedUser: UserItem = {
-      id: editingUser.id,
-      name: editingUser.name.trim(),
-      email: editingUser.email.trim(),
-      role: editingUser.role,
-      password: editingUser.newPassword?.trim() || editingUser.password,
-    };
-
-    setUsers(users.map(u => u.id === editingUser.id ? updatedUser : u));
-    setIsEditUserOpen(false);
-    setEditingUser(null);
-
-    toast({
-      title: t.settings.userUpdated,
-      description: t.settings.userUpdatedDesc,
-    });
+    try {
+      await updateUser(editingUser.id, {
+        name: editingUser.name,
+        email: editingUser.email,
+        role: editingUser.role,
+        newPassword: editingUser.newPassword?.trim() || '',
+      });
+      setIsEditUserOpen(false);
+      setEditingUser(null);
+      toast({
+        title: t.settings.userUpdated,
+        description: t.settings.userUpdatedDesc,
+      });
+    } catch (error) {
+      console.error('Failed to update user:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    }
   };
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     const userToDelete = users.find(u => u.id === userId);
     
     // Prevent deleting current user
@@ -1315,17 +1335,73 @@ const Settings: React.FC = () => {
       return;
     }
 
-    setUsers(users.filter(u => u.id !== userId));
-
-    toast({
-      title: t.settings.userDeleted,
-      description: `${userToDelete?.name} ${t.settings.userDeletedDesc}`,
-    });
+    try {
+      await deleteUser(userId);
+      toast({
+        title: t.settings.userDeleted,
+        description: `${userToDelete?.name} ${t.settings.userDeletedDesc}`,
+      });
+    } catch (error) {
+      console.error('Failed to delete user:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    }
   };
 
   const openEditUserDialog = (userItem: UserItem) => {
     setEditingUser({ ...userItem, newPassword: '' });
     setIsEditUserOpen(true);
+  };
+
+  const handleImportLegacyUsers = async () => {
+    setIsLegacyUserImporting(true);
+    try {
+      let payloadUsers: Array<{ name: string; email: string; role: UserRole; password: string }> = [];
+      for (const key of LEGACY_USERS_STORAGE_KEYS) {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        const usersFromKey = Array.isArray(parsed?.users) ? parsed.users : [];
+        if (!usersFromKey.length) continue;
+        payloadUsers = usersFromKey
+          .map((entry: any) => ({
+            name: String(entry?.name ?? '').trim(),
+            email: String(entry?.email ?? '').trim(),
+            role: String(entry?.role ?? '').trim() as UserRole,
+            password: String(entry?.password ?? '').trim(),
+          }))
+          .filter(
+            (entry) =>
+              entry.name &&
+              entry.email &&
+              entry.password &&
+              (entry.role === 'sales' || entry.role === 'design' || entry.role === 'costing' || entry.role === 'admin')
+          );
+        if (payloadUsers.length) break;
+      }
+
+      if (!payloadUsers.length) {
+        throw new Error('No legacy users found in this browser.');
+      }
+
+      const result = await importLegacyUsers(payloadUsers);
+      toast({
+        title: 'Legacy users imported',
+        description: `Created: ${result.created}, Updated: ${result.updated}`,
+      });
+    } catch (error) {
+      console.error('Failed to import legacy users:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsLegacyUserImporting(false);
+    }
   };
 
   return (
@@ -1529,7 +1605,18 @@ const Settings: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="users" className="space-y-6">
-          <div className="flex justify-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" onClick={() => refreshUsers()} disabled={isUsersLoading || isLegacyUserImporting}>
+              <RefreshCw size={16} className="mr-2" />
+              {isUsersLoading ? t.common.loading : 'Refresh users'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleImportLegacyUsers}
+              disabled={isLegacyUserImporting || isUsersLoading}
+            >
+              {isLegacyUserImporting ? t.common.loading : 'Import legacy users'}
+            </Button>
             <Dialog open={isAddUserOpen} onOpenChange={setIsAddUserOpen}>
               <DialogTrigger asChild>
                 <Button>
@@ -1613,6 +1700,13 @@ const Settings: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {isUsersLoading && users.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground">
+                      {t.common.loading}
+                    </TableCell>
+                  </TableRow>
+                ) : null}
                 {users.map((userItem) => (
                   <TableRow key={userItem.id}>
                     <TableCell className="font-medium">{userItem.name}</TableCell>

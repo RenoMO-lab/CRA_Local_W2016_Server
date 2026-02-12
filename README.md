@@ -56,12 +56,26 @@ PGPORT=5432
 PGDATABASE=cra_local
 PGUSER=cra_app
 PGPASSWORD=your_postgres_password
+
+# Session auth
+SESSION_COOKIE_NAME=cra_sid
+SESSION_TTL_HOURS=24
+
+# Bootstrap admin (used only when app_users is empty)
+BOOTSTRAP_ADMIN_NAME=Admin
+BOOTSTRAP_ADMIN_EMAIL=r.molinier@sonasia.monroc.com
+BOOTSTRAP_ADMIN_PASSWORD=123#56Rt9
 ```
 
 Notes:
 - Do not commit `.env`.
 - `DB_INSTANCE` is optional for named instances.
 - Use `DB_TRUST_CERT=true` for local dev only.
+
+Authentication notes:
+- Auth now uses server-side sessions stored in PostgreSQL.
+- User accounts/roles are stored in table `app_users` (not browser localStorage).
+- After upgrade, sign in with the bootstrap admin account and use **Settings > Users > Import legacy users** once if you need to migrate users from an old browser-local installation.
 
 ## Local development
 
@@ -160,7 +174,7 @@ Current VM note: the deploy script runs `pg_dump` before deployment. That backup
 
 ### PostgreSQL Backups
 
-Recommended: a Windows Scheduled Task that runs `pg_dump` nightly and copies results to NAS.
+Recommended: a Windows Scheduled Task that runs the built-in backup script nightly and copies results to NAS.
 
 Install the built-in daily backup task (on the VM):
 
@@ -176,7 +190,12 @@ Retention policy in app/backup script:
 - `day`: latest backup from today.
 - `day-1`: latest backup from yesterday.
 - `week-1`: latest backup from 7 days ago.
-- All other backups in the folder are removed.
+- All other backup artifacts in the folder are removed.
+
+Each backup set now includes:
+- `<prefix>.dump` (database schema + data)
+- `<prefix>_globals.sql` (roles/grants from `pg_dumpall --globals-only`)
+- `<prefix>_manifest.json` (metadata: files + tool versions)
 
 Run once immediately (optional):
 
@@ -190,3 +209,21 @@ Check task status and latest backups:
 schtasks /Query /TN "CRA_Local_DailyDbBackup" /FO LIST /V
 Get-ChildItem C:\CRA_Local_W2016_Main\backups\postgres -File | Sort-Object LastWriteTime -Descending | Select-Object -First 5
 ```
+
+### One-Click Restore (Crash / Migration)
+
+Use the built-in restore script:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\CRA_Local_W2016_Main\app\deploy\db-restore.ps1 `
+  -AppPath C:\CRA_Local_W2016_Main\app `
+  -BackupDir C:\CRA_Local_W2016_Main\backups\postgres `
+  -ServiceName CRA_Local_App `
+  -Force
+```
+
+Optional:
+- `-BackupPrefix <prefix>` to restore a specific backup set
+- `-DumpFile <full path>` to restore one specific dump file
+- `-SkipGlobals` to restore DB only (skip roles/grants)
+- `-WhatIf` for dry run

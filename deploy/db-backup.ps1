@@ -44,6 +44,33 @@ function Parse-EnvFile {
   return $vars
 }
 
+function Resolve-Executable {
+  param([string[]]$Candidates)
+  foreach ($candidate in $Candidates) {
+    if (-not $candidate) { continue }
+    try {
+      if ($candidate -match "[\\/]") {
+        if (Test-Path $candidate) { return $candidate }
+      } else {
+        $resolved = (Get-Command $candidate -ErrorAction Stop).Source
+        if ($resolved) { return $resolved }
+      }
+    } catch {
+      # Try next candidate.
+    }
+  }
+  return $null
+}
+
+function Get-BackupPrefixFromName {
+  param([string]$Name)
+  $n = String($Name)
+  if ($n -match '^(?<p>[A-Za-z0-9._-]+)\.dump$') { return $matches['p'] }
+  if ($n -match '^(?<p>[A-Za-z0-9._-]+)_globals\.sql$') { return $matches['p'] }
+  if ($n -match '^(?<p>[A-Za-z0-9._-]+)_manifest\.json$') { return $matches['p'] }
+  return $null
+}
+
 $envPath = Join-Path $AppPath ".env"
 $envVars = Parse-EnvFile -Path $envPath
 
@@ -64,47 +91,49 @@ if (-not (Test-Path $logDir)) {
 }
 $logFile = Join-Path $logDir "db-backup.log"
 
-$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$dbNameForFile = if ($PgDatabase) { $PgDatabase } else { "postgres" }
-$backupFile = Join-Path $BackupDir ("{0}_{1}.dump" -f $dbNameForFile, $timestamp)
-
 function Log([string]$Message) {
   Add-Content -Path $logFile -Value ("[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message) -Encoding ASCII
 }
 
-Log "Starting pg_dump backup to $backupFile"
+$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$dbNameForFile = if ($PgDatabase) { $PgDatabase } else { "postgres" }
+$backupPrefix = "{0}_{1}" -f $dbNameForFile, $timestamp
+$backupFile = Join-Path $BackupDir ("{0}.dump" -f $backupPrefix)
+$globalsFile = Join-Path $BackupDir ("{0}_globals.sql" -f $backupPrefix)
+$manifestFile = Join-Path $BackupDir ("{0}_manifest.json" -f $backupPrefix)
 
-$pgDump = $null
+$appRoot = $AppPath
+if ((Split-Path $AppPath -Leaf) -ieq "app") {
+  $appRoot = Split-Path $AppPath -Parent
+}
+
 $pgDumpCandidates = @()
 if ($envVars["PG_DUMP_PATH"]) { $pgDumpCandidates += $envVars["PG_DUMP_PATH"] }
 if ($envVars["PG_BIN_DIR"]) { $pgDumpCandidates += (Join-Path $envVars["PG_BIN_DIR"] "pg_dump.exe") }
 $pgDumpCandidates += (Join-Path $AppPath "tools\postgresql\bin\pg_dump.exe")
+$pgDumpCandidates += (Join-Path $appRoot "tools\postgresql\bin\pg_dump.exe")
 $pgDumpCandidates += "pg_dump.exe"
 $pgDumpCandidates += "pg_dump"
 
-foreach ($candidate in $pgDumpCandidates) {
-  if (-not $candidate) { continue }
-  try {
-    if ($candidate -match "[\\/]") {
-      if (Test-Path $candidate) {
-        $pgDump = $candidate
-        break
-      }
-    } else {
-      $resolved = (Get-Command $candidate -ErrorAction Stop).Source
-      if ($resolved) {
-        $pgDump = $resolved
-        break
-      }
-    }
-  } catch {
-    # try next candidate
-  }
-}
+$pgDumpAllCandidates = @()
+if ($envVars["PG_DUMPALL_PATH"]) { $pgDumpAllCandidates += $envVars["PG_DUMPALL_PATH"] }
+if ($envVars["PG_BIN_DIR"]) { $pgDumpAllCandidates += (Join-Path $envVars["PG_BIN_DIR"] "pg_dumpall.exe") }
+$pgDumpAllCandidates += (Join-Path $AppPath "tools\postgresql\bin\pg_dumpall.exe")
+$pgDumpAllCandidates += (Join-Path $appRoot "tools\postgresql\bin\pg_dumpall.exe")
+$pgDumpAllCandidates += "pg_dumpall.exe"
+$pgDumpAllCandidates += "pg_dumpall"
 
+$pgDump = Resolve-Executable -Candidates $pgDumpCandidates
 if (-not $pgDump) {
   throw "pg_dump not found. Set PG_DUMP_PATH/PG_BIN_DIR, install PostgreSQL client tools, or add pg_dump to PATH."
 }
+
+$pgDumpAll = Resolve-Executable -Candidates $pgDumpAllCandidates
+if (-not $pgDumpAll) {
+  throw "pg_dumpall not found. Set PG_DUMPALL_PATH/PG_BIN_DIR, install PostgreSQL client tools, or add pg_dumpall to PATH."
+}
+
+Log "Starting database backup set: prefix=$backupPrefix"
 
 try {
   if ($PgPassword) { $env:PGPASSWORD = $PgPassword }
@@ -117,31 +146,64 @@ try {
     }
     & $pgDump --no-owner --no-acl -Fc --file $backupFile -h $PgHost -p $PgPort -U $PgUser $PgDatabase
   }
-
   if ($LASTEXITCODE -ne 0) {
     throw "pg_dump failed with exit code $LASTEXITCODE"
   }
+
+  $globalsOutput = & $pgDumpAll --globals-only -h $PgHost -p $PgPort -U $PgUser 2>&1
+  if ($LASTEXITCODE -ne 0) {
+    throw "pg_dumpall --globals-only failed with exit code $LASTEXITCODE"
+  }
+  [System.IO.File]::WriteAllLines($globalsFile, [string[]]$globalsOutput)
+
+  $dumpVersion = (& $pgDump --version 2>&1 | Select-Object -First 1)
+  $dumpAllVersion = (& $pgDumpAll --version 2>&1 | Select-Object -First 1)
+  $dumpInfo = Get-Item $backupFile
+  $globalsInfo = Get-Item $globalsFile
+
+  $manifest = [ordered]@{
+    generatedAt = (Get-Date).ToString("o")
+    database = $dbNameForFile
+    host = $PgHost
+    port = $PgPort
+    files = [ordered]@{
+      dump = [ordered]@{
+        fileName = $dumpInfo.Name
+        sizeBytes = $dumpInfo.Length
+      }
+      globals = [ordered]@{
+        fileName = $globalsInfo.Name
+        sizeBytes = $globalsInfo.Length
+      }
+    }
+    tools = [ordered]@{
+      pg_dump = [string]$dumpVersion
+      pg_dumpall = [string]$dumpAllVersion
+    }
+  }
+  $manifest | ConvertTo-Json -Depth 6 | Out-File -FilePath $manifestFile -Encoding ASCII
+
+  Log "Backup created: $($dumpInfo.Name), $($globalsInfo.Name), $(Split-Path $manifestFile -Leaf)"
 } finally {
   if (Test-Path Env:\PGPASSWORD) { Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue }
 }
 
-Log "Backup completed"
-
 # Retention policy:
-# - keep latest backup for today
-# - keep latest backup for yesterday
-# - keep latest backup for day-7 (week-1)
+# - keep latest backup set for today
+# - keep latest backup set for yesterday
+# - keep latest backup set for day-7 (week-1)
 $todayStart = (Get-Date).Date
 $tomorrowStart = $todayStart.AddDays(1)
 $yesterdayStart = $todayStart.AddDays(-1)
 $week1Start = $todayStart.AddDays(-7)
 $week1End = $week1Start.AddDays(1)
 
-$files = Get-ChildItem -Path $BackupDir -Filter "*.dump" -File -ErrorAction SilentlyContinue |
+$dumpFiles = Get-ChildItem -Path $BackupDir -Filter "*.dump" -File -ErrorAction SilentlyContinue |
   Sort-Object LastWriteTime -Descending
 
 $keptByBucket = @{}
-foreach ($file in $files) {
+$keptPrefixes = New-Object System.Collections.Generic.HashSet[string]
+foreach ($file in $dumpFiles) {
   $bucket = $null
   if ($file.LastWriteTime -ge $todayStart -and $file.LastWriteTime -lt $tomorrowStart) {
     $bucket = "day"
@@ -152,19 +214,24 @@ foreach ($file in $files) {
   }
 
   if ($bucket -and (-not $keptByBucket.ContainsKey($bucket))) {
-    $keptByBucket[$bucket] = $file.FullName
+    $prefix = Get-BackupPrefixFromName -Name $file.Name
+    if ($prefix) {
+      $keptByBucket[$bucket] = $file.FullName
+      [void]$keptPrefixes.Add($prefix)
+    }
   }
 }
 
-$keptPaths = @($keptByBucket.Values)
-foreach ($file in $files) {
-  if ($keptPaths -notcontains $file.FullName) {
-    try {
-      Remove-Item -Force $file.FullName
-      Log "Removed old backup: $($file.FullName)"
-    } catch {
-      Log "Failed to remove old backup ($($file.FullName)): $($_.Exception.Message)"
-    }
+$allArtifacts = Get-ChildItem -Path $BackupDir -File -ErrorAction SilentlyContinue
+foreach ($file in $allArtifacts) {
+  $prefix = Get-BackupPrefixFromName -Name $file.Name
+  if (-not $prefix) { continue }
+  if ($keptPrefixes.Contains($prefix)) { continue }
+  try {
+    Remove-Item -Force $file.FullName
+    Log "Removed old backup artifact: $($file.FullName)"
+  } catch {
+    Log "Failed to remove old backup artifact ($($file.FullName)): $($_.Exception.Message)"
   }
 }
 

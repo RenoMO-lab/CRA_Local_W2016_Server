@@ -7,6 +7,20 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { getPool, withTransaction } from "./db.js";
 import {
+  clearSessionCookie,
+  createUserSession,
+  ensureBootstrapAuthData,
+  findUserForLogin,
+  getAuthFromSessionToken,
+  makePasswordHash,
+  mapUserRow,
+  readSessionTokenFromRequest,
+  revokeSessionById,
+  setSessionCookie,
+  validateUserPayload,
+  verifyUserPassword,
+} from "./auth.js";
+import {
   claimDeviceCodeSessionForRedeem,
   clearM365Tokens,
   forceRefreshAccessToken,
@@ -854,6 +868,19 @@ const formatBackupTimestamp = (date = new Date()) => {
 };
 
 const isSafeBackupFileName = (value) => /^[A-Za-z0-9._-]+\.dump$/i.test(String(value ?? ""));
+const BACKUP_GLOBALS_SUFFIX = "_globals.sql";
+const BACKUP_MANIFEST_SUFFIX = "_manifest.json";
+
+const getBackupPrefixFromFileName = (fileName) => {
+  const name = String(fileName ?? "").trim();
+  if (!name) return null;
+  if (name.toLowerCase().endsWith(".dump")) return name.slice(0, -5);
+  if (name.toLowerCase().endsWith(BACKUP_GLOBALS_SUFFIX)) return name.slice(0, -BACKUP_GLOBALS_SUFFIX.length);
+  if (name.toLowerCase().endsWith(BACKUP_MANIFEST_SUFFIX)) return name.slice(0, -BACKUP_MANIFEST_SUFFIX.length);
+  return null;
+};
+
+const isManagedBackupArtifact = (fileName) => Boolean(getBackupPrefixFromFileName(fileName));
 
 const resolveBackupFilePath = (fileName) => {
   if (!isSafeBackupFileName(fileName)) return null;
@@ -898,6 +925,52 @@ const resolvePgDumpPath = async () => {
   }
 
   return null;
+};
+
+const resolvePgDumpAllPath = async () => {
+  const fromBinDir = process.env.PG_BIN_DIR
+    ? path.join(process.env.PG_BIN_DIR, process.platform === "win32" ? "pg_dumpall.exe" : "pg_dumpall")
+    : null;
+
+  const candidates = [
+    process.env.PG_DUMPALL_PATH,
+    fromBinDir,
+    "C:\\CRA_Local_W2016_Main\\tools\\postgresql\\bin\\pg_dumpall.exe",
+    "pg_dumpall.exe",
+    "pg_dumpall",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const value = String(candidate);
+    if (path.isAbsolute(value)) {
+      try {
+        await fs.access(value);
+        return value;
+      } catch {
+        continue;
+      }
+    }
+
+    try {
+      await execFileAsync(value, ["--version"]);
+      return value;
+    } catch {
+      // try next candidate
+    }
+  }
+
+  return null;
+};
+
+const readExecutableVersion = async (executablePath) => {
+  const bin = String(executablePath ?? "").trim();
+  if (!bin) return null;
+  try {
+    const { stdout, stderr } = await execFileAsync(bin, ["--version"]);
+    return String(stdout || stderr || "").trim() || null;
+  } catch {
+    return null;
+  }
 };
 
 const getBackupConnectionConfig = () => {
@@ -974,9 +1047,11 @@ const readBackupDirectoryEntries = async () => {
     const filePath = path.join(DB_BACKUP_DIR, entry.name);
     try {
       const stat = await fs.stat(filePath);
+      const prefix = getBackupPrefixFromFileName(entry.name);
       items.push({
         fileName: entry.name,
         filePath,
+        prefix: prefix || "",
         sizeBytes: stat.size,
         createdAt: stat.mtime.toISOString(),
         mtimeMs: stat.mtime.getTime(),
@@ -994,22 +1069,28 @@ const applyDbBackupRetentionPolicy = async () => {
   const now = new Date();
   const entries = await readBackupDirectoryEntries();
   const keepByBucket = new Map();
-  const keepPaths = new Set();
+  const keepPrefixes = new Set();
 
   for (const entry of entries) {
     const bucket = getBackupRetentionBucket(entry.mtimeMs, now);
     if (!bucket) continue;
     if (keepByBucket.has(bucket)) continue;
     keepByBucket.set(bucket, entry);
-    keepPaths.add(entry.filePath);
+    if (entry.prefix) keepPrefixes.add(entry.prefix);
   }
 
   const deletedFiles = [];
-  for (const entry of entries) {
-    if (keepPaths.has(entry.filePath)) continue;
+  const allEntries = await fs.readdir(DB_BACKUP_DIR, { withFileTypes: true });
+  for (const entry of allEntries) {
+    if (!entry.isFile()) continue;
+    if (!isManagedBackupArtifact(entry.name)) continue;
+    const prefix = getBackupPrefixFromFileName(entry.name);
+    if (!prefix) continue;
+    if (keepPrefixes.has(prefix)) continue;
+    const filePath = path.join(DB_BACKUP_DIR, entry.name);
     try {
-      await fs.unlink(entry.filePath);
-      deletedFiles.push(entry.fileName);
+      await fs.unlink(filePath);
+      deletedFiles.push(entry.name);
     } catch {
       // Ignore files that disappear during cleanup.
     }
@@ -1037,6 +1118,10 @@ const createDbBackup = async () => {
   if (!pgDumpPath) {
     throw new Error("pg_dump executable not found. Set PG_DUMP_PATH or PG_BIN_DIR.");
   }
+  const pgDumpAllPath = await resolvePgDumpAllPath();
+  if (!pgDumpAllPath) {
+    throw new Error("pg_dumpall executable not found. Set PG_DUMPALL_PATH or PG_BIN_DIR.");
+  }
 
   const config = getBackupConnectionConfig();
   if (!config.user) {
@@ -1048,8 +1133,13 @@ const createDbBackup = async () => {
 
   await fs.mkdir(DB_BACKUP_DIR, { recursive: true });
 
-  const fileName = `${config.database}_${formatBackupTimestamp()}.dump`;
+  const backupPrefix = `${config.database}_${formatBackupTimestamp()}`;
+  const fileName = `${backupPrefix}.dump`;
   const filePath = path.join(DB_BACKUP_DIR, fileName);
+  const globalsFileName = `${backupPrefix}${BACKUP_GLOBALS_SUFFIX}`;
+  const globalsFilePath = path.join(DB_BACKUP_DIR, globalsFileName);
+  const manifestFileName = `${backupPrefix}${BACKUP_MANIFEST_SUFFIX}`;
+  const manifestFilePath = path.join(DB_BACKUP_DIR, manifestFileName);
 
   const args = [
     "--format=custom",
@@ -1065,6 +1155,15 @@ const createDbBackup = async () => {
     config.user,
     config.database,
   ];
+  const globalsArgs = [
+    "--globals-only",
+    "--host",
+    config.host,
+    "--port",
+    String(config.port),
+    "--username",
+    config.user,
+  ];
 
   const env = { ...process.env };
   if (config.password) {
@@ -1072,11 +1171,40 @@ const createDbBackup = async () => {
   }
 
   await execFileAsync(pgDumpPath, args, { env, maxBuffer: 10 * 1024 * 1024 });
-  const stat = await fs.stat(filePath);
+  const globalsOutput = await execFileAsync(pgDumpAllPath, globalsArgs, {
+    env,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  await fs.writeFile(globalsFilePath, String(globalsOutput.stdout ?? ""), "utf8");
+
+  const [stat, globalsStat] = await Promise.all([fs.stat(filePath), fs.stat(globalsFilePath)]);
+  const [pgDumpVersion, pgDumpAllVersion] = await Promise.all([
+    readExecutableVersion(pgDumpPath),
+    readExecutableVersion(pgDumpAllPath),
+  ]);
+
+  const manifest = {
+    generatedAt: new Date().toISOString(),
+    database: config.database,
+    host: config.host,
+    port: config.port,
+    files: {
+      dump: { fileName, sizeBytes: stat.size },
+      globals: { fileName: globalsFileName, sizeBytes: globalsStat.size },
+    },
+    tools: {
+      pg_dump: pgDumpVersion,
+      pg_dumpall: pgDumpAllVersion,
+    },
+  };
+  await fs.writeFile(manifestFilePath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
   const retention = await applyDbBackupRetentionPolicy();
 
   return {
     fileName,
+    globalsFileName,
+    manifestFileName,
     sizeBytes: stat.size,
     createdAt: stat.mtime.toISOString(),
     retention,
@@ -1205,6 +1333,92 @@ export const apiRouter = (() => {
     })
   );
 
+  router.use(
+    asyncHandler(async (req, res, next) => {
+      req.authUser = null;
+      req.authSessionId = null;
+
+      const token = readSessionTokenFromRequest(req);
+      if (!token) {
+        next();
+        return;
+      }
+
+      const pool = await getPool();
+      const auth = await getAuthFromSessionToken(pool, token);
+      if (!auth) {
+        clearSessionCookie(res);
+        next();
+        return;
+      }
+
+      req.authUser = auth.user;
+      req.authSessionId = auth.sessionId;
+      next();
+    })
+  );
+
+  const requireAdmin = (req, res, next) => {
+    if (!req.authUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    if (req.authUser.role !== "admin") {
+      res.status(403).json({ error: "Admin access required" });
+      return;
+    }
+    next();
+  };
+
+  router.post(
+    "/auth/login",
+    asyncHandler(async (req, res) => {
+      const body = safeJson(req.body) ?? {};
+      const email = String(body.email ?? "").trim();
+      const password = String(body.password ?? "").trim();
+      if (!email || !password) {
+        res.status(400).json({ error: "Missing email or password" });
+        return;
+      }
+
+      const pool = await getPool();
+      await ensureBootstrapAuthData(pool);
+
+      const user = await findUserForLogin(pool, email);
+      if (!user || !verifyUserPassword(password, user.password_hash)) {
+        res.status(401).json({ error: "Invalid credentials" });
+        return;
+      }
+
+      const session = await createUserSession(pool, user.id);
+      setSessionCookie(res, session.token, session.expiresAt);
+      res.json({ user: mapUserRow(user) });
+    })
+  );
+
+  router.post(
+    "/auth/logout",
+    asyncHandler(async (req, res) => {
+      const pool = await getPool();
+      if (req.authSessionId) {
+        await revokeSessionById(pool, req.authSessionId);
+      }
+      clearSessionCookie(res);
+      res.json({ ok: true });
+    })
+  );
+
+  router.get(
+    "/auth/me",
+    asyncHandler(async (req, res) => {
+      if (!req.authUser) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+      res.json({ user: req.authUser });
+    })
+  );
+
   // Serve uploaded attachments stored in Postgres (request_attachments.data).
   router.get(
     "/attachments/:attachmentId",
@@ -1264,6 +1478,263 @@ export const apiRouter = (() => {
       );
 
       res.json(rows.map((row) => ({ id: row.id, value: row.value })));
+    })
+  );
+
+  router.get(
+    "/admin/users",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const pool = await getPool();
+      await ensureBootstrapAuthData(pool);
+
+      const { rows } = await pool.query(
+        `SELECT id, name, email, role, created_at
+           FROM app_users
+          WHERE is_active = true
+          ORDER BY lower(email)`
+      );
+      res.json(rows.map((row) => mapUserRow(row)));
+    })
+  );
+
+  router.post(
+    "/admin/users",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const parsed = validateUserPayload({
+        name: req.body?.name,
+        email: req.body?.email,
+        role: req.body?.role,
+        password: req.body?.password,
+        requirePassword: true,
+      });
+      if (!parsed.ok) {
+        res.status(400).json({ error: parsed.error });
+        return;
+      }
+
+      const pool = await getPool();
+      const id = randomUUID();
+      const passwordHash = makePasswordHash(parsed.value.password);
+      try {
+        const { rows } = await pool.query(
+          `INSERT INTO app_users (id, name, email, role, password_hash, is_active)
+           VALUES ($1, $2, $3, $4, $5, true)
+           RETURNING id, name, email, role, created_at`,
+          [id, parsed.value.name, parsed.value.email, parsed.value.role, passwordHash]
+        );
+        res.status(201).json(mapUserRow(rows[0]));
+      } catch (error) {
+        if (String(error?.code ?? "") === "23505") {
+          res.status(409).json({ error: "Email already exists" });
+          return;
+        }
+        throw error;
+      }
+    })
+  );
+
+  router.put(
+    "/admin/users/:userId",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const userId = String(req.params.userId ?? "").trim();
+      if (!userId) {
+        res.status(400).json({ error: "Missing user id" });
+        return;
+      }
+
+      const parsed = validateUserPayload({
+        name: req.body?.name,
+        email: req.body?.email,
+        role: req.body?.role,
+        password: req.body?.newPassword,
+        requirePassword: false,
+      });
+      if (!parsed.ok) {
+        res.status(400).json({ error: parsed.error });
+        return;
+      }
+
+      const newPassword = String(req.body?.newPassword ?? "").trim();
+      const pool = await getPool();
+      try {
+        let updated = null;
+        await withTransaction(pool, async (client) => {
+          const targetRes = await client.query(
+            "SELECT id, role FROM app_users WHERE id = $1 AND is_active = true",
+            [userId]
+          );
+          const target = targetRes.rows?.[0] ?? null;
+          if (!target) {
+            res.status(404).json({ error: "User not found" });
+            return;
+          }
+
+          if (target.role === "admin" && parsed.value.role !== "admin") {
+            const countRes = await client.query(
+              "SELECT COUNT(*)::int AS count FROM app_users WHERE role = 'admin' AND is_active = true"
+            );
+            const adminCount = Number.parseInt(countRes.rows?.[0]?.count ?? "0", 10);
+            if (adminCount <= 1) {
+              res.status(400).json({ error: "Cannot demote the last admin user" });
+              return;
+            }
+          }
+
+          const result = await client.query(
+            `UPDATE app_users
+                SET name = $1,
+                    email = $2,
+                    role = $3,
+                    password_hash = CASE WHEN $4 = '' THEN password_hash ELSE $5 END,
+                    updated_at = now()
+              WHERE id = $6
+                AND is_active = true
+            RETURNING id, name, email, role, created_at`,
+            [
+              parsed.value.name,
+              parsed.value.email,
+              parsed.value.role,
+              newPassword,
+              newPassword ? makePasswordHash(newPassword) : "",
+              userId,
+            ]
+          );
+          updated = result.rows?.[0] ?? null;
+        });
+
+        if (res.headersSent) return;
+        res.json(mapUserRow(updated));
+      } catch (error) {
+        if (String(error?.code ?? "") === "23505") {
+          res.status(409).json({ error: "Email already exists" });
+          return;
+        }
+        throw error;
+      }
+    })
+  );
+
+  router.delete(
+    "/admin/users/:userId",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const userId = String(req.params.userId ?? "").trim();
+      if (!userId) {
+        res.status(400).json({ error: "Missing user id" });
+        return;
+      }
+
+      if (req.authUser?.id && req.authUser.id === userId) {
+        res.status(400).json({ error: "Cannot delete current user" });
+        return;
+      }
+
+      const pool = await getPool();
+      await withTransaction(pool, async (client) => {
+        const countResult = await client.query(
+          "SELECT COUNT(*)::int AS count FROM app_users WHERE role = 'admin' AND is_active = true"
+        );
+        const adminCount = Number.parseInt(countResult.rows?.[0]?.count ?? "0", 10);
+
+        const targetRes = await client.query(
+          "SELECT id, role FROM app_users WHERE id = $1 AND is_active = true",
+          [userId]
+        );
+        const target = targetRes.rows?.[0] ?? null;
+        if (!target) {
+          res.status(404).json({ error: "User not found" });
+          return;
+        }
+
+        if (target.role === "admin" && adminCount <= 1) {
+          res.status(400).json({ error: "Cannot delete the last admin user" });
+          return;
+        }
+
+        await client.query(
+          "UPDATE app_users SET is_active = false, updated_at = now() WHERE id = $1",
+          [userId]
+        );
+        await client.query(
+          "UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+          [userId]
+        );
+      });
+
+      if (res.headersSent) return;
+      res.status(204).send();
+    })
+  );
+
+  router.post(
+    "/admin/users/import-legacy",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const rawUsers = Array.isArray(req.body?.users) ? req.body.users : [];
+      if (!rawUsers.length) {
+        res.status(400).json({ error: "Missing users payload" });
+        return;
+      }
+
+      const normalized = [];
+      const seenEmails = new Set();
+      for (const entry of rawUsers) {
+        const parsed = validateUserPayload({
+          name: entry?.name,
+          email: entry?.email,
+          role: entry?.role,
+          password: entry?.password,
+          requirePassword: true,
+        });
+        if (!parsed.ok) continue;
+        if (seenEmails.has(parsed.value.email)) continue;
+        seenEmails.add(parsed.value.email);
+        normalized.push(parsed.value);
+      }
+
+      if (!normalized.length) {
+        res.status(400).json({ error: "No valid users to import" });
+        return;
+      }
+
+      const pool = await getPool();
+      let created = 0;
+      let updated = 0;
+
+      await withTransaction(pool, async (client) => {
+        for (const user of normalized) {
+          const existing = await client.query(
+            "SELECT id FROM app_users WHERE lower(email) = $1 LIMIT 1",
+            [user.email]
+          );
+
+          if (existing.rows?.[0]?.id) {
+            await client.query(
+              `UPDATE app_users
+                  SET name = $1,
+                      role = $2,
+                      password_hash = $3,
+                      is_active = true,
+                      updated_at = now()
+                WHERE id = $4`,
+              [user.name, user.role, makePasswordHash(user.password), existing.rows[0].id]
+            );
+            updated += 1;
+          } else {
+            await client.query(
+              `INSERT INTO app_users (id, name, email, role, password_hash, is_active)
+               VALUES ($1, $2, $3, $4, $5, true)`,
+              [randomUUID(), user.name, user.email, user.role, makePasswordHash(user.password)]
+            );
+            created += 1;
+          }
+        }
+      });
+
+      res.json({ created, updated, total: created + updated });
     })
   );
 

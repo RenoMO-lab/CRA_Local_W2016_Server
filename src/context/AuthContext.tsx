@@ -1,107 +1,96 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { User, UserRole } from '@/types';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { User } from '@/types';
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  logout: () => Promise<void>;
   isLoading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Storage key must match AdminSettingsContext
-const ADMIN_SETTINGS_STORAGE_KEY = 'monroc_admin_settings_v5';
-
-interface StoredUser {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  password: string;
-}
-
-const DEFAULT_USERS: StoredUser[] = [
-  { id: '1', name: 'Renaud', email: 'r.molinier@sonasia.monroc.com', role: 'admin', password: '4689' },
-  { id: '2', name: 'Leo', email: 'leo@sonasia.monroc.com', role: 'sales', password: 'K987' },
-  { id: '3', name: 'Kevin', email: 'kevin@sonasia.monroc.com', role: 'sales', password: 'K123' },
-  { id: '4', name: 'Phoebe', email: 'phoebe@sonasia.monroc.com', role: 'design', password: 'P123' },
-  { id: '5', name: 'Bai', email: 'bairumei@sonasia.monroc.com', role: 'costing', password: 'B345' },
-  { id: '6', name: 'ZhaoHe', email: 'zhaohe@sonasia.monroc.com', role: 'design', password: 'Z678' },
-];
-
-const getUsersFromStorage = (): StoredUser[] => {
-  try {
-    const raw = localStorage.getItem(ADMIN_SETTINGS_STORAGE_KEY);
-    if (!raw) return DEFAULT_USERS;
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed?.users) || parsed.users.length === 0) return DEFAULT_USERS;
-
-    const requiredEmails = new Set(DEFAULT_USERS.map((u) => u.email.trim().toLowerCase()));
-    const actualEmails = new Set(
-      parsed.users.map((u: any) => String(u?.email ?? '').trim().toLowerCase())
-    );
-
-    // If storage still contains old demo users, force the hardcoded list.
-    for (const e of requiredEmails) {
-      if (!actualEmails.has(e)) return DEFAULT_USERS;
-    }
-
-    return parsed.users;
-  } catch {
-    return DEFAULT_USERS;
-  }
+const mapServerUser = (raw: any): User | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = String(raw.id ?? '').trim();
+  const email = String(raw.email ?? '').trim();
+  const name = String(raw.name ?? '').trim();
+  const role = String(raw.role ?? '').trim();
+  if (!id || !email || !name) return null;
+  if (role !== 'sales' && role !== 'design' && role !== 'costing' && role !== 'admin') return null;
+  const createdAtRaw = String(raw.createdAt ?? '').trim();
+  const createdAt = createdAtRaw ? new Date(createdAtRaw) : new Date();
+  return {
+    id,
+    email,
+    name,
+    role,
+    createdAt: Number.isNaN(createdAt.getTime()) ? new Date() : createdAt,
+  };
 };
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(() => {
-    const stored = localStorage.getItem('auth_user');
-    return stored ? JSON.parse(stored) : null;
-  });
-  const [isLoading, setIsLoading] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
-
-    const normalizedEmail = email.trim();
-    const normalizedPassword = password.trim();
-
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    // Get users from AdminSettings storage
-    const users = getUsersFromStorage();
-    const normalizedEmailLower = normalizedEmail.toLowerCase();
-
-    const foundUser = users.find((u) => {
-      const storedEmail = (u.email ?? '').trim().toLowerCase();
-      const storedPassword = String((u as any).password ?? '').trim();
-      return storedEmail === normalizedEmailLower && storedPassword === normalizedPassword;
-    });
-
-    if (foundUser) {
-      const authUser: User = {
-        id: foundUser.id,
-        email: foundUser.email,
-        name: foundUser.name,
-        role: foundUser.role,
-        createdAt: new Date(),
-      };
-      setUser(authUser);
-      localStorage.setItem('auth_user', JSON.stringify(authUser));
-      setIsLoading(false);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          email: String(email ?? '').trim(),
+          password: String(password ?? ''),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) return false;
+      const nextUser = mapServerUser(data?.user);
+      if (!nextUser) return false;
+      setUser(nextUser);
       return true;
+    } catch {
+      return false;
+    } finally {
+      setIsLoading(false);
     }
-    
-    setIsLoading(false);
-    return false;
   }, []);
 
-  const logout = useCallback(() => {
-    setUser(null);
-    localStorage.removeItem('auth_user');
+  const logout = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } finally {
+      setUser(null);
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSession = async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch('/api/auth/me');
+        if (!res.ok) {
+          if (!cancelled) setUser(null);
+          return;
+        }
+        const data = await res.json().catch(() => null);
+        const nextUser = mapServerUser(data?.user);
+        if (!cancelled) setUser(nextUser);
+      } catch {
+        if (!cancelled) setUser(null);
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+    loadSession();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

@@ -6,8 +6,16 @@ import MobileTopNav from './MobileTopNav';
 import { cn } from '@/lib/utils';
 
 const MainLayout: React.FC = () => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="h-10 w-10 rounded-full border-4 border-muted border-t-primary animate-spin" />
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

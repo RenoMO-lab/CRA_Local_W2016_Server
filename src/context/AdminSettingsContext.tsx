@@ -10,7 +10,21 @@ interface UserItem {
   name: string;
   email: string;
   role: 'sales' | 'design' | 'costing' | 'admin';
+  createdAt?: string | null;
+}
+
+interface UserCreateInput {
+  name: string;
+  email: string;
+  role: UserItem['role'];
   password: string;
+}
+
+interface UserUpdateInput {
+  name: string;
+  email: string;
+  role: UserItem['role'];
+  newPassword?: string;
 }
 
 interface AdminSettingsContextType {
@@ -40,7 +54,12 @@ interface AdminSettingsContextType {
   reorderListItems: (category: ListCategory, orderedIds: string[]) => Promise<void>;
   // Users
   users: UserItem[];
-  setUsers: React.Dispatch<React.SetStateAction<UserItem[]>>;
+  isUsersLoading: boolean;
+  refreshUsers: () => Promise<void>;
+  createUser: (input: UserCreateInput) => Promise<UserItem>;
+  updateUser: (id: string, input: UserUpdateInput) => Promise<UserItem>;
+  deleteUser: (id: string) => Promise<void>;
+  importLegacyUsers: (users: Array<{ name: string; email: string; role: UserItem['role']; password: string }>) => Promise<{ created: number; updated: number; total: number }>;
 }
 
 const AdminSettingsContext = createContext<AdminSettingsContextType | undefined>(undefined);
@@ -157,18 +176,7 @@ const DEFAULT_DATA = {
     { id: '5', value: 'Stud Axles' },
     { id: '6', value: 'Single Axles' },
   ],
-  users: [
-    { id: '1', name: 'Renaud', email: 'r.molinier@sonasia.monroc.com', role: 'admin' as const, password: '4689' },
-    { id: '2', name: 'Leo', email: 'leo@sonasia.monroc.com', role: 'sales' as const, password: 'K987' },
-    { id: '3', name: 'Kevin', email: 'kevin@sonasia.monroc.com', role: 'sales' as const, password: 'K123' },
-    { id: '4', name: 'Phoebe', email: 'phoebe@sonasia.monroc.com', role: 'design' as const, password: 'P123' },
-    { id: '5', name: 'Bai', email: 'bairumei@sonasia.monroc.com', role: 'costing' as const, password: 'B345' },
-    { id: '6', name: 'ZhaoHe', email: 'zhaohe@sonasia.monroc.com', role: 'design' as const, password: 'Z678' },
-  ],
 };
-
-const STORAGE_KEY_V5 = 'monroc_admin_settings_v5';
-const LEGACY_STORAGE_KEY = 'monroc_admin_settings_v4';
 
 export type ListCategory =
   | 'applicationVehicles'
@@ -191,44 +199,16 @@ export type ListCategory =
   | 'configurationTypes';
 
 const API_BASE = '/api/admin/lists';
+const USERS_API_BASE = '/api/admin/users';
 
-const isValidUsers = (v: unknown): v is UserItem[] =>
-  Array.isArray(v) && v.every((x) => x && typeof x === 'object' && 'id' in (x as any) && 'email' in (x as any) && 'role' in (x as any));
-
-const normalizeEmail = (email: unknown) => String(email ?? '').trim().toLowerCase();
-
-const hasAllHardcodedUsers = (users: UserItem[]) => {
-  const requiredEmails = new Set(DEFAULT_DATA.users.map((u) => normalizeEmail(u.email)));
-  const actualEmails = new Set(users.map((u) => normalizeEmail(u.email)));
-  for (const e of requiredEmails) {
-    if (!actualEmails.has(e)) return false;
+const normalizeEmail = (value: unknown) => String(value ?? '').trim().toLowerCase();
+const normalizeName = (value: unknown) => String(value ?? '').trim();
+const normalizeRole = (value: unknown): UserItem['role'] | null => {
+  const role = String(value ?? '').trim().toLowerCase();
+  if (role === 'sales' || role === 'design' || role === 'costing' || role === 'admin') {
+    return role;
   }
-  return true;
-};
-
-const loadUsersFromStorage = (): UserItem[] => {
-  try {
-    const v5 = localStorage.getItem(STORAGE_KEY_V5);
-    if (v5) {
-      const parsed = JSON.parse(v5);
-      const rawUsers = isValidUsers(parsed?.users) ? parsed.users : DEFAULT_DATA.users;
-      return hasAllHardcodedUsers(rawUsers) ? rawUsers : DEFAULT_DATA.users;
-    }
-
-    // Migration path from older key
-    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-    if (legacy) {
-      const parsed = JSON.parse(legacy);
-      const rawUsers = isValidUsers(parsed?.users) ? parsed.users : DEFAULT_DATA.users;
-      const users = hasAllHardcodedUsers(rawUsers) ? rawUsers : DEFAULT_DATA.users;
-      localStorage.setItem(STORAGE_KEY_V5, JSON.stringify({ users }));
-      return users;
-    }
-  } catch (e) {
-    console.error('Failed to load admin settings from storage:', e);
-  }
-
-  return DEFAULT_DATA.users;
+  return null;
 };
 
 const mergeDefaultList = (list: ListItem[] | undefined, defaults: ListItem[]) => {
@@ -264,12 +244,14 @@ export const AdminSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [axleLocations, setAxleLocations] = useState<ListItem[]>(DEFAULT_DATA.axleLocations);
   const [articulationTypes, setArticulationTypes] = useState<ListItem[]>(DEFAULT_DATA.articulationTypes);
   const [configurationTypes, setConfigurationTypes] = useState<ListItem[]>(DEFAULT_DATA.configurationTypes);
-  const [users, setUsers] = useState<UserItem[]>(loadUsersFromStorage());
+  const [users, setUsers] = useState<UserItem[]>([]);
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
 
   const fetchJson = async <T,>(input: RequestInfo, init?: RequestInit): Promise<T> => {
     const res = await fetch(input, init);
     if (!res.ok) {
-      throw new Error(`Request failed with status ${res.status}`);
+      const body = await res.json().catch(() => null);
+      throw new Error(String(body?.error ?? `Request failed with status ${res.status}`));
     }
     return res.json() as Promise<T>;
   };
@@ -420,10 +402,118 @@ export const AdminSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  // Persist users to localStorage whenever data changes
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_V5, JSON.stringify({ users }));
-  }, [users]);
+  const mapUser = (raw: any): UserItem => {
+    const role = normalizeRole(raw?.role) || 'sales';
+    return {
+      id: String(raw?.id ?? ''),
+      name: String(raw?.name ?? ''),
+      email: String(raw?.email ?? ''),
+      role,
+      createdAt: raw?.createdAt ? String(raw.createdAt) : null,
+    };
+  };
+
+  const refreshUsers = async () => {
+    setIsUsersLoading(true);
+    try {
+      const data = await fetchJson<UserItem[]>(USERS_API_BASE);
+      const mapped = Array.isArray(data) ? data.map(mapUser) : [];
+      setUsers(mapped.filter((item) => item.id && item.email));
+    } finally {
+      setIsUsersLoading(false);
+    }
+  };
+
+  const createUser = async (input: UserCreateInput) => {
+    const payload = {
+      name: normalizeName(input.name),
+      email: normalizeEmail(input.email),
+      role: normalizeRole(input.role),
+      password: String(input.password ?? ''),
+    };
+    if (!payload.name || !payload.email || !payload.role || !payload.password.trim()) {
+      throw new Error('Invalid user payload');
+    }
+
+    const created = await fetchJson<UserItem>(USERS_API_BASE, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const mapped = mapUser(created);
+    setUsers((prev) => [...prev, mapped].sort((a, b) => a.email.localeCompare(b.email)));
+    return mapped;
+  };
+
+  const updateUser = async (id: string, input: UserUpdateInput) => {
+    const userId = String(id ?? '').trim();
+    if (!userId) throw new Error('Missing user id');
+    const payload = {
+      name: normalizeName(input.name),
+      email: normalizeEmail(input.email),
+      role: normalizeRole(input.role),
+      newPassword: String(input.newPassword ?? ''),
+    };
+    if (!payload.name || !payload.email || !payload.role) {
+      throw new Error('Invalid user payload');
+    }
+
+    const updated = await fetchJson<UserItem>(`${USERS_API_BASE}/${encodeURIComponent(userId)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const mapped = mapUser(updated);
+    setUsers((prev) =>
+      prev
+        .map((item) => (item.id === userId ? mapped : item))
+        .sort((a, b) => a.email.localeCompare(b.email))
+    );
+    return mapped;
+  };
+
+  const deleteUser = async (id: string) => {
+    const userId = String(id ?? '').trim();
+    if (!userId) throw new Error('Missing user id');
+    const res = await fetch(`${USERS_API_BASE}/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(String(body?.error ?? `Request failed with status ${res.status}`));
+    }
+    setUsers((prev) => prev.filter((item) => item.id !== userId));
+  };
+
+  const importLegacyUsers = async (
+    importUsers: Array<{ name: string; email: string; role: UserItem['role']; password: string }>
+  ) => {
+    const usersPayload = Array.isArray(importUsers)
+      ? importUsers
+          .map((entry) => ({
+            name: normalizeName(entry?.name),
+            email: normalizeEmail(entry?.email),
+            role: normalizeRole(entry?.role),
+            password: String(entry?.password ?? '').trim(),
+          }))
+          .filter((entry) => entry.name && entry.email && entry.role && entry.password)
+      : [];
+
+    if (!usersPayload.length) {
+      throw new Error('No valid users to import');
+    }
+
+    const result = await fetchJson<{ created: number; updated: number; total: number }>(
+      `${USERS_API_BASE}/import-legacy`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ users: usersPayload }),
+      }
+    );
+    await refreshUsers();
+    return result;
+  };
 
   return (
     <AdminSettingsContext.Provider value={{
@@ -450,7 +540,12 @@ export const AdminSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
       deleteListItem,
       reorderListItems,
       users,
-      setUsers,
+      isUsersLoading,
+      refreshUsers,
+      createUser,
+      updateUser,
+      deleteUser,
+      importLegacyUsers,
     }}>
       {children}
     </AdminSettingsContext.Provider>
