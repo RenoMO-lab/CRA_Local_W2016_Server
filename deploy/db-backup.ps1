@@ -1,6 +1,7 @@
 param(
   [string]$AppPath = "C:\CRA_Local_W2016_Main",
   [string]$BackupDir = "",
+  # Deprecated: kept for backwards compatibility with older task definitions.
   [int]$RetentionDays = 7,
   [string]$DatabaseUrl,
   [string]$PgHost,
@@ -13,7 +14,12 @@ param(
 $ErrorActionPreference = "Stop"
 
 if (-not $BackupDir) {
-  $BackupDir = Join-Path $AppPath "db-backups"
+  $leaf = Split-Path $AppPath -Leaf
+  if ($leaf -ieq "app") {
+    $BackupDir = Join-Path (Split-Path $AppPath -Parent) "db-backups"
+  } else {
+    $BackupDir = Join-Path $AppPath "db-backups"
+  }
 }
 
 function Parse-EnvFile {
@@ -121,9 +127,46 @@ try {
 
 Log "Backup completed"
 
-$cutoff = (Get-Date).AddDays(-1 * $RetentionDays)
-Get-ChildItem -Path $BackupDir -Filter ("{0}_*.dump" -f $dbNameForFile) -File | Where-Object {
-  $_.LastWriteTime -lt $cutoff
-} | ForEach-Object {
-  Remove-Item -Force $_.FullName
+# Retention policy:
+# - keep latest backup for today
+# - keep latest backup for yesterday
+# - keep latest backup for day-7 (week-1)
+$todayStart = (Get-Date).Date
+$tomorrowStart = $todayStart.AddDays(1)
+$yesterdayStart = $todayStart.AddDays(-1)
+$week1Start = $todayStart.AddDays(-7)
+$week1End = $week1Start.AddDays(1)
+
+$files = Get-ChildItem -Path $BackupDir -Filter "*.dump" -File -ErrorAction SilentlyContinue |
+  Sort-Object LastWriteTime -Descending
+
+$keptByBucket = @{}
+foreach ($file in $files) {
+  $bucket = $null
+  if ($file.LastWriteTime -ge $todayStart -and $file.LastWriteTime -lt $tomorrowStart) {
+    $bucket = "day"
+  } elseif ($file.LastWriteTime -ge $yesterdayStart -and $file.LastWriteTime -lt $todayStart) {
+    $bucket = "day-1"
+  } elseif ($file.LastWriteTime -ge $week1Start -and $file.LastWriteTime -lt $week1End) {
+    $bucket = "week-1"
+  }
+
+  if ($bucket -and (-not $keptByBucket.ContainsKey($bucket))) {
+    $keptByBucket[$bucket] = $file.FullName
+  }
 }
+
+$keptPaths = @($keptByBucket.Values)
+foreach ($file in $files) {
+  if ($keptPaths -notcontains $file.FullName) {
+    Remove-Item -Force $file.FullName
+    Log "Removed old backup: $($file.FullName)"
+  }
+}
+
+$summary = @()
+foreach ($bucketName in @("day", "day-1", "week-1")) {
+  $value = if ($keptByBucket.ContainsKey($bucketName)) { $keptByBucket[$bucketName] } else { "none" }
+  $summary += "$bucketName=$value"
+}
+Log ("Retention applied (" + ($summary -join ", ") + ").")

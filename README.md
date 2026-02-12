@@ -148,14 +148,14 @@ Deploy script: `CRA_Local/deploy/deploy.ps1`
 
 This app stores all business data in PostgreSQL (`PGDATABASE` or `DATABASE_URL`). If the VM/server is lost, **your recovery depends on having recent backups stored off the VM** (NAS).
 
-Current VM note: the deploy script runs `pg_dump` before deployment. That backup is still tied to deploy activity and should not replace a fixed daily backup schedule.
+Current VM note: the deploy script runs `pg_dump` before deployment. That backup is still tied to deploy activity and does not replace the fixed 1:00 AM daily backup schedule.
 
 ### Recommended Setup (Best Practice)
 
 - Daily `pg_dump` backup to NAS (meets RPO 24h).
 - Optional (recommended): WAL archiving / PITR if your RPO needs improve.
 - Periodically test restore to a staging database (fire drill).
-- Keep at least 14 days of backups on NAS (or follow your company policy).
+- Keep at least one off-VM backup copy (NAS) and test restores regularly.
 - Test restore monthly to a separate DB name (fire drill).
 
 ### PostgreSQL Backups
@@ -169,9 +169,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\CRA_Local_W2016_Main\depl
   -TaskName CRA_Local_DailyDbBackup `
   -AppPath C:\CRA_Local_W2016_Main `
   -BackupDir C:\CRA_Local_W2016_Main\db-backups `
-  -RetentionDays 14 `
   -StartTime 01:00
 ```
+
+Retention policy in app/backup script:
+- `day`: latest backup from today.
+- `day-1`: latest backup from yesterday.
+- `week-1`: latest backup from 7 days ago.
+- All other backups in the folder are removed.
 
 Run once immediately (optional):
 

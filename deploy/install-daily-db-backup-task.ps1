@@ -2,6 +2,7 @@ param(
   [string]$TaskName = "CRA_Local_DailyDbBackup",
   [string]$AppPath = "C:\CRA_Local_W2016_Main",
   [string]$BackupDir = "",
+  # Deprecated: retained for backwards compatibility with existing commands.
   [int]$RetentionDays = 14,
   [string]$StartTime = "01:00"
 )
@@ -21,15 +22,11 @@ if (-not $BackupDir) {
   $BackupDir = Join-Path $AppPath "db-backups"
 }
 
-if ($RetentionDays -lt 1) {
-  throw "RetentionDays must be >= 1"
-}
-
 if ($StartTime -notmatch '^([01][0-9]|2[0-3]):[0-5][0-9]$') {
   throw "StartTime must be in 24-hour HH:mm format (example: 01:00)"
 }
 
-$ps = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -AppPath `"$AppPath`" -BackupDir `"$BackupDir`" -RetentionDays $RetentionDays"
+$ps = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -AppPath `"$AppPath`" -BackupDir `"$BackupDir`""
 
 # Use schtasks for compatibility with Windows Server 2016.
 schtasks.exe /Create /F `
@@ -42,4 +39,4 @@ schtasks.exe /Create /F `
 
 Write-Host "Installed/updated scheduled task '$TaskName' (daily at $StartTime)."
 Write-Host "Backup directory: $BackupDir"
-Write-Host "Retention days: $RetentionDays"
+Write-Host "Retention policy: keep latest day, day-1, and week-1 backups."

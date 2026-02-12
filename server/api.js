@@ -932,7 +932,35 @@ const getBackupConnectionConfig = () => {
   }
 };
 
-const listDbBackups = async () => {
+const getBackupRetentionWindows = (now = new Date()) => {
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+
+  const yesterdayStart = new Date(todayStart);
+  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+
+  const week1Start = new Date(todayStart);
+  week1Start.setDate(week1Start.getDate() - 7);
+  const week1End = new Date(week1Start);
+  week1End.setDate(week1End.getDate() + 1);
+
+  return { todayStart, tomorrowStart, yesterdayStart, week1Start, week1End };
+};
+
+const getBackupRetentionBucket = (mtimeMs, now = new Date()) => {
+  if (!Number.isFinite(mtimeMs)) return null;
+  const ts = new Date(mtimeMs);
+  if (Number.isNaN(ts.getTime())) return null;
+
+  const { todayStart, tomorrowStart, yesterdayStart, week1Start, week1End } = getBackupRetentionWindows(now);
+  if (ts >= todayStart && ts < tomorrowStart) return "day";
+  if (ts >= yesterdayStart && ts < todayStart) return "day-1";
+  if (ts >= week1Start && ts < week1End) return "week-1";
+  return null;
+};
+
+const readBackupDirectoryEntries = async () => {
   await fs.mkdir(DB_BACKUP_DIR, { recursive: true });
 
   const entries = await fs.readdir(DB_BACKUP_DIR, { withFileTypes: true });
@@ -948,16 +976,60 @@ const listDbBackups = async () => {
       const stat = await fs.stat(filePath);
       items.push({
         fileName: entry.name,
+        filePath,
         sizeBytes: stat.size,
         createdAt: stat.mtime.toISOString(),
+        mtimeMs: stat.mtime.getTime(),
       });
     } catch {
       // Ignore files that disappear during listing.
     }
   }
 
-  items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  return items.slice(0, MAX_DB_BACKUP_LIST);
+  items.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return items;
+};
+
+const applyDbBackupRetentionPolicy = async () => {
+  const now = new Date();
+  const entries = await readBackupDirectoryEntries();
+  const keepByBucket = new Map();
+  const keepPaths = new Set();
+
+  for (const entry of entries) {
+    const bucket = getBackupRetentionBucket(entry.mtimeMs, now);
+    if (!bucket) continue;
+    if (keepByBucket.has(bucket)) continue;
+    keepByBucket.set(bucket, entry);
+    keepPaths.add(entry.filePath);
+  }
+
+  const deletedFiles = [];
+  for (const entry of entries) {
+    if (keepPaths.has(entry.filePath)) continue;
+    try {
+      await fs.unlink(entry.filePath);
+      deletedFiles.push(entry.fileName);
+    } catch {
+      // Ignore files that disappear during cleanup.
+    }
+  }
+
+  return {
+    kept: {
+      day: keepByBucket.get("day")?.fileName ?? null,
+      "day-1": keepByBucket.get("day-1")?.fileName ?? null,
+      "week-1": keepByBucket.get("week-1")?.fileName ?? null,
+    },
+    deletedCount: deletedFiles.length,
+  };
+};
+
+const listDbBackups = async () => {
+  const entries = await readBackupDirectoryEntries();
+  return entries
+    .map(({ fileName, sizeBytes, createdAt }) => ({ fileName, sizeBytes, createdAt }))
+    .slice(0, MAX_DB_BACKUP_LIST);
 };
 
 const createDbBackup = async () => {
@@ -1001,11 +1073,13 @@ const createDbBackup = async () => {
 
   await execFileAsync(pgDumpPath, args, { env, maxBuffer: 10 * 1024 * 1024 });
   const stat = await fs.stat(filePath);
+  const retention = await applyDbBackupRetentionPolicy();
 
   return {
     fileName,
     sizeBytes: stat.size,
     createdAt: stat.mtime.toISOString(),
+    retention,
   };
 };
 
@@ -1216,10 +1290,12 @@ export const apiRouter = (() => {
   router.get(
     "/admin/db-backups",
     asyncHandler(async (req, res) => {
+      const retention = await applyDbBackupRetentionPolicy();
       const items = await listDbBackups();
       res.json({
         directory: DB_BACKUP_DIR,
         inProgress: dbBackupInProgress,
+        retention,
         items,
       });
     })
@@ -1240,6 +1316,7 @@ export const apiRouter = (() => {
         res.status(201).json({
           directory: DB_BACKUP_DIR,
           created,
+          retention: created.retention,
           items,
         });
       } catch (error) {
