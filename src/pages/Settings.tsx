@@ -253,6 +253,12 @@ type DbBackupItem = {
   createdAt: string;
 };
 
+type DbBackupRetentionKept = {
+  day: string | null;
+  'day-1': string | null;
+  'week-1': string | null;
+};
+
 const LEGACY_DB_BACKUP_DIR = 'C:\\CRA_Local_W2016_Main\\db-backups';
 const CANONICAL_DB_BACKUP_DIR = 'C:\\CRA_Local_W2016_Main\\backups\\postgres';
 
@@ -264,6 +270,20 @@ const normalizeDbBackupDirectory = (value: unknown): string => {
     return CANONICAL_DB_BACKUP_DIR;
   }
   return normalized;
+};
+
+const normalizeDbBackupRetentionKept = (value: unknown): DbBackupRetentionKept | null => {
+  if (!value || typeof value !== 'object') return null;
+  const src = value as Record<string, unknown>;
+  const asName = (key: string) => {
+    const raw = String(src[key] ?? '').trim();
+    return raw || null;
+  };
+  return {
+    day: asName('day'),
+    'day-1': asName('day-1'),
+    'week-1': asName('week-1'),
+  };
 };
 
 const Settings: React.FC = () => {
@@ -327,6 +347,7 @@ const Settings: React.FC = () => {
   const [dbWaitsShowNoise, setDbWaitsShowNoise] = useState(false);
   const [dbBackups, setDbBackups] = useState<DbBackupItem[]>([]);
   const [dbBackupDirectory, setDbBackupDirectory] = useState<string>('');
+  const [dbBackupRetentionKept, setDbBackupRetentionKept] = useState<DbBackupRetentionKept | null>(null);
   const [isDbBackupsLoading, setIsDbBackupsLoading] = useState(false);
   const [isDbBackupCreating, setIsDbBackupCreating] = useState(false);
   const [dbBackupError, setDbBackupError] = useState<string | null>(null);
@@ -760,10 +781,12 @@ const Settings: React.FC = () => {
       if (!res.ok) throw new Error(data?.error || `Failed to load backups: ${res.status}`);
       setDbBackups(Array.isArray(data?.items) ? data.items : []);
       setDbBackupDirectory(normalizeDbBackupDirectory(data?.directory));
+      setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention?.kept));
     } catch (error) {
       console.error('Failed to load DB backups:', error);
       setDbBackupError(String((error as any)?.message ?? error));
       setDbBackups([]);
+      setDbBackupRetentionKept(null);
     } finally {
       setIsDbBackupsLoading(false);
     }
@@ -778,6 +801,9 @@ const Settings: React.FC = () => {
       if (!res.ok) throw new Error(data?.error || `Backup failed: ${res.status}`);
       setDbBackups(Array.isArray(data?.items) ? data.items : []);
       setDbBackupDirectory(normalizeDbBackupDirectory(data?.directory ?? dbBackupDirectory));
+      setDbBackupRetentionKept(
+        normalizeDbBackupRetentionKept(data?.retention?.kept ?? data?.created?.retention?.kept)
+      );
       const createdName = String(data?.created?.fileName ?? '').trim();
       toast({
         title: 'Backup created',
@@ -2522,11 +2548,49 @@ const Settings: React.FC = () => {
           })()}
 
           <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-4">
+            <div className="space-y-3">
+              <h3 className="text-lg font-semibold text-foreground">Automatic Backups</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Frequency:</span>{' '}
+                  <span className="text-foreground">Daily at 01:00</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Policy:</span>{' '}
+                  <span className="text-foreground">Keep latest day, day-1, and week-1 backup</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Task name:</span>{' '}
+                  <span className="text-foreground font-mono">CRA_Local_DailyDbBackup</span>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-border bg-muted/10 p-3">
+                <div className="text-sm font-medium text-foreground">Current retained files</div>
+                <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                  <div>
+                    <span className="text-muted-foreground">day:</span>{' '}
+                    <span className="text-foreground font-mono break-all">{dbBackupRetentionKept?.day || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">day-1:</span>{' '}
+                    <span className="text-foreground font-mono break-all">{dbBackupRetentionKept?.['day-1'] || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">week-1:</span>{' '}
+                    <span className="text-foreground font-mono break-all">{dbBackupRetentionKept?.['week-1'] || '-'}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="h-px bg-border/60" />
+
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div className="space-y-1">
                 <h3 className="text-lg font-semibold text-foreground">Manual Database Backups</h3>
                 <p className="text-sm text-muted-foreground">
-                  Create and download PostgreSQL backups stored on the VM.
+                  Create and download PostgreSQL backups
                 </p>
                 <p className="text-xs text-muted-foreground break-all">
                   Storage path: {dbBackupDirectory || CANONICAL_DB_BACKUP_DIR}
