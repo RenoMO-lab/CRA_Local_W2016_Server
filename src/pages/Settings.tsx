@@ -474,6 +474,17 @@ const Settings: React.FC = () => {
     scheduleMinute: 0,
   });
   const [dbBackupError, setDbBackupError] = useState<string | null>(null);
+
+  const [dbBackupImportId, setDbBackupImportId] = useState<string | null>(null);
+  const [dbBackupImportDirectory, setDbBackupImportDirectory] = useState<string>('');
+  const [dbBackupImportSets, setDbBackupImportSets] = useState<DbBackupSet[]>([]);
+  const [dbBackupImportFiles, setDbBackupImportFiles] = useState<File[]>([]);
+  const [dbBackupImportIncludeGlobals, setDbBackupImportIncludeGlobals] = useState(true);
+  const [isDbBackupImportUploading, setIsDbBackupImportUploading] = useState(false);
+  const [isDbBackupImportValidating, setIsDbBackupImportValidating] = useState(false);
+  const [isDbBackupImportRestoring, setIsDbBackupImportRestoring] = useState(false);
+  const [dbBackupImportError, setDbBackupImportError] = useState<string | null>(null);
+  const [dbBackupImportRestoreTarget, setDbBackupImportRestoreTarget] = useState<string | null>(null);
   const [m365Info, setM365Info] = useState<M365AdminResponse | null>(null);
   const [isM365Loading, setIsM365Loading] = useState(false);
   const [hasM365Error, setHasM365Error] = useState(false);
@@ -1082,6 +1093,101 @@ const Settings: React.FC = () => {
     } finally {
       setIsDbBackupRestoring(false);
       setDbBackupRestoreTarget(null);
+    }
+  };
+
+  const initDbBackupImport = async () => {
+    const res = await fetch('/api/admin/db-backups/import/init', { method: 'POST' });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error || `Import init failed: ${res.status}`);
+    const importId = String(data?.importId ?? '').trim();
+    const directory = String(data?.directory ?? '').trim();
+    if (!importId) throw new Error('Import init failed: missing importId');
+    setDbBackupImportId(importId);
+    setDbBackupImportDirectory(directory);
+    setDbBackupImportSets(normalizeDbBackupSets(data?.sets));
+    return importId;
+  };
+
+  const validateDbBackupImport = async (importId: string) => {
+    setIsDbBackupImportValidating(true);
+    setDbBackupImportError(null);
+    try {
+      const res = await fetch(`/api/admin/db-backups/import/${encodeURIComponent(importId)}/validate`, {
+        method: 'POST',
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Import validate failed: ${res.status}`);
+      setDbBackupImportDirectory(String(data?.directory ?? dbBackupImportDirectory));
+      setDbBackupImportSets(normalizeDbBackupSets(data?.sets));
+      toast({ title: 'Import validated', description: 'Uploaded files were scanned successfully.' });
+    } catch (error) {
+      const message = String((error as any)?.message ?? error);
+      setDbBackupImportError(message);
+      toast({ title: t.request.error, description: message, variant: 'destructive' });
+    } finally {
+      setIsDbBackupImportValidating(false);
+    }
+  };
+
+  const uploadDbBackupImportFiles = async () => {
+    if (!dbBackupImportFiles.length) {
+      toast({ title: t.request.error, description: 'Select the 3 backup files first (.dump, _globals.sql, _manifest.json).', variant: 'destructive' });
+      return;
+    }
+    setIsDbBackupImportUploading(true);
+    setDbBackupImportError(null);
+    try {
+      const importId = dbBackupImportId || (await initDbBackupImport());
+      const form = new FormData();
+      dbBackupImportFiles.forEach((f) => form.append('files', f, f.name));
+      const res = await fetch(`/api/admin/db-backups/import/${encodeURIComponent(importId)}/upload`, {
+        method: 'POST',
+        body: form,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Upload failed: ${res.status}`);
+      setDbBackupImportDirectory(String(data?.directory ?? dbBackupImportDirectory));
+      setDbBackupImportSets(normalizeDbBackupSets(data?.sets));
+      toast({ title: 'Files uploaded', description: 'Import files were uploaded successfully.' });
+    } catch (error) {
+      const message = String((error as any)?.message ?? error);
+      setDbBackupImportError(message);
+      toast({ title: t.request.error, description: message, variant: 'destructive' });
+    } finally {
+      setIsDbBackupImportUploading(false);
+    }
+  };
+
+  const restoreDbBackupImport = async (prefix: string) => {
+    const importId = String(dbBackupImportId ?? '').trim();
+    if (!importId) return;
+    setIsDbBackupImportRestoring(true);
+    setDbBackupImportError(null);
+    try {
+      const res = await fetch(`/api/admin/db-backups/import/${encodeURIComponent(importId)}/restore`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prefix, includeGlobals: dbBackupImportIncludeGlobals }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Import restore failed: ${res.status}`);
+
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setDbBackups(items);
+      const sets = normalizeDbBackupSets(data?.sets);
+      setDbBackupSets(sets.length ? sets : toBackupSetsFromItems(items));
+      setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention?.kept));
+      setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
+
+      toast({ title: 'Restore completed', description: `${prefix} restored successfully.` });
+    } catch (error) {
+      const message = String((error as any)?.message ?? error);
+      setDbBackupImportError(message);
+      toast({ title: t.request.error, description: message, variant: 'destructive' });
+    } finally {
+      setIsDbBackupImportRestoring(false);
+      setDbBackupImportRestoreTarget(null);
     }
   };
 
@@ -2987,6 +3093,181 @@ const Settings: React.FC = () => {
 
             <div className="h-px bg-border/60" />
 
+            <div className="space-y-4">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="space-y-1">
+                  <h3 className="text-lg font-semibold text-foreground">Import / Restore (Migration)</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Upload a backup set from another server and restore this instance.
+                  </p>
+                  <p className="text-xs text-muted-foreground break-all">
+                    Storage path:{' '}
+                    {dbBackupImportDirectory
+                      ? dbBackupImportDirectory
+                      : dbBackupImportId
+                        ? `${CANONICAL_DB_BACKUP_DIR}\\imports\\${dbBackupImportId}`
+                        : `${CANONICAL_DB_BACKUP_DIR}\\imports\\<new>`}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setDbBackupImportId(null);
+                      setDbBackupImportDirectory('');
+                      setDbBackupImportSets([]);
+                      setDbBackupImportFiles([]);
+                      setDbBackupImportError(null);
+                      setDbBackupImportRestoreTarget(null);
+                    }}
+                    disabled={isDbBackupImportUploading || isDbBackupImportValidating || isDbBackupImportRestoring}
+                  >
+                    New import session
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+                <div className="lg:col-span-2 space-y-3">
+                  <div className="rounded-md border border-border bg-muted/10 p-3 space-y-2">
+                    <div className="text-sm font-medium text-foreground">Upload files</div>
+                    <p className="text-xs text-muted-foreground">
+                      Select the 3 files generated by the app: <span className="font-mono">*.dump</span>,{' '}
+                      <span className="font-mono">*_globals.sql</span>, <span className="font-mono">*_manifest.json</span>
+                    </p>
+                    <Input
+                      type="file"
+                      multiple
+                      accept=".dump,.sql,.json"
+                      onChange={(e) => setDbBackupImportFiles(Array.from(e.target.files ?? []))}
+                      disabled={isDbBackupImportUploading || isDbBackupImportValidating || isDbBackupImportRestoring}
+                    />
+                    {dbBackupImportFiles.length ? (
+                      <div className="text-xs text-muted-foreground space-y-1">
+                        {dbBackupImportFiles.slice(0, 8).map((f) => (
+                          <div key={`${f.name}-${f.size}`} className="font-mono break-all">
+                            {f.name} ({formatBytes(f.size)})
+                          </div>
+                        ))}
+                        {dbBackupImportFiles.length > 8 ? (
+                          <div>+{dbBackupImportFiles.length - 8} more</div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        onClick={uploadDbBackupImportFiles}
+                        disabled={isDbBackupImportUploading || isDbBackupImportValidating || isDbBackupImportRestoring}
+                      >
+                        <Database size={16} className="mr-2" />
+                        {isDbBackupImportUploading ? 'Uploading...' : 'Upload'}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => dbBackupImportId && void validateDbBackupImport(dbBackupImportId)}
+                        disabled={!dbBackupImportId || isDbBackupImportUploading || isDbBackupImportValidating || isDbBackupImportRestoring}
+                      >
+                        <RefreshCw size={16} className="mr-2" />
+                        {isDbBackupImportValidating ? t.common.loading : 'Validate'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="rounded-md border border-border bg-muted/10 p-3 space-y-2">
+                    <div className="text-sm font-medium text-foreground">Restore options</div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs text-muted-foreground">Include globals (roles/users)</span>
+                      <Switch
+                        checked={dbBackupImportIncludeGlobals}
+                        onCheckedChange={(checked) => setDbBackupImportIncludeGlobals(Boolean(checked))}
+                        disabled={isDbBackupImportUploading || isDbBackupImportValidating || isDbBackupImportRestoring}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Leave enabled for full migration. Disable only if you intentionally want data-only restore.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {dbBackupImportError ? (
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                  {dbBackupImportError}
+                </div>
+              ) : null}
+
+              {dbBackupImportSets.length ? (
+                <div className="rounded-md border border-border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Backup set</TableHead>
+                        <TableHead>Artifacts</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead className="text-right">Size</TableHead>
+                        <TableHead className="text-right">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dbBackupImportSets.map((item) => {
+                        const createdDate = new Date(item.createdAt);
+                        const createdLabel = Number.isNaN(createdDate.getTime())
+                          ? item.createdAt
+                          : format(createdDate, 'MMM d, yyyy HH:mm');
+                        const dump = item.artifacts.dump;
+                        const globals = item.artifacts.globals;
+                        const manifest = item.artifacts.manifest;
+                        const allReady = Boolean(dump && globals && manifest);
+
+                        return (
+                          <TableRow key={`import-${item.prefix}`}>
+                            <TableCell className="text-xs">
+                              <div className="font-mono break-all">{item.prefix}</div>
+                              <div className={cn('mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] border', item.isComplete ? 'border-green-500/40 text-green-400 bg-green-500/10' : 'border-amber-500/40 text-amber-400 bg-amber-500/10')}>
+                                {item.isComplete ? 'Complete' : 'Partial'}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <div className="space-y-1">
+                                <div className={cn('font-mono break-all', dump ? 'text-foreground' : 'text-destructive')}>dump: {dump?.fileName || 'missing'}</div>
+                                <div className={cn('font-mono break-all', globals ? 'text-foreground' : 'text-destructive')}>globals: {globals?.fileName || 'missing'}</div>
+                                <div className={cn('font-mono break-all', manifest ? 'text-foreground' : 'text-destructive')}>manifest: {manifest?.fileName || 'missing'}</div>
+                                {allReady ? null : (
+                                  <div className="text-[11px] text-muted-foreground">
+                                    Upload the missing files to make this set restorable.
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm">{createdLabel || '-'}</TableCell>
+                            <TableCell className="text-right text-sm">{formatBytes(item.totalSizeBytes)}</TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => setDbBackupImportRestoreTarget(item.prefix)}
+                                disabled={isDbBackupImportRestoring || !item.restoreReady || !dbBackupImportId}
+                              >
+                                {isDbBackupImportRestoring && dbBackupImportRestoreTarget === item.prefix ? 'Restoring...' : 'Restore'}
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  No imported backup sets yet. Upload the 3 files to start.
+                </p>
+              )}
+            </div>
+
+            <div className="h-px bg-border/60" />
+
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div className="space-y-1">
                 <h3 className="text-lg font-semibold text-foreground">Manual Database Backups</h3>
@@ -3208,6 +3489,36 @@ const Settings: React.FC = () => {
                   }}
                 >
                   {isDbBackupRestoring ? 'Restoring...' : 'Restore now'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
+            open={Boolean(dbBackupImportRestoreTarget)}
+            onOpenChange={(open) => {
+              if (!open) setDbBackupImportRestoreTarget(null);
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Restore imported backup?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will replace current database data with imported backup set{' '}
+                  <span className="font-mono">{dbBackupImportRestoreTarget}</span>. The app may be unavailable briefly.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isDbBackupImportRestoring}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={isDbBackupImportRestoring || !dbBackupImportRestoreTarget || !dbBackupImportId}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (!dbBackupImportRestoreTarget) return;
+                    void restoreDbBackupImport(dbBackupImportRestoreTarget);
+                  }}
+                >
+                  {isDbBackupImportRestoring ? 'Restoring...' : 'Restore now'}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

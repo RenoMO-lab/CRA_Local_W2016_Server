@@ -1,10 +1,12 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
+import { createWriteStream } from "node:fs";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import Busboy from "busboy";
 import { getPool, withTransaction } from "./db.js";
 import {
   clearSessionCookie,
@@ -899,6 +901,104 @@ const resolveBackupFilePath = (fileName) => {
   const baseWithSep = base.endsWith(path.sep) ? base : `${base}${path.sep}`;
   if (!target.startsWith(baseWithSep)) return null;
   return resolved;
+};
+
+const DB_BACKUP_IMPORTS_DIR = path.join(DB_BACKUP_DIR, "imports");
+const isSafeImportId = (value) => /^[0-9a-f-]{36}$/i.test(String(value ?? "").trim());
+const isSafeManagedBackupFileName = (value) =>
+  /^[A-Za-z0-9._-]+(?:\.dump|_globals\.sql|_manifest\.json)$/i.test(String(value ?? ""));
+
+const resolveImportDir = (importId) => {
+  const id = String(importId ?? "").trim();
+  if (!isSafeImportId(id)) return null;
+  const resolved = path.resolve(DB_BACKUP_IMPORTS_DIR, id);
+  const base = DB_BACKUP_IMPORTS_DIR.toLowerCase();
+  const target = resolved.toLowerCase();
+  const baseWithSep = base.endsWith(path.sep) ? base : `${base}${path.sep}`;
+  if (target !== base && !target.startsWith(baseWithSep)) return null;
+  return resolved;
+};
+
+const readManagedBackupArtifactsInDir = async (dirPath) => {
+  await fs.mkdir(dirPath, { recursive: true });
+  const entries = await fs.readdir(dirPath, { withFileTypes: true });
+  const items = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const name = entry.name;
+    if (!isSafeManagedBackupFileName(name)) continue;
+    const lower = name.toLowerCase();
+    const kind = lower.endsWith(".dump")
+      ? "dump"
+      : lower.endsWith(BACKUP_GLOBALS_SUFFIX)
+        ? "globals"
+        : lower.endsWith(BACKUP_MANIFEST_SUFFIX)
+          ? "manifest"
+          : null;
+    if (!kind) continue;
+    const prefix = getBackupPrefixFromFileName(name);
+    if (!prefix) continue;
+    const filePath = path.join(dirPath, name);
+    try {
+      const stat = await fs.stat(filePath);
+      items.push({
+        fileName: name,
+        prefix,
+        kind,
+        sizeBytes: stat.size,
+        createdAt: stat.mtime.toISOString(),
+        mtimeMs: stat.mtime.getTime(),
+      });
+    } catch {
+      // ignore
+    }
+  }
+  items.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return items;
+};
+
+const buildBackupSetsFromArtifacts = (artifacts) => {
+  const byPrefix = new Map();
+  for (const entry of artifacts) {
+    const existing = byPrefix.get(entry.prefix) ?? {
+      prefix: entry.prefix,
+      createdAt: entry.createdAt,
+      createdAtMs: entry.mtimeMs,
+      totalSizeBytes: 0,
+      artifacts: { dump: null, globals: null, manifest: null },
+    };
+
+    existing.totalSizeBytes += Number(entry.sizeBytes) || 0;
+    if (entry.mtimeMs > existing.createdAtMs) {
+      existing.createdAtMs = entry.mtimeMs;
+      existing.createdAt = entry.createdAt;
+    }
+    if (!existing.artifacts[entry.kind]) {
+      existing.artifacts[entry.kind] = {
+        fileName: entry.fileName,
+        sizeBytes: entry.sizeBytes,
+        createdAt: entry.createdAt,
+      };
+    }
+    byPrefix.set(entry.prefix, existing);
+  }
+
+  return Array.from(byPrefix.values())
+    .map((set) => {
+      const hasDump = Boolean(set.artifacts.dump);
+      const hasGlobals = Boolean(set.artifacts.globals);
+      const hasManifest = Boolean(set.artifacts.manifest);
+      return {
+        prefix: set.prefix,
+        createdAt: set.createdAt,
+        totalSizeBytes: set.totalSizeBytes,
+        artifacts: set.artifacts,
+        restoreReady: hasDump && hasGlobals,
+        isComplete: hasDump && hasGlobals && hasManifest,
+      };
+    })
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, MAX_DB_BACKUP_LIST);
 };
 
 const resolvePgDumpPath = async () => {
@@ -1906,6 +2006,185 @@ export const apiRouter = (() => {
 
       res.setHeader("Cache-Control", "no-store");
       res.download(filePath, fileName);
+    })
+  );
+
+  router.post(
+    "/admin/db-backups/import/init",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const importId = randomUUID();
+      const importDir = resolveImportDir(importId);
+      if (!importDir) {
+        res.status(500).json({ error: "Failed to allocate import directory." });
+        return;
+      }
+      await fs.mkdir(importDir, { recursive: true });
+      res.status(201).json({ importId, directory: importDir });
+    })
+  );
+
+  router.post("/admin/db-backups/import/:importId/upload", requireAdmin, (req, res) => {
+    const importId = String(req.params.importId ?? "").trim();
+    const importDir = resolveImportDir(importId);
+    if (!importDir) {
+      res.status(400).json({ error: "Invalid import id." });
+      return;
+    }
+
+    const bb = Busboy({
+      headers: req.headers,
+      limits: {
+        files: 10,
+        fileSize: 20 * 1024 * 1024 * 1024, // 20GB per file
+      },
+    });
+
+    const uploads = [];
+    const errors = [];
+    const fileWrites = [];
+    let fileCount = 0;
+
+    const finalize = async () => {
+      if (errors.length) {
+        res.status(400).json({ error: errors[0] });
+        return;
+      }
+      if (!fileCount) {
+        res.status(400).json({ error: "No files uploaded." });
+        return;
+      }
+      const artifacts = await readManagedBackupArtifactsInDir(importDir);
+      const sets = buildBackupSetsFromArtifacts(artifacts);
+      res.json({ importId, directory: importDir, uploaded: uploads, sets });
+    };
+
+    bb.on("file", (fieldname, file, info) => {
+      fileCount += 1;
+      const original = String(info?.filename ?? "").trim();
+      if (!original || !isSafeManagedBackupFileName(original)) {
+        errors.push(`Invalid file name: ${original || "(empty)"}`);
+        file.resume();
+        return;
+      }
+
+      const savePath = path.join(importDir, original);
+      let bytes = 0;
+      const out = createWriteStream(savePath);
+      const writePromise = new Promise((resolve, reject) => {
+        out.on("close", resolve);
+        out.on("error", reject);
+      });
+      fileWrites.push(writePromise);
+      file.on("data", (d) => {
+        bytes += d.length;
+      });
+      file.on("limit", () => {
+        errors.push(`File too large: ${original}`);
+        try { out.destroy(); } catch {}
+      });
+      out.on("error", (err) => {
+        errors.push(`Failed to write ${original}: ${String(err?.message ?? err)}`);
+        try { file.unpipe(out); } catch {}
+        file.resume();
+      });
+      out.on("close", () => {
+        uploads.push({ fileName: original, sizeBytes: bytes });
+      });
+      file.pipe(out);
+    });
+
+    bb.on("error", (err) => {
+      errors.push(String(err?.message ?? err));
+    });
+
+    bb.on("finish", () => {
+      Promise.resolve()
+        .then(async () => {
+          const results = await Promise.allSettled(fileWrites);
+          for (const r of results) {
+            if (r.status === "rejected") {
+              errors.push(String(r.reason?.message ?? r.reason));
+            }
+          }
+          await finalize();
+        })
+        .catch((err) => {
+          res.status(500).json({ error: String(err?.message ?? err) });
+        });
+    });
+
+    fs.mkdir(importDir, { recursive: true })
+      .then(() => {
+        req.pipe(bb);
+      })
+      .catch((err) => {
+        res.status(500).json({ error: String(err?.message ?? err) });
+      });
+  });
+
+  router.post(
+    "/admin/db-backups/import/:importId/validate",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const importId = String(req.params.importId ?? "").trim();
+      const importDir = resolveImportDir(importId);
+      if (!importDir) {
+        res.status(400).json({ error: "Invalid import id." });
+        return;
+      }
+      const artifacts = await readManagedBackupArtifactsInDir(importDir);
+      const sets = buildBackupSetsFromArtifacts(artifacts);
+      res.json({ importId, directory: importDir, sets });
+    })
+  );
+
+  router.post(
+    "/admin/db-backups/import/:importId/restore",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const importId = String(req.params.importId ?? "").trim();
+      const importDir = resolveImportDir(importId);
+      if (!importDir) {
+        res.status(400).json({ error: "Invalid import id." });
+        return;
+      }
+
+      const prefix = String(req.body?.prefix ?? "").trim();
+      if (!prefix || !/^[A-Za-z0-9._-]+$/.test(prefix)) {
+        res.status(400).json({ error: "Invalid prefix." });
+        return;
+      }
+      const dumpName = `${prefix}.dump`;
+      const includeGlobals = req.body?.includeGlobals !== false;
+
+      try {
+        await fs.access(path.join(importDir, dumpName));
+      } catch {
+        res.status(404).json({ error: "Dump file not found in import directory." });
+        return;
+      }
+
+      try {
+        const restored = await restoreManagedDbBackup({
+          fileName: dumpName,
+          includeGlobals,
+          actor: req.authUser || null,
+          backupDir: importDir,
+          mode: "import",
+          details: { importId, prefix, fileName: dumpName, includeGlobals },
+        });
+        const status = await listDbBackupsWithStatus();
+        res.json({ ok: true, restored, importId, directory: importDir, ...status });
+      } catch (error) {
+        console.error("Failed to restore imported database backup:", error);
+        const message = String(error?.message ?? error);
+        if (message.includes("in progress")) {
+          res.status(409).json({ error: message });
+          return;
+        }
+        res.status(500).json({ error: message });
+      }
     })
   );
 

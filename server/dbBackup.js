@@ -684,6 +684,20 @@ const listDbBackupSets = async (backupDir) => {
     .slice(0, MAX_DB_BACKUP_LIST);
 };
 
+const resolveBackupDir = (backupDir) => {
+  const base = DEFAULT_DB_BACKUP_DIR;
+  const raw = String(backupDir ?? "").trim();
+  if (!raw) return base;
+  const resolved = path.resolve(raw);
+  const baseLower = base.toLowerCase();
+  const resolvedLower = resolved.toLowerCase();
+  const baseWithSep = baseLower.endsWith(path.sep) ? baseLower : `${baseLower}${path.sep}`;
+  if (resolvedLower !== baseLower && !resolvedLower.startsWith(baseWithSep)) {
+    throw new Error("Invalid backup directory.");
+  }
+  return resolved;
+};
+
 const startRun = async ({ action, mode, actor = null, details = null }) => {
   const pool = await getPool();
   const runId = randomUUID();
@@ -1222,13 +1236,20 @@ export const createDbBackup = async ({ mode = "manual", actor = null } = {}) => 
   });
 };
 
-export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor = null } = {}) => {
+export const restoreDbBackup = async ({
+  fileName,
+  includeGlobals = true,
+  actor = null,
+  backupDir = null,
+  mode = "manual",
+  details = null,
+} = {}) => {
   return runWithLock("restore", async () => {
     const runId = await startRun({
       action: "restore",
-      mode: "manual",
+      mode: String(mode || "manual"),
       actor,
-      details: { fileName, includeGlobals },
+      details: details ?? { fileName, includeGlobals },
     });
 
     try {
@@ -1244,13 +1265,13 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
         throw new Error("App database user is missing (PGUSER/DATABASE_URL).");
       }
 
-      const backupDir = DEFAULT_DB_BACKUP_DIR;
-      const dumpPath = path.join(backupDir, name);
+      const backupDirResolved = resolveBackupDir(backupDir);
+      const dumpPath = path.join(backupDirResolved, name);
       const prefix = getBackupPrefixFromFileName(name);
       if (!prefix) throw new Error("Invalid backup prefix.");
-      const globalsPath = path.join(backupDir, `${prefix}${BACKUP_GLOBALS_SUFFIX}`);
+      const globalsPath = path.join(backupDirResolved, `${prefix}${BACKUP_GLOBALS_SUFFIX}`);
 
-      const [pgRestorePath, psqlPath, npmPath] = await Promise.all([
+      const [pgRestorePath, psqlPath] = await Promise.all([
         resolvePgRestorePath(),
         resolvePsqlPath(),
       ]);
