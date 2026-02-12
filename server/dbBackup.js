@@ -231,6 +231,23 @@ const resolveNpmPath = async () => {
   ]);
 };
 
+const extractPsqlErrorLines = (text) => {
+  const source = String(text ?? "");
+  if (!source) return [];
+  return source
+    .split(/\r?\n/)
+    .map((line) => String(line || "").trim())
+    .filter((line) => /(^|\s)ERROR:\s/i.test(line));
+};
+
+const isIgnorableGlobalsErrorLine = (line) => {
+  const text = String(line ?? "").toLowerCase();
+  if (!text) return false;
+  if (text.includes('role "') && text.includes("already exists")) return true;
+  if (text.includes("already exists")) return true;
+  return false;
+};
+
 const getBackupRetentionWindows = (now = new Date()) => {
   const todayStart = new Date(now);
   todayStart.setHours(0, 0, 0, 0);
@@ -1060,11 +1077,27 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
       );
 
       if (includeGlobals) {
-        await execFileAsync(
-          psqlPath,
-          ["-v", "ON_ERROR_STOP=1", "-h", cfg.host, "-p", String(cfg.port), "-U", cfg.user, "-d", "postgres", "-f", globalsPath],
-          { env, maxBuffer: 10 * 1024 * 1024 }
-        );
+        let globalsStdout = "";
+        let globalsStderr = "";
+        try {
+          const globalsResult = await execFileAsync(
+            psqlPath,
+            ["-v", "ON_ERROR_STOP=0", "-h", cfg.host, "-p", String(cfg.port), "-U", cfg.user, "-d", "postgres", "-f", globalsPath],
+            { env, maxBuffer: 10 * 1024 * 1024 }
+          );
+          globalsStdout = String(globalsResult.stdout ?? "");
+          globalsStderr = String(globalsResult.stderr ?? "");
+        } catch (error) {
+          const stderr = String(error?.stderr ?? "");
+          const stdout = String(error?.stdout ?? "");
+          throw new Error(`Globals restore failed: ${stderr || stdout || String(error?.message ?? error)}`);
+        }
+
+        const globalsErrors = extractPsqlErrorLines(`${globalsStdout}\n${globalsStderr}`);
+        const unexpectedGlobalsErrors = globalsErrors.filter((line) => !isIgnorableGlobalsErrorLine(line));
+        if (unexpectedGlobalsErrors.length) {
+          throw new Error(`Globals restore reported errors: ${unexpectedGlobalsErrors.slice(0, 3).join(" | ")}`);
+        }
       }
 
       await execFileAsync(
