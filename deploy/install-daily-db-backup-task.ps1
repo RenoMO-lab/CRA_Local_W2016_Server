@@ -19,7 +19,12 @@ if (-not (Test-Path $scriptPath)) {
 }
 
 if (-not $BackupDir) {
-  $BackupDir = Join-Path $AppPath "db-backups"
+  $leaf = Split-Path $AppPath -Leaf
+  if ($leaf -ieq "app") {
+    $BackupDir = Join-Path (Split-Path $AppPath -Parent) "backups\postgres"
+  } else {
+    $BackupDir = Join-Path $AppPath "backups\postgres"
+  }
 }
 
 if ($StartTime -notmatch '^([01][0-9]|2[0-3]):[0-5][0-9]$') {

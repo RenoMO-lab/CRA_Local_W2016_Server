@@ -168,7 +168,7 @@ Install the built-in daily backup task (on the VM):
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\CRA_Local_W2016_Main\deploy\install-daily-db-backup-task.ps1 `
   -TaskName CRA_Local_DailyDbBackup `
   -AppPath C:\CRA_Local_W2016_Main `
-  -BackupDir C:\CRA_Local_W2016_Main\db-backups `
+  -BackupDir C:\CRA_Local_W2016_Main\backups\postgres `
   -StartTime 01:00
 ```
 
@@ -188,5 +188,5 @@ Check task status and latest backups:
 
 ```powershell
 schtasks /Query /TN "CRA_Local_DailyDbBackup" /FO LIST /V
-Get-ChildItem C:\CRA_Local_W2016_Main\db-backups -File | Sort-Object LastWriteTime -Descending | Select-Object -First 5
+Get-ChildItem C:\CRA_Local_W2016_Main\backups\postgres -File | Sort-Object LastWriteTime -Descending | Select-Object -First 5
 ```

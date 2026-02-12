@@ -794,7 +794,7 @@ const DEFAULT_LOG_LINES = 200;
 const MAX_LOG_LINES = 1000;
 const LOG_PATH = path.join(REPO_ROOT, "deploy", "logs", "auto-deploy.log");
 const BUILD_INFO_PATH = path.join(REPO_ROOT, "dist", "build-info.json");
-const DB_BACKUP_DIR = path.resolve(process.env.DB_BACKUP_DIR || "C:\\CRA_Local_W2016_Main\\db-backups");
+const DB_BACKUP_DIR = path.resolve(process.env.DB_BACKUP_DIR || "C:\\CRA_Local_W2016_Main\\backups\\postgres");
 const MAX_DB_BACKUP_LIST = 100;
 let dbBackupInProgress = false;
 

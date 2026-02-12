@@ -2516,7 +2516,7 @@ const Settings: React.FC = () => {
                   Create and download PostgreSQL backups stored on the VM.
                 </p>
                 <p className="text-xs text-muted-foreground break-all">
-                  Storage path: {dbBackupDirectory || 'C:\\CRA_Local_W2016_Main\\db-backups'}
+                  Storage path: {dbBackupDirectory || 'C:\\CRA_Local_W2016_Main\\backups\\postgres'}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">

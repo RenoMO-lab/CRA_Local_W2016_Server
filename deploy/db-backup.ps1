@@ -16,9 +16,9 @@ $ErrorActionPreference = "Stop"
 if (-not $BackupDir) {
   $leaf = Split-Path $AppPath -Leaf
   if ($leaf -ieq "app") {
-    $BackupDir = Join-Path (Split-Path $AppPath -Parent) "db-backups"
+    $BackupDir = Join-Path (Split-Path $AppPath -Parent) "backups\postgres"
   } else {
-    $BackupDir = Join-Path $AppPath "db-backups"
+    $BackupDir = Join-Path $AppPath "backups\postgres"
   }
 }
 
