@@ -875,7 +875,8 @@ const formatBackupTimestamp = (date = new Date()) => {
   return `${y}${m}${d}_${hh}${mm}${ss}`;
 };
 
-const isSafeBackupFileName = (value) => /^[A-Za-z0-9._-]+\.dump$/i.test(String(value ?? ""));
+const isSafeBackupFileName = (value) =>
+  /^[A-Za-z0-9._-]+(?:\.dump|_globals\.sql|_manifest\.json)$/i.test(String(value ?? ""));
 const BACKUP_GLOBALS_SUFFIX = "_globals.sql";
 const BACKUP_MANIFEST_SUFFIX = "_manifest.json";
 

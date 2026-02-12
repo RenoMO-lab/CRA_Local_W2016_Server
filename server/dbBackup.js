@@ -42,7 +42,9 @@ let backupOp = {
 let schedulerTimer = null;
 let schedulerTickRunning = false;
 
-const isSafeBackupFileName = (value) => /^[A-Za-z0-9._-]+\.dump$/i.test(String(value ?? ""));
+const isSafeDumpFileName = (value) => /^[A-Za-z0-9._-]+\.dump$/i.test(String(value ?? ""));
+const isSafeManagedBackupFileName = (value) =>
+  /^[A-Za-z0-9._-]+(?:\.dump|_globals\.sql|_manifest\.json)$/i.test(String(value ?? ""));
 
 const formatBackupTimestamp = (date = new Date()) => {
   const y = date.getFullYear();
@@ -85,6 +87,14 @@ const getBackupPrefixFromFileName = (fileName) => {
   if (lower.endsWith(".dump")) return name.slice(0, -5);
   if (lower.endsWith(BACKUP_GLOBALS_SUFFIX)) return name.slice(0, -BACKUP_GLOBALS_SUFFIX.length);
   if (lower.endsWith(BACKUP_MANIFEST_SUFFIX)) return name.slice(0, -BACKUP_MANIFEST_SUFFIX.length);
+  return null;
+};
+
+const getBackupArtifactKind = (fileName) => {
+  const name = String(fileName ?? "").trim().toLowerCase();
+  if (name.endsWith(".dump")) return "dump";
+  if (name.endsWith(BACKUP_GLOBALS_SUFFIX)) return "globals";
+  if (name.endsWith(BACKUP_MANIFEST_SUFFIX)) return "manifest";
   return null;
 };
 
@@ -320,7 +330,7 @@ const readBackupDirectoryEntries = async (backupDir) => {
   for (const entry of entries) {
     if (!entry.isFile()) continue;
     if (!entry.name.toLowerCase().endsWith(".dump")) continue;
-    if (!isSafeBackupFileName(entry.name)) continue;
+    if (!isSafeDumpFileName(entry.name)) continue;
     const filePath = path.join(backupDir, entry.name);
     try {
       const stat = await fs.stat(filePath);
@@ -329,6 +339,40 @@ const readBackupDirectoryEntries = async (backupDir) => {
         fileName: entry.name,
         filePath,
         prefix: prefix || "",
+        sizeBytes: stat.size,
+        createdAt: stat.mtime.toISOString(),
+        mtimeMs: stat.mtime.getTime(),
+      });
+    } catch {
+      // Ignore files that disappear during listing.
+    }
+  }
+  items.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return items;
+};
+
+const readBackupArtifactEntries = async (backupDir) => {
+  await fs.mkdir(backupDir, { recursive: true });
+
+  const entries = await fs.readdir(backupDir, { withFileTypes: true });
+  const items = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (!isManagedBackupArtifact(entry.name)) continue;
+    if (!isSafeManagedBackupFileName(entry.name)) continue;
+    const kind = getBackupArtifactKind(entry.name);
+    if (!kind) continue;
+
+    const filePath = path.join(backupDir, entry.name);
+    try {
+      const stat = await fs.stat(filePath);
+      const prefix = getBackupPrefixFromFileName(entry.name);
+      if (!prefix) continue;
+      items.push({
+        fileName: entry.name,
+        filePath,
+        prefix,
+        kind,
         sizeBytes: stat.size,
         createdAt: stat.mtime.toISOString(),
         mtimeMs: stat.mtime.getTime(),
@@ -385,6 +429,56 @@ const applyDbBackupRetentionPolicy = async (backupDir) => {
 const listDbBackups = async (backupDir) => {
   const entries = await readBackupDirectoryEntries(backupDir);
   return entries.map(({ fileName, sizeBytes, createdAt }) => ({ fileName, sizeBytes, createdAt })).slice(0, MAX_DB_BACKUP_LIST);
+};
+
+const listDbBackupSets = async (backupDir) => {
+  const entries = await readBackupArtifactEntries(backupDir);
+  const byPrefix = new Map();
+
+  for (const entry of entries) {
+    const existing = byPrefix.get(entry.prefix) ?? {
+      prefix: entry.prefix,
+      createdAt: entry.createdAt,
+      createdAtMs: entry.mtimeMs,
+      totalSizeBytes: 0,
+      artifacts: {
+        dump: null,
+        globals: null,
+        manifest: null,
+      },
+    };
+
+    existing.totalSizeBytes += Number(entry.sizeBytes) || 0;
+    if (entry.mtimeMs > existing.createdAtMs) {
+      existing.createdAtMs = entry.mtimeMs;
+      existing.createdAt = entry.createdAt;
+    }
+    if (!existing.artifacts[entry.kind]) {
+      existing.artifacts[entry.kind] = {
+        fileName: entry.fileName,
+        sizeBytes: entry.sizeBytes,
+        createdAt: entry.createdAt,
+      };
+    }
+    byPrefix.set(entry.prefix, existing);
+  }
+
+  return Array.from(byPrefix.values())
+    .map((set) => {
+      const hasDump = Boolean(set.artifacts.dump);
+      const hasGlobals = Boolean(set.artifacts.globals);
+      const hasManifest = Boolean(set.artifacts.manifest);
+      return {
+        prefix: set.prefix,
+        createdAt: set.createdAt,
+        totalSizeBytes: set.totalSizeBytes,
+        artifacts: set.artifacts,
+        restoreReady: hasDump && hasGlobals,
+        isComplete: hasDump && hasGlobals && hasManifest,
+      };
+    })
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, MAX_DB_BACKUP_LIST);
 };
 
 const startRun = async ({ action, mode, actor = null, details = null }) => {
@@ -773,6 +867,7 @@ export const listDbBackupsWithStatus = async () => {
   await fs.mkdir(backupDir, { recursive: true });
   const retention = await applyDbBackupRetentionPolicy(backupDir);
   const items = await listDbBackups(backupDir);
+  const sets = await listDbBackupSets(backupDir);
   const status = await getDbBackupStatus();
   return {
     directory: backupDir,
@@ -781,6 +876,7 @@ export const listDbBackupsWithStatus = async () => {
     error: status.error,
     retention,
     items,
+    sets,
     automatic: status.automatic,
   };
 };
@@ -861,6 +957,7 @@ export const createDbBackup = async ({ mode = "manual", actor = null } = {}) => 
 
       const retention = await applyDbBackupRetentionPolicy(backupDir);
       const items = await listDbBackups(backupDir);
+      const sets = await listDbBackupSets(backupDir);
 
       const result = {
         fileName: dumpFileName,
@@ -883,6 +980,7 @@ export const createDbBackup = async ({ mode = "manual", actor = null } = {}) => 
         created: result,
         retention,
         items,
+        sets,
       };
     } catch (error) {
       await finishRun({
@@ -906,7 +1004,7 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
 
     try {
       const name = String(fileName ?? "").trim();
-      if (!isSafeBackupFileName(name)) {
+      if (!isSafeDumpFileName(name)) {
         throw new Error("Invalid backup file name.");
       }
 

@@ -253,6 +253,25 @@ type DbBackupItem = {
   createdAt: string;
 };
 
+type DbBackupArtifact = {
+  fileName: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+
+type DbBackupSet = {
+  prefix: string;
+  createdAt: string;
+  totalSizeBytes: number;
+  restoreReady: boolean;
+  isComplete: boolean;
+  artifacts: {
+    dump: DbBackupArtifact | null;
+    globals: DbBackupArtifact | null;
+    manifest: DbBackupArtifact | null;
+  };
+};
+
 type DbBackupRetentionKept = {
   day: string | null;
   'day-1': string | null;
@@ -328,6 +347,40 @@ const normalizeDbBackupRetentionKept = (value: unknown): DbBackupRetentionKept |
   };
 };
 
+const normalizeDbBackupSets = (value: unknown): DbBackupSet[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((raw) => {
+      if (!raw || typeof raw !== 'object') return null;
+      const src = raw as Record<string, any>;
+      const normalizeArtifact = (item: any): DbBackupArtifact | null => {
+        if (!item || typeof item !== 'object') return null;
+        const fileName = String(item.fileName ?? '').trim();
+        if (!fileName) return null;
+        return {
+          fileName,
+          sizeBytes: Number(item.sizeBytes ?? 0) || 0,
+          createdAt: String(item.createdAt ?? ''),
+        };
+      };
+      const prefix = String(src.prefix ?? '').trim();
+      if (!prefix) return null;
+      return {
+        prefix,
+        createdAt: String(src.createdAt ?? ''),
+        totalSizeBytes: Number(src.totalSizeBytes ?? 0) || 0,
+        restoreReady: Boolean(src.restoreReady),
+        isComplete: Boolean(src.isComplete),
+        artifacts: {
+          dump: normalizeArtifact(src?.artifacts?.dump),
+          globals: normalizeArtifact(src?.artifacts?.globals),
+          manifest: normalizeArtifact(src?.artifacts?.manifest),
+        },
+      } as DbBackupSet;
+    })
+    .filter((v): v is DbBackupSet => Boolean(v));
+};
+
 const Settings: React.FC = () => {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -394,6 +447,7 @@ const Settings: React.FC = () => {
   const [hasDbMonitorError, setHasDbMonitorError] = useState(false);
   const [dbWaitsShowNoise, setDbWaitsShowNoise] = useState(false);
   const [dbBackups, setDbBackups] = useState<DbBackupItem[]>([]);
+  const [dbBackupSets, setDbBackupSets] = useState<DbBackupSet[]>([]);
   const [dbBackupDirectory, setDbBackupDirectory] = useState<string>('');
   const [dbBackupRetentionKept, setDbBackupRetentionKept] = useState<DbBackupRetentionKept | null>(null);
   const [dbBackupAutomatic, setDbBackupAutomatic] = useState<DbBackupAutomaticState | null>(null);
@@ -546,6 +600,40 @@ const Settings: React.FC = () => {
       idx += 1;
     }
     return `${value >= 10 || idx === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[idx]}`;
+  };
+
+  const toBackupSetsFromItems = (items: DbBackupItem[]): DbBackupSet[] => {
+    return items.map((item) => ({
+      prefix: String(item.fileName || '').replace(/\.dump$/i, ''),
+      createdAt: item.createdAt,
+      totalSizeBytes: Number(item.sizeBytes || 0),
+      restoreReady: false,
+      isComplete: false,
+      artifacts: {
+        dump: item.fileName ? { fileName: item.fileName, sizeBytes: item.sizeBytes, createdAt: item.createdAt } : null,
+        globals: null,
+        manifest: null,
+      },
+    }));
+  };
+
+  const downloadBackupFile = (fileName: string) => {
+    const safe = String(fileName || '').trim();
+    if (!safe) return;
+    const link = document.createElement('a');
+    link.href = `/api/admin/db-backups/${encodeURIComponent(safe)}/download`;
+    link.download = safe;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  const downloadAllBackupArtifacts = (set: DbBackupSet) => {
+    const files = [set.artifacts.dump?.fileName, set.artifacts.globals?.fileName, set.artifacts.manifest?.fileName]
+      .filter((v): v is string => Boolean(v));
+    files.forEach((file, index) => {
+      window.setTimeout(() => downloadBackupFile(file), index * 250);
+    });
   };
 
   const getFlowValue = (status: string, role: M365RoleKey) => {
@@ -848,7 +936,10 @@ const Settings: React.FC = () => {
       const res = await fetch('/api/admin/db-backups');
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || `Failed to load backups: ${res.status}`);
-      setDbBackups(Array.isArray(data?.items) ? data.items : []);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setDbBackups(items);
+      const sets = normalizeDbBackupSets(data?.sets);
+      setDbBackupSets(sets.length ? sets : toBackupSetsFromItems(items));
       setDbBackupDirectory(normalizeDbBackupDirectory(data?.directory));
       setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention?.kept));
       setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
@@ -856,6 +947,7 @@ const Settings: React.FC = () => {
       console.error('Failed to load DB backups:', error);
       setDbBackupError(String((error as any)?.message ?? error));
       setDbBackups([]);
+      setDbBackupSets([]);
       setDbBackupRetentionKept(null);
       setDbBackupAutomatic(null);
     } finally {
@@ -891,7 +983,10 @@ const Settings: React.FC = () => {
       const res = await fetch('/api/admin/db-backups', { method: 'POST' });
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || `Backup failed: ${res.status}`);
-      setDbBackups(Array.isArray(data?.items) ? data.items : []);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setDbBackups(items);
+      const sets = normalizeDbBackupSets(data?.sets);
+      setDbBackupSets(sets.length ? sets : toBackupSetsFromItems(items));
       setDbBackupDirectory(normalizeDbBackupDirectory(data?.directory ?? dbBackupDirectory));
       setDbBackupRetentionKept(
         normalizeDbBackupRetentionKept(data?.retention?.kept ?? data?.created?.retention?.kept)
@@ -966,7 +1061,10 @@ const Settings: React.FC = () => {
       const data = await res.json().catch(() => null);
       if (!res.ok) throw new Error(data?.error || `Restore failed: ${res.status}`);
       setDbBackupRestoreTarget(null);
-      setDbBackups(Array.isArray(data?.items) ? data.items : []);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      setDbBackups(items);
+      const sets = normalizeDbBackupSets(data?.sets);
+      setDbBackupSets(sets.length ? sets : toBackupSetsFromItems(items));
       setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention?.kept));
       setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
       toast({
@@ -2993,46 +3091,89 @@ const Settings: React.FC = () => {
 
             {isDbBackupsLoading ? (
               <p className="text-sm text-muted-foreground">{t.common.loading}</p>
-            ) : dbBackups.length ? (
+            ) : dbBackupSets.length ? (
               <div className="rounded-md border border-border overflow-hidden">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>File</TableHead>
+                      <TableHead>Backup set</TableHead>
+                      <TableHead>Artifacts</TableHead>
                       <TableHead>Created</TableHead>
                       <TableHead className="text-right">Size</TableHead>
                       <TableHead className="text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {dbBackups.map((item) => {
+                    {dbBackupSets.map((item) => {
                       const createdDate = new Date(item.createdAt);
                       const createdLabel = Number.isNaN(createdDate.getTime())
                         ? item.createdAt
                         : format(createdDate, 'MMM d, yyyy HH:mm');
+                      const dump = item.artifacts.dump;
+                      const globals = item.artifacts.globals;
+                      const manifest = item.artifacts.manifest;
+                      const allReady = Boolean(dump && globals && manifest);
 
                       return (
-                        <TableRow key={item.fileName}>
-                          <TableCell className="font-mono text-xs break-all">{item.fileName}</TableCell>
+                        <TableRow key={item.prefix}>
+                          <TableCell className="text-xs">
+                            <div className="font-mono break-all">{item.prefix}</div>
+                            <div className={cn('mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] border', item.isComplete ? 'border-green-500/40 text-green-400 bg-green-500/10' : 'border-amber-500/40 text-amber-400 bg-amber-500/10')}>
+                              {item.isComplete ? 'Complete' : 'Partial'}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            <div className="space-y-1">
+                              <div className={cn('font-mono break-all', dump ? 'text-foreground' : 'text-destructive')}>dump: {dump?.fileName || 'missing'}</div>
+                              <div className={cn('font-mono break-all', globals ? 'text-foreground' : 'text-destructive')}>globals: {globals?.fileName || 'missing'}</div>
+                              <div className={cn('font-mono break-all', manifest ? 'text-foreground' : 'text-destructive')}>manifest: {manifest?.fileName || 'missing'}</div>
+                            </div>
+                          </TableCell>
                           <TableCell className="text-sm">{createdLabel || '-'}</TableCell>
-                          <TableCell className="text-right text-sm">{formatBytes(item.sizeBytes)}</TableCell>
+                          <TableCell className="text-right text-sm">{formatBytes(item.totalSizeBytes)}</TableCell>
                           <TableCell className="text-right">
                             <div className="inline-flex items-center gap-2">
-                              <Button asChild size="sm" variant="outline">
-                                <a
-                                  href={`/api/admin/db-backups/${encodeURIComponent(item.fileName)}/download`}
-                                >
-                                  <Download size={14} className="mr-2" />
-                                  Download
-                                </a>
-                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button size="sm" variant="outline">
+                                    <Download size={14} className="mr-2" />
+                                    Download
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    disabled={!dump}
+                                    onClick={() => dump && downloadBackupFile(dump.fileName)}
+                                  >
+                                    dump
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    disabled={!globals}
+                                    onClick={() => globals && downloadBackupFile(globals.fileName)}
+                                  >
+                                    globals
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    disabled={!manifest}
+                                    onClick={() => manifest && downloadBackupFile(manifest.fileName)}
+                                  >
+                                    manifest
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    disabled={!allReady}
+                                    onClick={() => downloadAllBackupArtifacts(item)}
+                                  >
+                                    all
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                onClick={() => setDbBackupRestoreTarget(item.fileName)}
-                                disabled={isDbBackupRestoring}
+                                onClick={() => dump && setDbBackupRestoreTarget(dump.fileName)}
+                                disabled={isDbBackupRestoring || !item.restoreReady || !dump}
                               >
-                                {isDbBackupRestoring && dbBackupRestoreTarget === item.fileName ? 'Restoring...' : 'Restore'}
+                                {isDbBackupRestoring && dbBackupRestoreTarget === dump?.fileName ? 'Restoring...' : 'Restore'}
                               </Button>
                             </div>
                           </TableCell>
