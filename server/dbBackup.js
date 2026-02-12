@@ -191,6 +191,21 @@ const readExecutableVersion = async (executablePath) => {
   }
 };
 
+const runAppMigrations = async () => {
+  // Avoid spawning npm.cmd on Windows (can throw spawn EINVAL). Run the migrate script via node instead.
+  const migrateScript = path.join(APP_ROOT, "server", "migrate.js");
+  try {
+    await fs.access(migrateScript);
+  } catch {
+    throw new Error(`Migration script not found: ${migrateScript}`);
+  }
+  await execFileAsync(process.execPath, [migrateScript], {
+    cwd: APP_ROOT,
+    env: process.env,
+    maxBuffer: 20 * 1024 * 1024,
+  });
+};
+
 const resolvePgDumpPath = async () => {
   const fromBinDir = process.env.PG_BIN_DIR
     ? path.join(process.env.PG_BIN_DIR, process.platform === "win32" ? "pg_dump.exe" : "pg_dump")
@@ -1238,11 +1253,9 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
       const [pgRestorePath, psqlPath, npmPath] = await Promise.all([
         resolvePgRestorePath(),
         resolvePsqlPath(),
-        resolveNpmPath(),
       ]);
       if (!pgRestorePath) throw new Error("pg_restore executable not found.");
       if (!psqlPath) throw new Error("psql executable not found.");
-      if (!npmPath) throw new Error("npm executable not found.");
 
       await fs.access(dumpPath);
       if (includeGlobals) {
@@ -1326,11 +1339,7 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
         throw new Error("Restore completed but failed to re-apply app ownership/permissions.");
       }
 
-      await execFileAsync(npmPath, ["run", "migrate"], {
-        cwd: APP_ROOT,
-        env: process.env,
-        maxBuffer: 20 * 1024 * 1024,
-      });
+      await runAppMigrations();
 
       await repairBackupMetadataPermissions();
 
