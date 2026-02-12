@@ -124,6 +124,8 @@ const quoteIdent = (value) => {
   return `"${ident.replaceAll('"', '""')}"`;
 };
 
+const quoteLiteral = (value) => `'${String(value ?? "").replaceAll("'", "''")}'`;
+
 const resolveExecutable = async (candidates) => {
   for (const candidate of candidates) {
     if (!candidate) continue;
@@ -698,10 +700,11 @@ export const setupDbBackupCredentials = async ({
         }
 
         const roleCheck = await client.query("SELECT 1 FROM pg_roles WHERE rolname = $1 LIMIT 1", [backupRole]);
+        const escapedPassword = quoteLiteral(backupPass);
         if (!roleCheck.rows.length) {
-          await client.query(`CREATE ROLE ${quotedRole} WITH LOGIN SUPERUSER PASSWORD $1`, [backupPass]);
+          await client.query(`CREATE ROLE ${quotedRole} WITH LOGIN SUPERUSER PASSWORD ${escapedPassword}`);
         } else {
-          await client.query(`ALTER ROLE ${quotedRole} WITH LOGIN SUPERUSER PASSWORD $1`, [backupPass]);
+          await client.query(`ALTER ROLE ${quotedRole} WITH LOGIN SUPERUSER PASSWORD ${escapedPassword}`);
         }
         await client.query(`GRANT CONNECT ON DATABASE ${quotedDb} TO ${quotedRole}`);
       } finally {
