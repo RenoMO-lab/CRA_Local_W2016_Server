@@ -14,6 +14,7 @@ const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const APP_ROOT = path.resolve(__dirname, "..");
+const HOST_ROOT = path.basename(APP_ROOT).toLowerCase() === "app" ? path.dirname(APP_ROOT) : APP_ROOT;
 
 const BACKUP_GLOBALS_SUFFIX = "_globals.sql";
 const BACKUP_MANIFEST_SUFFIX = "_manifest.json";
@@ -168,6 +169,7 @@ const resolvePgDumpPath = async () => {
     process.env.PG_DUMP_PATH,
     fromBinDir,
     path.join(APP_ROOT, "tools", "postgresql", "bin", process.platform === "win32" ? "pg_dump.exe" : "pg_dump"),
+    path.join(HOST_ROOT, "tools", "postgresql", "bin", process.platform === "win32" ? "pg_dump.exe" : "pg_dump"),
     process.platform === "win32" ? "pg_dump.exe" : "pg_dump",
   ]);
 };
@@ -180,6 +182,7 @@ const resolvePgDumpAllPath = async () => {
     process.env.PG_DUMPALL_PATH,
     fromBinDir,
     path.join(APP_ROOT, "tools", "postgresql", "bin", process.platform === "win32" ? "pg_dumpall.exe" : "pg_dumpall"),
+    path.join(HOST_ROOT, "tools", "postgresql", "bin", process.platform === "win32" ? "pg_dumpall.exe" : "pg_dumpall"),
     process.platform === "win32" ? "pg_dumpall.exe" : "pg_dumpall",
   ]);
 };
@@ -192,6 +195,7 @@ const resolvePgRestorePath = async () => {
     process.env.PG_RESTORE_PATH,
     fromBinDir,
     path.join(APP_ROOT, "tools", "postgresql", "bin", process.platform === "win32" ? "pg_restore.exe" : "pg_restore"),
+    path.join(HOST_ROOT, "tools", "postgresql", "bin", process.platform === "win32" ? "pg_restore.exe" : "pg_restore"),
     process.platform === "win32" ? "pg_restore.exe" : "pg_restore",
   ]);
 };
@@ -204,6 +208,7 @@ const resolvePsqlPath = async () => {
     process.env.PSQL_PATH,
     fromBinDir,
     path.join(APP_ROOT, "tools", "postgresql", "bin", process.platform === "win32" ? "psql.exe" : "psql"),
+    path.join(HOST_ROOT, "tools", "postgresql", "bin", process.platform === "win32" ? "psql.exe" : "psql"),
     process.platform === "win32" ? "psql.exe" : "psql",
   ]);
 };
@@ -211,6 +216,7 @@ const resolvePsqlPath = async () => {
 const resolveNpmPath = async () => {
   return resolveExecutable([
     path.join(APP_ROOT, "tools", "node", process.platform === "win32" ? "npm.cmd" : "npm"),
+    path.join(HOST_ROOT, "tools", "node", process.platform === "win32" ? "npm.cmd" : "npm"),
     process.platform === "win32" ? "npm.cmd" : "npm",
   ]);
 };
