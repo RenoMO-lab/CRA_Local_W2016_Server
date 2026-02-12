@@ -174,9 +174,27 @@ Current VM note: the deploy script runs `pg_dump` before deployment. That backup
 
 ### PostgreSQL Backups
 
-Recommended: a Windows Scheduled Task that runs the built-in backup script nightly and copies results to NAS.
+Recommended: configure backups directly in **Settings > DB Monitor**.
 
-Install the built-in daily backup task (on the VM):
+In-app flow:
+- Open **Settings > DB Monitor**
+- Click **Setup backup credentials**
+- Enter PostgreSQL admin credentials once (used only to create/update backup role)
+- Save backup settings (default schedule: `01:00` daily)
+- Click **Create backup** to test
+
+After setup, app-managed backups include:
+- `<prefix>.dump` (database schema + data)
+- `<prefix>_globals.sql` (roles/grants from `pg_dumpall --globals-only`)
+- `<prefix>_manifest.json` (metadata: files + tool versions)
+
+Retention policy:
+- `day`: latest backup from today
+- `day-1`: latest backup from yesterday
+- `week-1`: latest backup from 7 days ago
+- all other backup artifacts are removed
+
+Legacy scheduler/scripts are still available if needed:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\CRA_Local_W2016_Main\deploy\install-daily-db-backup-task.ps1 `
@@ -185,17 +203,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\CRA_Local_W2016_Main\depl
   -BackupDir C:\CRA_Local_W2016_Main\backups\postgres `
   -StartTime 01:00
 ```
-
-Retention policy in app/backup script:
-- `day`: latest backup from today.
-- `day-1`: latest backup from yesterday.
-- `week-1`: latest backup from 7 days ago.
-- All other backup artifacts in the folder are removed.
-
-Each backup set now includes:
-- `<prefix>.dump` (database schema + data)
-- `<prefix>_globals.sql` (roles/grants from `pg_dumpall --globals-only`)
-- `<prefix>_manifest.json` (metadata: files + tool versions)
 
 Run once immediately (optional):
 
@@ -212,7 +219,9 @@ Get-ChildItem C:\CRA_Local_W2016_Main\backups\postgres -File | Sort-Object LastW
 
 ### One-Click Restore (Crash / Migration)
 
-Use the built-in restore script:
+Primary path: use **Restore** button in **Settings > DB Monitor > Manual Database Backups**.
+
+Fallback CLI script is still available:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\CRA_Local_W2016_Main\app\deploy\db-restore.ps1 `
@@ -221,9 +230,3 @@ powershell -NoProfile -ExecutionPolicy Bypass -File C:\CRA_Local_W2016_Main\app\
   -ServiceName CRA_Local_App `
   -Force
 ```
-
-Optional:
-- `-BackupPrefix <prefix>` to restore a specific backup set
-- `-DumpFile <full path>` to restore one specific dump file
-- `-SkipGlobals` to restore DB only (skip roles/grants)
-- `-WhatIf` for dry run

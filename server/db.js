@@ -55,6 +55,13 @@ export const getPool = async () => {
   return pool;
 };
 
+export const closePool = async () => {
+  if (!pool) return;
+  const current = pool;
+  pool = undefined;
+  await current.end();
+};
+
 export const pingDb = async () => {
   const p = await getPool();
   await p.query("SELECT 1");
@@ -78,4 +85,3 @@ export const withTransaction = async (poolOrClient, fn) => {
     if (shouldRelease) client.release();
   }
 };
-

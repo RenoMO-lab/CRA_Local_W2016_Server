@@ -38,6 +38,14 @@ import {
   updateM365Settings,
 } from "./m365.js";
 import { getDbMonitorState, refreshDbMonitorSnapshot } from "./dbMonitor.js";
+import {
+  createDbBackup as createManagedDbBackup,
+  getDbBackupConfig,
+  listDbBackupsWithStatus,
+  restoreDbBackup as restoreManagedDbBackup,
+  updateDbBackupConfig,
+  setupDbBackupCredentials,
+} from "./dbBackup.js";
 
 const ADMIN_LIST_CATEGORIES = new Set([
   "applicationVehicles",
@@ -1760,47 +1768,126 @@ export const apiRouter = (() => {
 
   router.get(
     "/admin/db-backups",
+    requireAdmin,
     asyncHandler(async (req, res) => {
-      const retention = await applyDbBackupRetentionPolicy();
-      const items = await listDbBackups();
-      res.json({
-        directory: DB_BACKUP_DIR,
-        inProgress: dbBackupInProgress,
-        retention,
-        items,
-      });
+      const payload = await listDbBackupsWithStatus();
+      res.json(payload);
     })
   );
 
   router.post(
     "/admin/db-backups",
+    requireAdmin,
     asyncHandler(async (req, res) => {
-      if (dbBackupInProgress) {
-        res.status(409).json({ error: "A database backup is already running." });
-        return;
-      }
-
-      dbBackupInProgress = true;
       try {
-        const created = await createDbBackup();
-        const items = await listDbBackups();
+        const payload = await createManagedDbBackup({ mode: "manual", actor: req.authUser || null });
+        const status = await listDbBackupsWithStatus();
         res.status(201).json({
-          directory: DB_BACKUP_DIR,
-          created,
-          retention: created.retention,
-          items,
+          ...status,
+          created: payload.created,
         });
       } catch (error) {
         console.error("Failed to create database backup:", error);
-        res.status(500).json({ error: String(error?.message ?? error) });
-      } finally {
-        dbBackupInProgress = false;
+        const message = String(error?.message ?? error);
+        if (message.includes("in progress")) {
+          res.status(409).json({ error: message });
+          return;
+        }
+        res.status(500).json({ error: message });
+      }
+    })
+  );
+
+  router.post(
+    "/admin/db-backups/restore",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const fileName = String(req.body?.fileName ?? "").trim();
+      const includeGlobals = req.body?.includeGlobals !== false;
+      if (!fileName) {
+        res.status(400).json({ error: "Missing backup file name." });
+        return;
+      }
+
+      try {
+        const restored = await restoreManagedDbBackup({
+          fileName,
+          includeGlobals,
+          actor: req.authUser || null,
+        });
+        const status = await listDbBackupsWithStatus();
+        res.json({ ok: true, restored, ...status });
+      } catch (error) {
+        console.error("Failed to restore database backup:", error);
+        const message = String(error?.message ?? error);
+        if (message.includes("in progress")) {
+          res.status(409).json({ error: message });
+          return;
+        }
+        res.status(500).json({ error: message });
+      }
+    })
+  );
+
+  router.get(
+    "/admin/db-backup-config",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const config = await getDbBackupConfig();
+      res.json(config);
+    })
+  );
+
+  router.put(
+    "/admin/db-backup-config",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      try {
+        const config = await updateDbBackupConfig({
+          enabled: req.body?.enabled,
+          scheduleHour: req.body?.scheduleHour,
+          scheduleMinute: req.body?.scheduleMinute,
+          actor: req.authUser || null,
+        });
+        res.json(config);
+      } catch (error) {
+        res.status(400).json({ error: String(error?.message ?? error) });
+      }
+    })
+  );
+
+  router.post(
+    "/admin/db-backup-config/setup",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      try {
+        const config = await setupDbBackupCredentials({
+          adminHost: req.body?.adminHost,
+          adminPort: req.body?.adminPort,
+          adminDatabase: req.body?.adminDatabase,
+          adminUser: req.body?.adminUser,
+          adminPassword: req.body?.adminPassword,
+          backupHost: req.body?.backupHost,
+          backupPort: req.body?.backupPort,
+          backupDatabase: req.body?.backupDatabase,
+          backupUser: req.body?.backupUser,
+          backupPassword: req.body?.backupPassword,
+          scheduleHour: req.body?.scheduleHour,
+          scheduleMinute: req.body?.scheduleMinute,
+          enabled: req.body?.enabled,
+          actor: req.authUser || null,
+        });
+        res.json(config);
+      } catch (error) {
+        console.error("Failed to setup backup credentials:", error);
+        res.status(400).json({ error: String(error?.message ?? error) });
       }
     })
   );
 
   router.get(
     "/admin/db-backups/:fileName/download",
+    requireAdmin,
     asyncHandler(async (req, res) => {
       const fileName = String(req.params.fileName ?? "").trim();
       const filePath = resolveBackupFilePath(fileName);

@@ -259,6 +259,47 @@ type DbBackupRetentionKept = {
   'week-1': string | null;
 };
 
+type DbBackupRun = {
+  id: string;
+  mode: string;
+  status: string;
+  message: string;
+  started_at: string;
+  finished_at?: string | null;
+};
+
+type DbBackupAutomaticState = {
+  enabled: boolean;
+  configured: boolean;
+  frequency: string;
+  schedule?: {
+    hour: number;
+    minute: number;
+  } | null;
+  taskName: string;
+  policy: string;
+  nextRunAt?: string | null;
+  latestManual?: DbBackupRun | null;
+  latestAuto?: DbBackupRun | null;
+  latestRestore?: DbBackupRun | null;
+};
+
+type DbBackupConfig = {
+  enabled: boolean;
+  configured: boolean;
+  host: string;
+  port: number;
+  databaseName: string;
+  backupUser: string;
+  scheduleHour: number;
+  scheduleMinute: number;
+  taskName: string;
+  retentionPolicy: string;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+  encryptionUsingFallback?: boolean;
+};
+
 const LEGACY_DB_BACKUP_DIR = 'C:\\CRA_Local_W2016_Main\\db-backups';
 const CANONICAL_DB_BACKUP_DIR = 'C:\\CRA_Local_W2016_Main\\backups\\postgres';
 const LEGACY_USERS_STORAGE_KEYS = ['monroc_admin_settings_v5', 'monroc_admin_settings_v4'] as const;
@@ -355,8 +396,29 @@ const Settings: React.FC = () => {
   const [dbBackups, setDbBackups] = useState<DbBackupItem[]>([]);
   const [dbBackupDirectory, setDbBackupDirectory] = useState<string>('');
   const [dbBackupRetentionKept, setDbBackupRetentionKept] = useState<DbBackupRetentionKept | null>(null);
+  const [dbBackupAutomatic, setDbBackupAutomatic] = useState<DbBackupAutomaticState | null>(null);
+  const [dbBackupConfig, setDbBackupConfig] = useState<DbBackupConfig | null>(null);
   const [isDbBackupsLoading, setIsDbBackupsLoading] = useState(false);
   const [isDbBackupCreating, setIsDbBackupCreating] = useState(false);
+  const [isDbBackupSetupOpen, setIsDbBackupSetupOpen] = useState(false);
+  const [isDbBackupSetupSaving, setIsDbBackupSetupSaving] = useState(false);
+  const [isDbBackupRestoring, setIsDbBackupRestoring] = useState(false);
+  const [dbBackupRestoreTarget, setDbBackupRestoreTarget] = useState<string | null>(null);
+  const [dbBackupSetupForm, setDbBackupSetupForm] = useState({
+    adminHost: 'localhost',
+    adminPort: 5432,
+    adminDatabase: 'postgres',
+    adminUser: 'postgres',
+    adminPassword: '',
+    backupHost: 'localhost',
+    backupPort: 5432,
+    backupDatabase: 'cra_local',
+    backupUser: 'cra_backup',
+    backupPassword: '',
+    enabled: true,
+    scheduleHour: 1,
+    scheduleMinute: 0,
+  });
   const [dbBackupError, setDbBackupError] = useState<string | null>(null);
   const [m365Info, setM365Info] = useState<M365AdminResponse | null>(null);
   const [isM365Loading, setIsM365Loading] = useState(false);
@@ -789,13 +851,36 @@ const Settings: React.FC = () => {
       setDbBackups(Array.isArray(data?.items) ? data.items : []);
       setDbBackupDirectory(normalizeDbBackupDirectory(data?.directory));
       setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention?.kept));
+      setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
     } catch (error) {
       console.error('Failed to load DB backups:', error);
       setDbBackupError(String((error as any)?.message ?? error));
       setDbBackups([]);
       setDbBackupRetentionKept(null);
+      setDbBackupAutomatic(null);
     } finally {
       setIsDbBackupsLoading(false);
+    }
+  };
+
+  const loadDbBackupConfig = async () => {
+    try {
+      const res = await fetch('/api/admin/db-backup-config');
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Failed to load backup config: ${res.status}`);
+      setDbBackupConfig(data as DbBackupConfig);
+      setDbBackupSetupForm((prev) => ({
+        ...prev,
+        backupHost: String(data?.host ?? prev.backupHost),
+        backupPort: Number.isFinite(Number(data?.port)) ? Number(data?.port) : prev.backupPort,
+        backupDatabase: String(data?.databaseName ?? prev.backupDatabase),
+        backupUser: String(data?.backupUser ?? prev.backupUser),
+        enabled: data?.enabled !== false,
+        scheduleHour: Number.isFinite(Number(data?.scheduleHour)) ? Number(data?.scheduleHour) : prev.scheduleHour,
+        scheduleMinute: Number.isFinite(Number(data?.scheduleMinute)) ? Number(data?.scheduleMinute) : prev.scheduleMinute,
+      }));
+    } catch (error) {
+      console.error('Failed to load backup config:', error);
     }
   };
 
@@ -811,6 +896,7 @@ const Settings: React.FC = () => {
       setDbBackupRetentionKept(
         normalizeDbBackupRetentionKept(data?.retention?.kept ?? data?.created?.retention?.kept)
       );
+      setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
       const createdName = String(data?.created?.fileName ?? '').trim();
       toast({
         title: 'Backup created',
@@ -827,6 +913,77 @@ const Settings: React.FC = () => {
       });
     } finally {
       setIsDbBackupCreating(false);
+    }
+  };
+
+  const saveDbBackupSetup = async () => {
+    setIsDbBackupSetupSaving(true);
+    setDbBackupError(null);
+    try {
+      const payload = {
+        ...dbBackupSetupForm,
+        adminPort: Number(dbBackupSetupForm.adminPort),
+        backupPort: Number(dbBackupSetupForm.backupPort),
+        scheduleHour: Number(dbBackupSetupForm.scheduleHour),
+        scheduleMinute: Number(dbBackupSetupForm.scheduleMinute),
+      };
+      const res = await fetch('/api/admin/db-backup-config/setup', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Backup setup failed: ${res.status}`);
+      setDbBackupConfig(data as DbBackupConfig);
+      setIsDbBackupSetupOpen(false);
+      await loadDbBackups();
+      toast({
+        title: 'Backup setup complete',
+        description: 'Backup credentials were saved and validated.',
+      });
+    } catch (error) {
+      const message = String((error as any)?.message ?? error);
+      setDbBackupError(message);
+      toast({
+        title: t.request.error,
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDbBackupSetupSaving(false);
+    }
+  };
+
+  const restoreDbBackup = async (fileName: string) => {
+    setIsDbBackupRestoring(true);
+    setDbBackupError(null);
+    try {
+      const res = await fetch('/api/admin/db-backups/restore', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ fileName, includeGlobals: true }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || `Restore failed: ${res.status}`);
+      setDbBackupRestoreTarget(null);
+      setDbBackups(Array.isArray(data?.items) ? data.items : []);
+      setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention?.kept));
+      setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
+      toast({
+        title: 'Restore completed',
+        description: `${fileName} restored successfully.`,
+      });
+    } catch (error) {
+      const message = String((error as any)?.message ?? error);
+      setDbBackupError(message);
+      toast({
+        title: t.request.error,
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsDbBackupRestoring(false);
+      setDbBackupRestoreTarget(null);
     }
   };
 
@@ -856,6 +1013,7 @@ const Settings: React.FC = () => {
     loadM365Info();
     loadDbMonitor();
     loadDbBackups();
+    loadDbBackupConfig();
     refreshUsers().catch((error) => {
       console.error('Failed to load users:', error);
     });
@@ -2647,17 +2805,49 @@ const Settings: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
                 <div>
                   <span className="text-muted-foreground">Frequency:</span>{' '}
-                  <span className="text-foreground">Daily at 01:00</span>
+                  <span className="text-foreground">{dbBackupAutomatic?.frequency || 'Daily at 01:00'}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Policy:</span>{' '}
-                  <span className="text-foreground">Keep latest day, day-1, and week-1 backup</span>
+                  <span className="text-foreground">{dbBackupAutomatic?.policy || 'Keep latest day, day-1, and week-1 backup'}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Task name:</span>{' '}
-                  <span className="text-foreground font-mono">CRA_Local_DailyDbBackup</span>
+                  <span className="text-foreground font-mono">{dbBackupAutomatic?.taskName || 'CRA_Local_DailyDbBackup'}</span>
                 </div>
               </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                <div>
+                  <span className="text-muted-foreground">Configured:</span>{' '}
+                  <span className={cn('font-medium', dbBackupAutomatic?.configured ? 'text-green-500' : 'text-amber-500')}>
+                    {dbBackupAutomatic?.configured ? 'Yes' : 'No'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Auto mode:</span>{' '}
+                  <span className="text-foreground">{dbBackupAutomatic?.enabled ? 'Enabled' : 'Disabled'}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Next run:</span>{' '}
+                  <span className="text-foreground">
+                    {dbBackupAutomatic?.nextRunAt
+                      ? format(new Date(dbBackupAutomatic.nextRunAt), 'MMM d, yyyy HH:mm')
+                      : '-'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => setIsDbBackupSetupOpen(true)} disabled={isDbBackupSetupSaving}>
+                  {dbBackupAutomatic?.configured ? 'Update backup setup' : 'Setup backup credentials'}
+                </Button>
+              </div>
+              {dbBackupConfig?.encryptionUsingFallback ? (
+                <p className="text-xs text-amber-500">
+                  Using fallback encryption key. Set BACKUP_CREDENTIALS_SECRET in server environment for stronger security.
+                </p>
+              ) : null}
 
               <div className="rounded-md border border-border bg-muted/10 p-3">
                 <div className="text-sm font-medium text-foreground">Current retained files</div>
@@ -2674,6 +2864,25 @@ const Settings: React.FC = () => {
                     <span className="text-muted-foreground">week-1:</span>{' '}
                     <span className="text-foreground font-mono break-all">{dbBackupRetentionKept?.['week-1'] || '-'}</span>
                   </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border border-border bg-muted/10 p-3 text-xs space-y-1">
+                <div>
+                  <span className="text-muted-foreground">Last automatic run:</span>{' '}
+                  <span className="text-foreground">
+                    {dbBackupAutomatic?.latestAuto?.started_at
+                      ? `${format(new Date(dbBackupAutomatic.latestAuto.started_at), 'MMM d, yyyy HH:mm')} (${dbBackupAutomatic.latestAuto.status})`
+                      : '-'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Last restore:</span>{' '}
+                  <span className="text-foreground">
+                    {dbBackupAutomatic?.latestRestore?.started_at
+                      ? `${format(new Date(dbBackupAutomatic.latestRestore.started_at), 'MMM d, yyyy HH:mm')} (${dbBackupAutomatic.latestRestore.status})`
+                      : '-'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -2701,6 +2910,80 @@ const Settings: React.FC = () => {
                 </Button>
               </div>
             </div>
+
+            <Dialog open={isDbBackupSetupOpen} onOpenChange={setIsDbBackupSetupOpen}>
+              <DialogContent className="sm:max-w-xl">
+                <DialogHeader>
+                  <DialogTitle>Backup Setup</DialogTitle>
+                  <DialogDescription>
+                    Configure Postgres admin credentials once so the app can create full backups with globals.sql.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label>Admin host</Label>
+                    <Input value={dbBackupSetupForm.adminHost} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminHost: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Admin port</Label>
+                    <Input type="number" value={dbBackupSetupForm.adminPort} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminPort: Number(e.target.value || 5432) }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Admin database</Label>
+                    <Input value={dbBackupSetupForm.adminDatabase} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminDatabase: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Admin user</Label>
+                    <Input value={dbBackupSetupForm.adminUser} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminUser: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <Label>Admin password</Label>
+                    <Input type="password" value={dbBackupSetupForm.adminPassword} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminPassword: e.target.value }))} />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label>Backup host</Label>
+                    <Input value={dbBackupSetupForm.backupHost} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupHost: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Backup port</Label>
+                    <Input type="number" value={dbBackupSetupForm.backupPort} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupPort: Number(e.target.value || 5432) }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Backup database</Label>
+                    <Input value={dbBackupSetupForm.backupDatabase} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupDatabase: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Backup user</Label>
+                    <Input value={dbBackupSetupForm.backupUser} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupUser: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1 md:col-span-2">
+                    <Label>Backup user password</Label>
+                    <Input type="password" value={dbBackupSetupForm.backupPassword} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupPassword: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Schedule hour (0-23)</Label>
+                    <Input type="number" min={0} max={23} value={dbBackupSetupForm.scheduleHour} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, scheduleHour: Number(e.target.value || 1) }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Schedule minute (0-59)</Label>
+                    <Input type="number" min={0} max={59} value={dbBackupSetupForm.scheduleMinute} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, scheduleMinute: Number(e.target.value || 0) }))} />
+                  </div>
+                  <div className="md:col-span-2 flex items-center justify-between rounded-md border border-border px-3 py-2">
+                    <span className="text-sm text-muted-foreground">Enable automatic daily backups</span>
+                    <Switch checked={dbBackupSetupForm.enabled} onCheckedChange={(checked) => setDbBackupSetupForm((p) => ({ ...p, enabled: checked }))} />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsDbBackupSetupOpen(false)} disabled={isDbBackupSetupSaving}>
+                    Cancel
+                  </Button>
+                  <Button onClick={saveDbBackupSetup} disabled={isDbBackupSetupSaving}>
+                    {isDbBackupSetupSaving ? 'Saving...' : 'Save backup setup'}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             {dbBackupError ? (
               <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
@@ -2734,14 +3017,24 @@ const Settings: React.FC = () => {
                           <TableCell className="text-sm">{createdLabel || '-'}</TableCell>
                           <TableCell className="text-right text-sm">{formatBytes(item.sizeBytes)}</TableCell>
                           <TableCell className="text-right">
-                            <Button asChild size="sm" variant="outline">
-                              <a
-                                href={`/api/admin/db-backups/${encodeURIComponent(item.fileName)}/download`}
+                            <div className="inline-flex items-center gap-2">
+                              <Button asChild size="sm" variant="outline">
+                                <a
+                                  href={`/api/admin/db-backups/${encodeURIComponent(item.fileName)}/download`}
+                                >
+                                  <Download size={14} className="mr-2" />
+                                  Download
+                                </a>
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => setDbBackupRestoreTarget(item.fileName)}
+                                disabled={isDbBackupRestoring}
                               >
-                                <Download size={14} className="mr-2" />
-                                Download
-                              </a>
-                            </Button>
+                                {isDbBackupRestoring && dbBackupRestoreTarget === item.fileName ? 'Restoring...' : 'Restore'}
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -2753,6 +3046,31 @@ const Settings: React.FC = () => {
               <p className="text-sm text-muted-foreground">No backups found yet. Create the first backup to start.</p>
             )}
           </div>
+
+          <AlertDialog open={Boolean(dbBackupRestoreTarget)} onOpenChange={(open) => { if (!open) setDbBackupRestoreTarget(null); }}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Restore backup?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will replace current database data with backup{' '}
+                  <span className="font-mono">{dbBackupRestoreTarget}</span>. The app may be unavailable briefly.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isDbBackupRestoring}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={isDbBackupRestoring || !dbBackupRestoreTarget}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    if (!dbBackupRestoreTarget) return;
+                    void restoreDbBackup(dbBackupRestoreTarget);
+                  }}
+                >
+                  {isDbBackupRestoring ? 'Restoring...' : 'Restore now'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {hasDbMonitorError ? (
             <div className="bg-card rounded-lg border border-destructive/30 p-4 text-sm text-destructive">

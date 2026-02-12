@@ -116,14 +116,15 @@ const buildSeedUsers = () => {
     byEmail.set(email, { name, email, role, password });
   };
 
+  for (const user of LEGACY_SEED_USERS) add(user);
+
+  // Bootstrap admin must win over any legacy default with the same email.
   add({
     name: BOOTSTRAP_ADMIN_NAME,
     email: BOOTSTRAP_ADMIN_EMAIL,
     role: "admin",
     password: BOOTSTRAP_ADMIN_PASSWORD,
   });
-
-  for (const user of LEGACY_SEED_USERS) add(user);
 
   return Array.from(byEmail.values());
 };

@@ -7,6 +7,7 @@ import { apiRouter } from "./api.js";
 import { pingDb } from "./db.js";
 import { startNotificationsWorker } from "./notificationsWorker.js";
 import { startDbMonitor } from "./dbMonitor.js";
+import { startDbBackupScheduler } from "./dbBackup.js";
 
 dotenv.config();
 
@@ -97,6 +98,12 @@ connectWithRetry()
       startDbMonitor();
     } catch (e) {
       console.error("Failed to start DB monitor:", e);
+    }
+
+    try {
+      startDbBackupScheduler();
+    } catch (e) {
+      console.error("Failed to start DB backup scheduler:", e);
     }
   })
   .catch((error) => {
