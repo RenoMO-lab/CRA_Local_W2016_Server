@@ -419,6 +419,97 @@ const repairBackupMetadataPermissions = async () => {
   }
 };
 
+const repairAppSchemaOwnershipAndPermissions = async ({ superCfg, appCfg }) => {
+  const adminHost = String(superCfg?.host || "").trim();
+  const adminPort = normalizePort(superCfg?.port, 5432);
+  const adminDatabase = String(superCfg?.database || "").trim();
+  const adminUser = String(superCfg?.user || "").trim();
+  const adminPassword = String(superCfg?.password || "");
+  const appUser = String(appCfg?.user || "").trim();
+  if (!adminHost || !adminPort || !adminDatabase || !adminUser || !appUser) return false;
+
+  const appUserIdent = quoteIdent(appUser);
+  const adminDatabaseIdent = quoteIdent(adminDatabase);
+  const adminPool = new Pool({
+    host: adminHost,
+    port: adminPort,
+    database: adminDatabase,
+    user: adminUser,
+    password: adminPassword,
+    ssl: false,
+    max: 1,
+    idleTimeoutMillis: 5_000,
+  });
+
+  const reassignOwners = async (client, queryText, fieldName, objectTypeSql) => {
+    const { rows } = await client.query(queryText);
+    for (const row of rows) {
+      const objectName = String(row?.[fieldName] || "").trim();
+      if (!objectName) continue;
+      await client.query(`ALTER ${objectTypeSql} IF EXISTS public.${quoteIdent(objectName)} OWNER TO ${appUserIdent}`);
+    }
+  };
+
+  try {
+    const client = await adminPool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`GRANT CONNECT ON DATABASE ${adminDatabaseIdent} TO ${appUserIdent}`);
+      await client.query(`GRANT USAGE, CREATE ON SCHEMA public TO ${appUserIdent}`);
+
+      await reassignOwners(client, "SELECT tablename FROM pg_tables WHERE schemaname = 'public'", "tablename", "TABLE");
+      await reassignOwners(
+        client,
+        "SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'",
+        "sequencename",
+        "SEQUENCE"
+      );
+      await reassignOwners(client, "SELECT viewname FROM pg_views WHERE schemaname = 'public'", "viewname", "VIEW");
+      await reassignOwners(
+        client,
+        "SELECT matviewname FROM pg_matviews WHERE schemaname = 'public'",
+        "matviewname",
+        "MATERIALIZED VIEW"
+      );
+
+      await client.query(`GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO ${appUserIdent}`);
+      await client.query(`GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO ${appUserIdent}`);
+      await client.query(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${appUserIdent}`);
+
+      const defaultPrivilegeOwners = Array.from(new Set([adminUser, "postgres"]));
+      for (const ownerRole of defaultPrivilegeOwners) {
+        let ownerRoleIdent = null;
+        try {
+          ownerRoleIdent = quoteIdent(ownerRole);
+        } catch {
+          ownerRoleIdent = null;
+        }
+        if (!ownerRoleIdent) continue;
+        await client.query(
+          `ALTER DEFAULT PRIVILEGES FOR ROLE ${ownerRoleIdent} IN SCHEMA public GRANT ALL ON TABLES TO ${appUserIdent}`
+        );
+        await client.query(
+          `ALTER DEFAULT PRIVILEGES FOR ROLE ${ownerRoleIdent} IN SCHEMA public GRANT ALL ON SEQUENCES TO ${appUserIdent}`
+        );
+        await client.query(
+          `ALTER DEFAULT PRIVILEGES FOR ROLE ${ownerRoleIdent} IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO ${appUserIdent}`
+        );
+      }
+
+      await client.query("COMMIT");
+      return true;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      console.error("Failed to repair app schema ownership/permissions:", error?.message ?? error);
+      return false;
+    } finally {
+      client.release();
+    }
+  } finally {
+    await adminPool.end();
+  }
+};
+
 const readBackupDirectoryEntries = async (backupDir) => {
   await fs.mkdir(backupDir, { recursive: true });
 
@@ -1164,8 +1255,6 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
 
       const adminEnv = { ...process.env };
       if (cfg.password) adminEnv.PGPASSWORD = cfg.password;
-      const restoreEnv = { ...process.env };
-      if (appCfg.password) restoreEnv.PGPASSWORD = appCfg.password;
 
       await closePool();
 
@@ -1220,17 +1309,22 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
           "--no-owner",
           "--no-privileges",
           "-h",
-          appCfg.host,
+          cfg.host,
           "-p",
-          String(appCfg.port),
+          String(cfg.port),
           "-U",
-          appCfg.user,
+          cfg.user,
           "-d",
           appCfg.database || cfg.database,
           dumpPath,
         ],
-        { env: restoreEnv, maxBuffer: 20 * 1024 * 1024 }
+        { env: adminEnv, maxBuffer: 20 * 1024 * 1024 }
       );
+
+      const ownershipFixed = await repairAppSchemaOwnershipAndPermissions({ superCfg: cfg, appCfg });
+      if (!ownershipFixed) {
+        throw new Error("Restore completed but failed to re-apply app ownership/permissions.");
+      }
 
       await execFileAsync(npmPath, ["run", "migrate"], {
         cwd: APP_ROOT,
