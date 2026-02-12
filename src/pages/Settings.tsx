@@ -1847,10 +1847,6 @@ const Settings: React.FC = () => {
             <Server size={16} className="mr-2" />
             {t.settings.deploymentsTab}
           </TabsTrigger>
-          <TabsTrigger value="test-page" className="data-[state=active]:bg-background">
-            <SettingsIcon size={16} className="mr-2" />
-            Test Page
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="lists" className="space-y-6">
@@ -3003,9 +2999,16 @@ const Settings: React.FC = () => {
             );
           })()}
 
-          <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-4">
-            <div className="space-y-3">
-              <h3 className="text-lg font-semibold text-foreground">Automatic Backups</h3>
+          <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-5">
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold text-foreground">Backups</h3>
+              <p className="text-sm text-muted-foreground">
+                Automatic schedule, manual backups, and migration restore workflow.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border bg-background/30 p-4 md:p-5 space-y-3">
+              <h4 className="text-base font-semibold text-foreground">Automatic Backups</h4>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
                 <div>
                   <span className="text-muted-foreground">Frequency:</span>{' '}
@@ -3093,10 +3096,10 @@ const Settings: React.FC = () => {
 
             <div className="h-px bg-border/60" />
 
-            <div className="space-y-4">
+            <div className="rounded-xl border border-border bg-background/30 p-4 md:p-5 space-y-4">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="space-y-1">
-                  <h3 className="text-lg font-semibold text-foreground">Import / Restore (Migration)</h3>
+                  <h4 className="text-base font-semibold text-foreground">Import / Restore (Migration)</h4>
                   <p className="text-sm text-muted-foreground">
                     Upload a backup set from another server and restore this instance.
                   </p>
@@ -3268,27 +3271,28 @@ const Settings: React.FC = () => {
 
             <div className="h-px bg-border/60" />
 
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="space-y-1">
-                <h3 className="text-lg font-semibold text-foreground">Manual Database Backups</h3>
+            <div className="rounded-xl border border-border bg-background/30 p-4 md:p-5 space-y-4">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="space-y-1">
+                  <h4 className="text-base font-semibold text-foreground">Manual Database Backups</h4>
                 <p className="text-sm text-muted-foreground">
                   Create and download PostgreSQL backups
                 </p>
                 <p className="text-xs text-muted-foreground break-all">
                   Storage path: {dbBackupDirectory || CANONICAL_DB_BACKUP_DIR}
                 </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={loadDbBackups} disabled={isDbBackupsLoading || isDbBackupCreating}>
+                    <RefreshCw size={16} className="mr-2" />
+                    {isDbBackupsLoading ? t.common.loading : 'Refresh list'}
+                  </Button>
+                  <Button onClick={createDbBackup} disabled={isDbBackupCreating || isDbBackupsLoading}>
+                    <Database size={16} className="mr-2" />
+                    {isDbBackupCreating ? 'Creating backup...' : 'Create backup'}
+                  </Button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={loadDbBackups} disabled={isDbBackupsLoading || isDbBackupCreating}>
-                  <RefreshCw size={16} className="mr-2" />
-                  {isDbBackupsLoading ? t.common.loading : 'Refresh list'}
-                </Button>
-                <Button onClick={createDbBackup} disabled={isDbBackupCreating || isDbBackupsLoading}>
-                  <Database size={16} className="mr-2" />
-                  {isDbBackupCreating ? 'Creating backup...' : 'Create backup'}
-                </Button>
-              </div>
-            </div>
 
             <Dialog open={isDbBackupSetupOpen} onOpenChange={setIsDbBackupSetupOpen}>
               <DialogContent className="sm:max-w-xl">
@@ -3467,6 +3471,7 @@ const Settings: React.FC = () => {
             ) : (
               <p className="text-sm text-muted-foreground">No backups found yet. Create the first backup to start.</p>
             )}
+            </div>
           </div>
 
           <AlertDialog open={Boolean(dbBackupRestoreTarget)} onOpenChange={(open) => { if (!open) setDbBackupRestoreTarget(null); }}>
@@ -3524,35 +3529,8 @@ const Settings: React.FC = () => {
             </AlertDialogContent>
           </AlertDialog>
 
-          {hasDbMonitorError ? (
-            <div className="bg-card rounded-lg border border-destructive/30 p-4 text-sm text-destructive">
-              {t.settings.dbMonitorLoadError}
-            </div>
-          ) : null}
-
-          {dbMonitor?.lastError ? (
-            <div className="bg-card rounded-lg border border-destructive/30 p-4 text-sm text-destructive">
-              {t.settings.dbMonitorCollectorError}: {dbMonitor.lastError}
-            </div>
-          ) : null}
-
-          {dbMonitor?.snapshot?.errors?.length ? (
-            <div className="bg-card rounded-lg border border-border p-4">
-              <div className="text-sm font-semibold text-foreground">{t.settings.dbMonitorPartialTitle}</div>
-              <div className="text-xs text-muted-foreground mt-1">{t.settings.dbMonitorPartialDesc}</div>
-              <div className="mt-3 space-y-2 text-sm">
-                {dbMonitor.snapshot.errors.slice(0, 6).map((e, idx) => (
-                  <div key={`${e.section}-${idx}`} className="rounded-md border border-border bg-muted/20 p-2">
-                    <div className="font-medium text-foreground">{e.section}</div>
-                    <div className="text-xs text-muted-foreground break-words">{e.message}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-3 lg:col-span-2">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-3">
               <div className="text-sm font-semibold text-foreground">{t.settings.dbMonitorDbInfo}</div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                 <div className="rounded-md border border-border bg-muted/10 p-3">
@@ -3754,6 +3732,66 @@ const Settings: React.FC = () => {
               <p className="text-xs text-muted-foreground">{t.settings.dbMonitorPermissionHint}</p>
             </div>
           </div>
+
+          {(() => {
+            const status = dbMonitor?.health?.status || 'red';
+            const hasDiagnostics =
+              Boolean(hasDbMonitorError) ||
+              Boolean(dbMonitor?.lastError) ||
+              Boolean(dbMonitor?.snapshot?.errors?.length);
+            if (!hasDiagnostics) return null;
+
+            return (
+              <div className="bg-card rounded-lg border border-border p-4 md:p-6">
+                <div className="text-lg font-semibold text-foreground">Diagnostics</div>
+                <Accordion
+                  type="single"
+                  collapsible
+                  defaultValue={status === 'red' ? 'diagnostics' : undefined}
+                  className="mt-3"
+                >
+                  <AccordionItem value="diagnostics" className="border border-border rounded-lg bg-background/30 px-4 border-b-0">
+                    <AccordionTrigger className="hover:no-underline py-3">
+                      <div className="flex flex-1 items-center justify-between pr-2">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-semibold text-foreground">Errors and partial data</span>
+                        </div>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="pt-2 pb-4 space-y-3">
+                      {hasDbMonitorError ? (
+                        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                          {t.settings.dbMonitorLoadError}
+                        </div>
+                      ) : null}
+
+                      {dbMonitor?.lastError ? (
+                        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                          {t.settings.dbMonitorCollectorError}: {dbMonitor.lastError}
+                        </div>
+                      ) : null}
+
+                      {dbMonitor?.snapshot?.errors?.length ? (
+                        <div className="rounded-md border border-border bg-muted/10 p-3">
+                          <div className="text-sm font-semibold text-foreground">{t.settings.dbMonitorPartialTitle}</div>
+                          <div className="text-xs text-muted-foreground mt-1">{t.settings.dbMonitorPartialDesc}</div>
+                          <div className="mt-3 space-y-2 text-sm">
+                            {dbMonitor.snapshot.errors.slice(0, 12).map((e, idx) => (
+                              <div key={`${e.section}-${idx}`} className="rounded-md border border-border bg-muted/20 p-2">
+                                <div className="font-medium text-foreground">{e.section}</div>
+                                <div className="text-xs text-muted-foreground break-words">{e.message}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              </div>
+            );
+          })()}
         </TabsContent>
 
         <TabsContent value="deployments" className="space-y-6">
@@ -3808,14 +3846,6 @@ const Settings: React.FC = () => {
           </div>
         </TabsContent>
 
-        <TabsContent value="test-page" className="space-y-6">
-          <div className="bg-card rounded-lg border border-border p-4 md:p-6">
-            <h3 className="text-lg font-semibold text-foreground">Test Page</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              This is a test page inside Settings.
-            </p>
-          </div>
-        </TabsContent>
       </Tabs>
 
       {/* Edit Item Dialog - moved outside TabsContent so it works on all tabs */}
