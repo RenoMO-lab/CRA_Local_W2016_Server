@@ -159,8 +159,12 @@ foreach ($file in $files) {
 $keptPaths = @($keptByBucket.Values)
 foreach ($file in $files) {
   if ($keptPaths -notcontains $file.FullName) {
-    Remove-Item -Force $file.FullName
-    Log "Removed old backup: $($file.FullName)"
+    try {
+      Remove-Item -Force $file.FullName
+      Log "Removed old backup: $($file.FullName)"
+    } catch {
+      Log "Failed to remove old backup ($($file.FullName)): $($_.Exception.Message)"
+    }
   }
 }
 
