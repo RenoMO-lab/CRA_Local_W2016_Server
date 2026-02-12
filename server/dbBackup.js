@@ -137,6 +137,26 @@ const quoteIdent = (value) => {
 
 const quoteLiteral = (value) => `'${String(value ?? "").replaceAll("'", "''")}'`;
 
+const parseConnectionFromDatabaseUrl = (rawUrl, fallback) => {
+  const raw = String(rawUrl ?? "").trim();
+  if (!raw) return fallback;
+  try {
+    const parsed = new URL(raw);
+    const protocol = String(parsed.protocol || "").toLowerCase();
+    if (protocol !== "postgres:" && protocol !== "postgresql:") return fallback;
+    const dbName = String(parsed.pathname || "").replace(/^\/+/, "");
+    return {
+      host: parsed.hostname || fallback.host,
+      port: normalizePort(parsed.port || fallback.port, fallback.port),
+      database: dbName || fallback.database,
+      user: decodeURIComponent(parsed.username || fallback.user),
+      password: decodeURIComponent(parsed.password || fallback.password),
+    };
+  } catch {
+    return fallback;
+  }
+};
+
 const resolveExecutable = async (candidates) => {
   for (const candidate of candidates) {
     if (!candidate) continue;
@@ -339,6 +359,66 @@ const getConnectionConfig = (settings) => {
   return { host, port, database, user, password };
 };
 
+const getAppConnectionConfig = () => {
+  const fallback = {
+    host: String(process.env.PGHOST || "localhost"),
+    port: normalizePort(process.env.PGPORT, 5432),
+    database: String(process.env.PGDATABASE || "cra_local"),
+    user: String(process.env.PGUSER || "cra_app"),
+    password: String(process.env.PGPASSWORD || ""),
+  };
+  return parseConnectionFromDatabaseUrl(process.env.DATABASE_URL, fallback);
+};
+
+const isPermissionDeniedOnBackupRuns = (error) => {
+  const msg = String(error?.message ?? error ?? "").toLowerCase();
+  if (!msg) return false;
+  return msg.includes("permission denied") && msg.includes("db_backup_runs");
+};
+
+const repairBackupMetadataPermissions = async () => {
+  const settings = await getRuntimeSettings();
+  if (!settings.configured) return false;
+
+  const superCfg = getConnectionConfig(settings);
+  const appCfg = getAppConnectionConfig();
+  const appUser = String(appCfg.user || "").trim();
+  if (!superCfg.host || !superCfg.port || !superCfg.database || !superCfg.user || !appUser) return false;
+
+  const ownerIdent = quoteIdent(appUser);
+  const adminPool = new Pool({
+    host: superCfg.host,
+    port: superCfg.port,
+    database: superCfg.database,
+    user: superCfg.user,
+    password: superCfg.password,
+    ssl: false,
+    max: 1,
+    idleTimeoutMillis: 5_000,
+  });
+
+  try {
+    const client = await adminPool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`ALTER TABLE IF EXISTS db_backup_runs OWNER TO ${ownerIdent}`);
+      await client.query(`ALTER TABLE IF EXISTS db_backup_settings OWNER TO ${ownerIdent}`);
+      await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE db_backup_runs TO ${ownerIdent}`);
+      await client.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE db_backup_settings TO ${ownerIdent}`);
+      await client.query("COMMIT");
+      return true;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      console.error("Failed to repair backup metadata permissions:", error?.message ?? error);
+      return false;
+    } finally {
+      client.release();
+    }
+  } finally {
+    await adminPool.end();
+  }
+};
+
 const readBackupDirectoryEntries = async (backupDir) => {
   await fs.mkdir(backupDir, { recursive: true });
 
@@ -501,26 +581,52 @@ const listDbBackupSets = async (backupDir) => {
 const startRun = async ({ action, mode, actor = null, details = null }) => {
   const pool = await getPool();
   const runId = randomUUID();
-  await pool.query(
-    `INSERT INTO db_backup_runs (id, action, mode, status, message, details_json, actor_user_id, actor_email)
-     VALUES ($1, $2, $3, 'running', '', $4, $5, $6)`,
-    [runId, action, mode, details, actor?.id ?? null, actor?.email ?? null]
-  );
+  try {
+    await pool.query(
+      `INSERT INTO db_backup_runs (id, action, mode, status, message, details_json, actor_user_id, actor_email)
+       VALUES ($1, $2, $3, 'running', '', $4, $5, $6)`,
+      [runId, action, mode, details, actor?.id ?? null, actor?.email ?? null]
+    );
+  } catch (error) {
+    if (!isPermissionDeniedOnBackupRuns(error)) throw error;
+    const repaired = await repairBackupMetadataPermissions();
+    if (!repaired) throw error;
+    await pool.query(
+      `INSERT INTO db_backup_runs (id, action, mode, status, message, details_json, actor_user_id, actor_email)
+       VALUES ($1, $2, $3, 'running', '', $4, $5, $6)`,
+      [runId, action, mode, details, actor?.id ?? null, actor?.email ?? null]
+    );
+  }
   return runId;
 };
 
 const finishRun = async ({ runId, status, message, details = null }) => {
   if (!runId) return;
   const pool = await getPool();
-  await pool.query(
-    `UPDATE db_backup_runs
-        SET status = $2,
-            message = $3,
-            details_json = COALESCE($4::jsonb, details_json),
-            finished_at = now()
-      WHERE id = $1`,
-    [runId, status, String(message || ""), details]
-  );
+  try {
+    await pool.query(
+      `UPDATE db_backup_runs
+          SET status = $2,
+              message = $3,
+              details_json = COALESCE($4::jsonb, details_json),
+              finished_at = now()
+        WHERE id = $1`,
+      [runId, status, String(message || ""), details]
+    );
+  } catch (error) {
+    if (!isPermissionDeniedOnBackupRuns(error)) throw error;
+    const repaired = await repairBackupMetadataPermissions();
+    if (!repaired) throw error;
+    await pool.query(
+      `UPDATE db_backup_runs
+          SET status = $2,
+              message = $3,
+              details_json = COALESCE($4::jsonb, details_json),
+              finished_at = now()
+        WHERE id = $1`,
+      [runId, status, String(message || ""), details]
+    );
+  }
 };
 
 const getLatestRun = async (action, mode = null) => {
@@ -1027,6 +1133,10 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
 
       const settings = await getRuntimeSettings();
       const cfg = assertConfiguredBackupSettings(settings);
+      const appCfg = getAppConnectionConfig();
+      if (!appCfg.user) {
+        throw new Error("App database user is missing (PGUSER/DATABASE_URL).");
+      }
 
       const backupDir = DEFAULT_DB_BACKUP_DIR;
       const dumpPath = path.join(backupDir, name);
@@ -1052,8 +1162,10 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
         }
       }
 
-      const env = { ...process.env };
-      if (cfg.password) env.PGPASSWORD = cfg.password;
+      const adminEnv = { ...process.env };
+      if (cfg.password) adminEnv.PGPASSWORD = cfg.password;
+      const restoreEnv = { ...process.env };
+      if (appCfg.password) restoreEnv.PGPASSWORD = appCfg.password;
 
       await closePool();
 
@@ -1073,7 +1185,7 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
           "-c",
           `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${cfg.database.replaceAll("'", "''")}' AND pid <> pg_backend_pid();`,
         ],
-        { env, maxBuffer: 10 * 1024 * 1024 }
+        { env: adminEnv, maxBuffer: 10 * 1024 * 1024 }
       );
 
       if (includeGlobals) {
@@ -1083,7 +1195,7 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
           const globalsResult = await execFileAsync(
             psqlPath,
             ["-v", "ON_ERROR_STOP=0", "-h", cfg.host, "-p", String(cfg.port), "-U", cfg.user, "-d", "postgres", "-f", globalsPath],
-            { env, maxBuffer: 10 * 1024 * 1024 }
+            { env: adminEnv, maxBuffer: 10 * 1024 * 1024 }
           );
           globalsStdout = String(globalsResult.stdout ?? "");
           globalsStderr = String(globalsResult.stderr ?? "");
@@ -1108,16 +1220,16 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
           "--no-owner",
           "--no-privileges",
           "-h",
-          cfg.host,
+          appCfg.host,
           "-p",
-          String(cfg.port),
+          String(appCfg.port),
           "-U",
-          cfg.user,
+          appCfg.user,
           "-d",
-          cfg.database,
+          appCfg.database || cfg.database,
           dumpPath,
         ],
-        { env, maxBuffer: 20 * 1024 * 1024 }
+        { env: restoreEnv, maxBuffer: 20 * 1024 * 1024 }
       );
 
       await execFileAsync(npmPath, ["run", "migrate"], {
@@ -1125,6 +1237,8 @@ export const restoreDbBackup = async ({ fileName, includeGlobals = true, actor =
         env: process.env,
         maxBuffer: 20 * 1024 * 1024,
       });
+
+      await repairBackupMetadataPermissions();
 
       const pool = await getPool();
       await pool.query("SELECT 1");
