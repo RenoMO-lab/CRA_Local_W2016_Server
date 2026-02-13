@@ -819,8 +819,12 @@ const RequestForm: React.FC = () => {
         });
         navigate(`/requests/${newRequest.id}/edit`);
       } else if (existingRequest) {
-        await updateRequest(existingRequest.id, {
+        const updatesWithoutStatus: Partial<CustomerRequest> = {
           ...prepareRequestPayload(formData),
+        };
+        delete updatesWithoutStatus.status;
+        await updateRequest(existingRequest.id, {
+          ...updatesWithoutStatus,
           historyEvent: 'edited',
         });
         toast({
@@ -884,14 +888,19 @@ const RequestForm: React.FC = () => {
         if (isResubmission) {
           await updateRequest(existingRequest.id, prepareRequestPayload({ ...formData, status: 'submitted' }));
           await updateStatus(existingRequest.id, 'submitted');
+          setFormData((prev) => ({ ...prev, status: 'submitted' }));
           toast({
             title: t.request.requestSubmitted,
             description: t.request.requestSubmittedDesc,
           });
           showSubmitConfirmation();
         } else {
-          await updateRequest(existingRequest.id, {
+          const updatesWithoutStatus: Partial<CustomerRequest> = {
             ...prepareRequestPayload(formData),
+          };
+          delete updatesWithoutStatus.status;
+          await updateRequest(existingRequest.id, {
+            ...updatesWithoutStatus,
             historyEvent: 'edited',
           });
           toast({
@@ -937,6 +946,7 @@ const RequestForm: React.FC = () => {
       
       await updateRequest(existingRequest.id, updates);
       await updateStatus(existingRequest.id, status, data?.comment || data?.message);
+      setFormData((prev) => ({ ...prev, status }));
       
       toast({
         title: t.request.statusUpdated,
@@ -966,6 +976,7 @@ const RequestForm: React.FC = () => {
         await updateRequest(existingRequest.id, { costingNotes: notes });
       }
       await updateStatus(existingRequest.id, status);
+      setFormData((prev) => ({ ...prev, status }));
       
       toast({
         title: t.request.statusUpdated,
@@ -1180,6 +1191,26 @@ const RequestForm: React.FC = () => {
     }
 
     if (user?.role === 'admin') {
+      if (existingRequest.status === 'gm_approval_pending') {
+        return (
+          <SalesFollowupPanel
+            request={existingRequest}
+            onUpdateStatus={async (status, comment) => {
+              const ok = await handleSalesStatusUpdate(status, comment);
+              if (!ok) return;
+              if (['gm_approved', 'gm_rejected', 'closed'].includes(status)) {
+                markMyActionComplete(status);
+              }
+            }}
+            onUpdateSalesData={async (_data) => {}}
+            isUpdating={isUpdating}
+            readOnly={false}
+            forceEnableActions={false}
+            isAdmin={true}
+            isSales={false}
+          />
+        );
+      }
       return (
         <div className="rounded-lg border border-border bg-muted/20 p-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -1825,6 +1856,7 @@ const RequestForm: React.FC = () => {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       await updateStatus(existingRequest.id, status, comment);
+      setFormData((prev) => ({ ...prev, status }));
 
       toast({
         title: t.request.statusUpdated,
