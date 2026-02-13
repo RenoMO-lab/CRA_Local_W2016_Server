@@ -6,6 +6,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
+  refreshMe: () => Promise<void>;
   isLoading: boolean;
 }
 
@@ -33,6 +34,17 @@ const mapServerUser = (raw: any): User | null => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const refreshMe = useCallback(async () => {
+    const res = await fetch('/api/auth/me');
+    if (!res.ok) {
+      setUser(null);
+      return;
+    }
+    const data = await res.json().catch(() => null);
+    const nextUser = mapServerUser(data?.user);
+    setUser(nextUser);
+  }, []);
 
   const login = useCallback(async (email: string, password: string): Promise<boolean> => {
     setIsLoading(true);
@@ -99,6 +111,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isAuthenticated: !!user,
       login,
       logout,
+      refreshMe,
       isLoading,
     }}>
       {children}

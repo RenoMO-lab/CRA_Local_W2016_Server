@@ -17,6 +17,7 @@ const Performance = React.lazy(() => import("./pages/Performance"));
 const Settings = React.lazy(() => import("./pages/Settings"));
 const PriceList = React.lazy(() => import("./pages/PriceList"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
+const VerifyEmail = React.lazy(() => import("./pages/VerifyEmail"));
 
 const queryClient = new QueryClient();
 
@@ -47,6 +48,7 @@ const App = () => (
                 >
                   <Routes>
                     <Route path="/login" element={<Login />} />
+                    <Route path="/account/verify-email" element={<VerifyEmail />} />
                     <Route path="/" element={<Navigate to="/dashboard" replace />} />
                     <Route element={<MainLayout />}>
                       <Route path="/dashboard" element={<Dashboard />} />

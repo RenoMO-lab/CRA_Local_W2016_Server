@@ -1,5 +1,5 @@
 import express from "express";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { promises as fs } from "node:fs";
@@ -435,6 +435,22 @@ const getAccessEmailLogoBase64 = async () => {
   }
 };
 
+const sha256Hex = (value) => createHash("sha256").update(String(value ?? "")).digest("hex");
+
+const normalizeLoginEmail = (value) => String(value ?? "").trim().toLowerCase();
+
+const isValidEmail = (value) => {
+  const email = String(value ?? "").trim();
+  if (!email) return false;
+  // Simple sanity check (not RFC-complete, good enough for business emails).
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+};
+
+const generateNumericCode = () => {
+  const n = randomBytes(4).readUInt32BE(0) % 1000000;
+  return String(n).padStart(6, "0");
+};
+
 const generateTemporaryPassword = (length = 12) => {
   const targetLen = Number.isFinite(length) ? Math.max(10, Math.floor(length)) : 12;
   const lowers = "abcdefghijkmnopqrstuvwxyz";
@@ -552,6 +568,163 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
                         </center>
                         <div style="margin-top:12px; font-size:11px; color:#6B7280; line-height:16px;">
                           Provisioned by ${safeSender}${safeNowUtc ? ` on ${safeNowUtc}` : ""}.
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+  </html>
+  `.trim();
+};
+
+const EMAIL_CHANGE_SUBJECT = "[CRA] Confirm your new login email";
+
+const renderEmailChangeVerificationHtml = ({ userName, newEmail, code, confirmUrl, senderUpn, logoSrc }) => {
+  const name = String(userName ?? "").trim() || "User";
+  const safeName = escapeHtml(name);
+  const safeNewEmail = escapeHtml(String(newEmail ?? "").trim());
+  const safeCode = escapeHtml(String(code ?? "").trim());
+  const safeConfirmUrl = escapeHtml(String(confirmUrl ?? "").trim());
+  const safeSender = escapeHtml(String(senderUpn ?? "").trim() || "System Administrator");
+  const safeLogo = escapeHtml(String(logoSrc ?? "").trim());
+
+  return `
+  <!doctype html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <meta name="color-scheme" content="light" />
+      <meta name="supported-color-schemes" content="light" />
+    </head>
+    <body style="margin:0; padding:0; background:#F5F7FB; color:#111827;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#F5F7FB" style="background:#F5F7FB; width:100%;">
+        <tr>
+          <td align="center" style="padding:28px 12px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px; max-width:640px;">
+              <tr>
+                <td bgcolor="#FFFFFF" style="background:#FFFFFF; border:1px solid #E5E7EB; border-radius:16px; overflow:hidden; font-family: Arial, sans-serif;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                    <tr>
+                      <td height="6" bgcolor="#2563EB" style="background:#2563EB; font-size:0; line-height:0;">&nbsp;</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:22px 24px 8px 24px;">
+                        ${safeLogo ? `<div style="margin:0 0 14px 0;">
+                          <img src="${safeLogo}" alt="MONROC" width="180" style="display:block; width:180px; max-width:100%; height:auto;" />
+                        </div>` : ""}
+                        <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Security Confirmation</div>
+                        <div style="margin-top:6px; font-size:22px; font-weight:900; color:#111827; line-height:28px;">Confirm your new login email</div>
+                        <div style="margin-top:10px; font-size:14px; color:#374151; line-height:20px;">
+                          Dear ${safeName},<br/><br/>
+                          A request was made to change the login email for your CRA account to:
+                          <br/><b>${safeNewEmail}</b>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:8px 24px 0 24px;">
+                        <div style="padding:12px 14px; border:1px solid #E5E7EB; background:#F9FAFB; border-radius:10px; font-size:13px; color:#374151; line-height:19px;">
+                          Your verification code is: <b style="font-size:16px; letter-spacing:0.08em;">${safeCode}</b>
+                          <br/><br/>
+                          Enter this code in the CRA app under <b>My account</b> to confirm the change.
+                        </div>
+                      </td>
+                    </tr>
+                    ${safeConfirmUrl ? `
+                    <tr>
+                      <td style="padding:16px 24px 22px 24px;">
+                        <center>
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="420" style="border-collapse:separate; width:420px; max-width:420px; margin:0 auto;">
+                            <tr>
+                              <td align="center" valign="middle" bgcolor="#D71920" style="background:#D71920; border-radius:12px; mso-padding-alt:15px 18px;">
+                                <a href="${safeConfirmUrl}" style="display:block; font-family:Arial, sans-serif; font-size:15px; font-weight:800; color:#FFFFFF; text-decoration:none; padding:15px 18px; line-height:20px; border-radius:12px; text-align:center;">
+                                  <span style="color:#FFFFFF; text-decoration:none;">Confirm Email Change</span>
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                        </center>
+                        <div style="margin-top:12px; font-size:11px; color:#6B7280; line-height:16px;">
+                          If you did not request this change, you can ignore this message. Your email will not be updated.
+                        </div>
+                        <div style="margin-top:8px; font-size:11px; color:#6B7280; line-height:16px;">
+                          Sent by ${safeSender}.
+                        </div>
+                      </td>
+                    </tr>` : `
+                    <tr>
+                      <td style="padding:14px 24px 22px 24px;">
+                        <div style="margin-top:8px; font-size:11px; color:#6B7280; line-height:16px;">
+                          If you did not request this change, you can ignore this message. Your email will not be updated.
+                        </div>
+                        <div style="margin-top:8px; font-size:11px; color:#6B7280; line-height:16px;">
+                          Sent by ${safeSender}.
+                        </div>
+                      </td>
+                    </tr>`}
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body>
+  </html>
+  `.trim();
+};
+
+const EMAIL_CHANGED_NOTICE_SUBJECT = "[CRA] Your login email was changed";
+
+const renderEmailChangedNoticeHtml = ({ userName, newEmail, senderUpn, logoSrc }) => {
+  const name = String(userName ?? "").trim() || "User";
+  const safeName = escapeHtml(name);
+  const safeNewEmail = escapeHtml(String(newEmail ?? "").trim());
+  const safeSender = escapeHtml(String(senderUpn ?? "").trim() || "System Administrator");
+  const safeLogo = escapeHtml(String(logoSrc ?? "").trim());
+
+  return `
+  <!doctype html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <meta name="color-scheme" content="light" />
+      <meta name="supported-color-schemes" content="light" />
+    </head>
+    <body style="margin:0; padding:0; background:#F5F7FB; color:#111827;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#F5F7FB" style="background:#F5F7FB; width:100%;">
+        <tr>
+          <td align="center" style="padding:28px 12px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px; max-width:640px;">
+              <tr>
+                <td bgcolor="#FFFFFF" style="background:#FFFFFF; border:1px solid #E5E7EB; border-radius:16px; overflow:hidden; font-family: Arial, sans-serif;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                    <tr>
+                      <td height="6" bgcolor="#2563EB" style="background:#2563EB; font-size:0; line-height:0;">&nbsp;</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:22px 24px 18px 24px;">
+                        ${safeLogo ? `<div style="margin:0 0 14px 0;">
+                          <img src="${safeLogo}" alt="MONROC" width="180" style="display:block; width:180px; max-width:100%; height:auto;" />
+                        </div>` : ""}
+                        <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Security Notice</div>
+                        <div style="margin-top:6px; font-size:22px; font-weight:900; color:#111827; line-height:28px;">Your CRA login email was changed</div>
+                        <div style="margin-top:10px; font-size:14px; color:#374151; line-height:20px;">
+                          Dear ${safeName},<br/><br/>
+                          Your CRA login email is now set to: <b>${safeNewEmail}</b>
+                          <br/><br/>
+                          If you did not request this change, please contact your administrator immediately.
+                        </div>
+                        <div style="margin-top:12px; font-size:11px; color:#6B7280; line-height:16px;">
+                          Sent by ${safeSender}.
                         </div>
                       </td>
                     </tr>
@@ -1793,6 +1966,329 @@ export const apiRouter = (() => {
 
       if (res.headersSent) return;
       res.json({ ok: true });
+    })
+  );
+
+  router.post(
+    "/auth/change-email/request",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const body = safeJson(req.body) ?? {};
+      const newEmailRaw = String(body.newEmail ?? "").trim();
+      const newEmail = normalizeLoginEmail(newEmailRaw);
+      const currentPassword = String(body.currentPassword ?? "").trim();
+      if (!newEmail || !currentPassword) {
+        res.status(400).json({ error: "Missing newEmail or currentPassword" });
+        return;
+      }
+      if (!isValidEmail(newEmail)) {
+        res.status(400).json({ error: "Invalid email address" });
+        return;
+      }
+
+      const pool = await getPool();
+      const settings = await getM365Settings(pool);
+      if (!settings?.senderUpn) {
+        res.status(400).json({ error: "Microsoft 365 email is not configured (missing sender)." });
+        return;
+      }
+
+      const userId = String(req.authUser?.id ?? "").trim();
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+
+      const userRes = await pool.query(
+        "SELECT id, name, email, password_hash, is_active FROM app_users WHERE id = $1 LIMIT 1",
+        [userId]
+      );
+      const userRow = userRes.rows?.[0] ?? null;
+      if (!userRow || userRow.is_active === false) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+
+      const currentEmail = normalizeLoginEmail(userRow.email);
+      if (newEmail === currentEmail) {
+        res.status(400).json({ error: "New email must be different from current email" });
+        return;
+      }
+
+      if (!verifyUserPassword(currentPassword, userRow.password_hash)) {
+        res.status(400).json({ error: "Invalid current password" });
+        return;
+      }
+
+      // Ensure new email is not used by another active user.
+      const conflict = await pool.query(
+        "SELECT id FROM app_users WHERE lower(email) = $1 AND is_active = true LIMIT 1",
+        [newEmail]
+      );
+      if (conflict.rows?.[0]?.id) {
+        res.status(409).json({ error: "Email already exists" });
+        return;
+      }
+
+      const token = randomBytes(32).toString("hex");
+      const tokenHash = sha256Hex(token);
+      const code = generateNumericCode();
+      const codeHash = sha256Hex(code);
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+      // Best-effort: build confirm URL for the email (if appBaseUrl is configured).
+      const baseUrl = String(settings.appBaseUrl ?? "").trim().replace(/\/+$/, "");
+      const confirmUrl = baseUrl ? `${baseUrl}/account/verify-email?token=${encodeURIComponent(token)}` : "";
+
+      const logoB64 = await getAccessEmailLogoBase64();
+      const attachments = logoB64
+        ? [
+            {
+              "@odata.type": "#microsoft.graph.fileAttachment",
+              name: ACCESS_EMAIL_LOGO_FILE,
+              contentType: "image/png",
+              contentBytes: logoB64,
+              contentId: ACCESS_EMAIL_LOGO_CID,
+              isInline: true,
+            },
+          ]
+        : [];
+      const logoSrc = logoB64 ? `cid:${ACCESS_EMAIL_LOGO_CID}` : buildPublicAssetLink(baseUrl, ACCESS_EMAIL_LOGO_FILE);
+
+      const requestId = randomUUID();
+      await withTransaction(pool, async (client) => {
+        // Invalidate any previous pending requests for this user.
+        await client.query(
+          "UPDATE auth_email_change_requests SET consumed_at = now() WHERE user_id = $1 AND consumed_at IS NULL",
+          [userId]
+        );
+
+        await client.query(
+          `INSERT INTO auth_email_change_requests
+              (id, user_id, old_email, new_email, token_hash, code_hash, expires_at)
+            VALUES
+              ($1,$2,$3,$4,$5,$6,$7)`,
+          [requestId, userId, currentEmail, newEmail, tokenHash, codeHash, expiresAt.toISOString()]
+        );
+      });
+
+      const html = renderEmailChangeVerificationHtml({
+        userName: userRow.name,
+        newEmail,
+        code,
+        confirmUrl,
+        senderUpn: settings.senderUpn,
+        logoSrc,
+      });
+
+      try {
+        const accessToken = await getValidAccessToken(pool);
+        await sendMail({
+          accessToken,
+          subject: EMAIL_CHANGE_SUBJECT,
+          bodyHtml: html,
+          toEmails: [newEmail],
+          attachments,
+        });
+      } catch (error) {
+        try {
+          await pool.query("DELETE FROM auth_email_change_requests WHERE id = $1", [requestId]);
+        } catch (cleanupError) {
+          console.error("Failed to cleanup email-change request after send failure:", cleanupError);
+        }
+        throw error;
+      }
+
+      res.json({ ok: true, expiresAt: expiresAt.toISOString() });
+    })
+  );
+
+  router.post(
+    "/auth/change-email/confirm",
+    asyncHandler(async (req, res) => {
+      const body = safeJson(req.body) ?? {};
+      const token = String(body.token ?? "").trim();
+      const code = String(body.code ?? "").trim();
+
+      if (!token && !code) {
+        res.status(400).json({ error: "Missing token or code" });
+        return;
+      }
+
+      const pool = await getPool();
+      const settings = await getM365Settings(pool);
+
+      const now = new Date();
+      const maxAttempts = 5;
+
+      let reqRow = null;
+      if (token) {
+        const tokenHash = sha256Hex(token);
+        const { rows } = await pool.query(
+          `SELECT id, user_id, old_email, new_email, expires_at, consumed_at, attempts
+             FROM auth_email_change_requests
+            WHERE token_hash = $1
+            LIMIT 1`,
+          [tokenHash]
+        );
+        reqRow = rows?.[0] ?? null;
+      } else {
+        // Code confirm requires an authenticated user context to avoid collisions.
+        if (!req.authUser?.id) {
+          res.status(401).json({ error: "Authentication required" });
+          return;
+        }
+        const userId = String(req.authUser.id ?? "").trim();
+        const { rows } = await pool.query(
+          `SELECT id, user_id, old_email, new_email, expires_at, consumed_at, attempts, code_hash
+             FROM auth_email_change_requests
+            WHERE user_id = $1 AND consumed_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT 1`,
+          [userId]
+        );
+        reqRow = rows?.[0] ?? null;
+        if (reqRow) {
+          const codeHash = sha256Hex(code);
+          if (codeHash !== String(reqRow.code_hash ?? "")) {
+            await pool.query(
+              "UPDATE auth_email_change_requests SET attempts = attempts + 1, last_attempt_at = now() WHERE id = $1",
+              [reqRow.id]
+            );
+            res.status(400).json({ error: "Invalid verification code" });
+            return;
+          }
+        }
+      }
+
+      if (!reqRow) {
+        res.status(404).json({ error: "Verification request not found" });
+        return;
+      }
+
+      if (reqRow.consumed_at) {
+        res.status(400).json({ error: "This verification request is already used." });
+        return;
+      }
+
+      const expiresAt = reqRow.expires_at ? new Date(reqRow.expires_at) : null;
+      if (!expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime()) {
+        res.status(400).json({ error: "Verification request expired. Please request a new code." });
+        return;
+      }
+
+      if ((reqRow.attempts ?? 0) >= maxAttempts) {
+        res.status(400).json({ error: "Too many attempts. Please request a new code." });
+        return;
+      }
+
+      // For token-based confirm, also verify code if provided.
+      if (token && code) {
+        const codeHash = sha256Hex(code);
+        const { rows } = await pool.query(
+          "SELECT 1 FROM auth_email_change_requests WHERE id = $1 AND code_hash = $2 LIMIT 1",
+          [reqRow.id, codeHash]
+        );
+        if (!rows.length) {
+          await pool.query(
+            "UPDATE auth_email_change_requests SET attempts = attempts + 1, last_attempt_at = now() WHERE id = $1",
+            [reqRow.id]
+          );
+          res.status(400).json({ error: "Invalid verification code" });
+          return;
+        }
+      }
+
+      const userId = String(reqRow.user_id ?? "").trim();
+      const oldEmail = normalizeLoginEmail(reqRow.old_email);
+      const newEmail = normalizeLoginEmail(reqRow.new_email);
+
+      // Apply change.
+      let updatedUser = null;
+      await withTransaction(pool, async (client) => {
+        // Ensure new email still unused.
+        const conflict = await client.query(
+          "SELECT id FROM app_users WHERE lower(email) = $1 AND is_active = true AND id <> $2 LIMIT 1",
+          [newEmail, userId]
+        );
+        if (conflict.rows?.[0]?.id) {
+          res.status(409).json({ error: "Email already exists" });
+          return;
+        }
+
+        const ures = await client.query(
+          `UPDATE app_users
+              SET email = $1,
+                  updated_at = now()
+            WHERE id = $2 AND is_active = true
+          RETURNING id, name, email, role, created_at`,
+          [newEmail, userId]
+        );
+        updatedUser = ures.rows?.[0] ?? null;
+        if (!updatedUser) {
+          res.status(404).json({ error: "User not found" });
+          return;
+        }
+
+        await client.query("UPDATE auth_email_change_requests SET consumed_at = now() WHERE id = $1", [reqRow.id]);
+
+        // Security: revoke sessions.
+        if (req.authSessionId) {
+          await client.query(
+            `UPDATE auth_sessions
+                SET revoked_at = now()
+              WHERE user_id = $1
+                AND revoked_at IS NULL
+                AND id <> $2`,
+            [userId, req.authSessionId]
+          );
+        } else {
+          await client.query(
+            "UPDATE auth_sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+            [userId]
+          );
+        }
+      });
+
+      if (res.headersSent) return;
+
+      // Notify old email (best-effort).
+      try {
+        if (settings?.senderUpn && oldEmail && oldEmail !== newEmail) {
+          const logoB64 = await getAccessEmailLogoBase64();
+          const attachments = logoB64
+            ? [
+                {
+                  "@odata.type": "#microsoft.graph.fileAttachment",
+                  name: ACCESS_EMAIL_LOGO_FILE,
+                  contentType: "image/png",
+                  contentBytes: logoB64,
+                  contentId: ACCESS_EMAIL_LOGO_CID,
+                  isInline: true,
+                },
+              ]
+            : [];
+          const logoSrc = logoB64 ? `cid:${ACCESS_EMAIL_LOGO_CID}` : "";
+          const html = renderEmailChangedNoticeHtml({
+            userName: updatedUser?.name ?? "",
+            newEmail,
+            senderUpn: settings.senderUpn,
+            logoSrc,
+          });
+          const accessToken = await getValidAccessToken(pool);
+          await sendMail({
+            accessToken,
+            subject: EMAIL_CHANGED_NOTICE_SUBJECT,
+            bodyHtml: html,
+            toEmails: [oldEmail],
+            attachments,
+          });
+        }
+      } catch (e) {
+        console.error("Failed to send email-change notification:", e);
+      }
+
+      res.json({ ok: true, user: mapUserRow(updatedUser) });
     })
   );
 
