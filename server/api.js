@@ -1973,6 +1973,10 @@ export const apiRouter = (() => {
     "/auth/change-email/request",
     requireAuth,
     asyncHandler(async (req, res) => {
+      // Company policy: login emails are managed by Admin and must remain fixed.
+      res.status(403).json({ error: "Email change is disabled" });
+      return;
+
       const body = safeJson(req.body) ?? {};
       const newEmailRaw = String(body.newEmail ?? "").trim();
       const newEmail = normalizeLoginEmail(newEmailRaw);
@@ -2106,6 +2110,10 @@ export const apiRouter = (() => {
   router.post(
     "/auth/change-email/confirm",
     asyncHandler(async (req, res) => {
+      // Company policy: login emails are managed by Admin and must remain fixed.
+      res.status(403).json({ error: "Email change is disabled" });
+      return;
+
       const body = safeJson(req.body) ?? {};
       const token = String(body.token ?? "").trim();
       const code = String(body.code ?? "").trim();

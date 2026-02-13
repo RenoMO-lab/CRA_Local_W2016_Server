@@ -15,7 +15,7 @@ interface AccountDialogProps {
 const MIN_PASSWORD_LEN = 10;
 
 const AccountDialog: React.FC<AccountDialogProps> = ({ open, onOpenChange }) => {
-  const { user, refreshMe } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
   const { t } = useLanguage();
 
@@ -23,13 +23,6 @@ const AccountDialog: React.FC<AccountDialogProps> = ({ open, onOpenChange }) => 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-
-  const [emailNewEmail, setEmailNewEmail] = useState('');
-  const [emailCurrentPassword, setEmailCurrentPassword] = useState('');
-  const [emailCode, setEmailCode] = useState('');
-  const [emailExpiresAt, setEmailExpiresAt] = useState<string>('');
-  const [isSendingCode, setIsSendingCode] = useState(false);
-  const [isConfirmingCode, setIsConfirmingCode] = useState(false);
 
   const canSubmit = useMemo(() => {
     if (!currentPassword.trim() || !newPassword.trim() || !confirmPassword.trim()) return false;
@@ -44,12 +37,6 @@ const AccountDialog: React.FC<AccountDialogProps> = ({ open, onOpenChange }) => 
     setNewPassword('');
     setConfirmPassword('');
     setIsSaving(false);
-    setEmailNewEmail('');
-    setEmailCurrentPassword('');
-    setEmailCode('');
-    setEmailExpiresAt('');
-    setIsSendingCode(false);
-    setIsConfirmingCode(false);
   }, [open]);
 
   const submit = async () => {
@@ -89,72 +76,6 @@ const AccountDialog: React.FC<AccountDialogProps> = ({ open, onOpenChange }) => 
       });
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const requestEmailChange = async () => {
-    const nextEmail = String(emailNewEmail ?? '').trim();
-    const pw = String(emailCurrentPassword ?? '').trim();
-    if (!nextEmail || !pw) {
-      toast({ title: t.account.changeEmail, description: t.account.missingEmailOrPassword, variant: 'destructive' as any });
-      return;
-    }
-    setIsSendingCode(true);
-    try {
-      const res = await fetch('/api/auth/change-email/request', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ newEmail: nextEmail, currentPassword: pw }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        const message = String(data?.error ?? 'Failed to request email change');
-        toast({ title: t.account.changeEmail, description: message, variant: 'destructive' as any });
-        return;
-      }
-      setEmailExpiresAt(String(data?.expiresAt ?? ''));
-      toast({ title: t.account.emailChangeRequestedTitle, description: t.account.emailChangeRequestedDesc });
-    } catch (e: any) {
-      toast({
-        title: t.account.changeEmail,
-        description: String(e?.message ?? e ?? 'Failed to request email change'),
-        variant: 'destructive' as any,
-      });
-    } finally {
-      setIsSendingCode(false);
-    }
-  };
-
-  const confirmEmailChange = async () => {
-    const code = String(emailCode ?? '').trim();
-    if (!code) {
-      toast({ title: t.account.changeEmail, description: t.account.missingVerificationCode, variant: 'destructive' as any });
-      return;
-    }
-    setIsConfirmingCode(true);
-    try {
-      const res = await fetch('/api/auth/change-email/confirm', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ code }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        const message = String(data?.error ?? 'Failed to confirm email change');
-        toast({ title: t.account.changeEmail, description: message, variant: 'destructive' as any });
-        return;
-      }
-      await refreshMe();
-      toast({ title: t.account.emailUpdatedTitle, description: t.account.emailUpdatedDesc });
-      onOpenChange(false);
-    } catch (e: any) {
-      toast({
-        title: t.account.changeEmail,
-        description: String(e?.message ?? e ?? 'Failed to confirm email change'),
-        variant: 'destructive' as any,
-      });
-    } finally {
-      setIsConfirmingCode(false);
     }
   };
 
@@ -214,56 +135,6 @@ const AccountDialog: React.FC<AccountDialogProps> = ({ open, onOpenChange }) => 
                 disabled={isSaving}
               />
             </div>
-          </div>
-
-          <div className="rounded-lg border border-border p-4 bg-muted/10 space-y-3">
-            <div className="text-sm font-semibold text-foreground">{t.account.changeEmail}</div>
-            <div className="space-y-2">
-              <Label htmlFor="account-new-email">{t.account.newEmail}</Label>
-              <Input
-                id="account-new-email"
-                type="email"
-                value={emailNewEmail}
-                onChange={(e) => setEmailNewEmail(e.target.value)}
-                placeholder={t.auth.enterEmail}
-                disabled={isSendingCode || isConfirmingCode}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="account-email-password">{t.account.currentPassword}</Label>
-              <Input
-                id="account-email-password"
-                type="password"
-                value={emailCurrentPassword}
-                onChange={(e) => setEmailCurrentPassword(e.target.value)}
-                placeholder={t.auth.enterPassword}
-                disabled={isSendingCode || isConfirmingCode}
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={requestEmailChange} disabled={isSendingCode || isConfirmingCode}>
-                {isSendingCode ? t.common.loading : t.account.sendVerificationCode}
-              </Button>
-              {emailExpiresAt ? (
-                <span className="text-xs text-muted-foreground self-center">
-                  {t.account.codeExpiresHint} {emailExpiresAt}
-                </span>
-              ) : null}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="account-email-code">{t.account.verificationCode}</Label>
-              <Input
-                id="account-email-code"
-                value={emailCode}
-                onChange={(e) => setEmailCode(e.target.value)}
-                placeholder="123456"
-                disabled={isSendingCode || isConfirmingCode}
-              />
-            </div>
-            <Button onClick={confirmEmailChange} disabled={isSendingCode || isConfirmingCode || !String(emailCode ?? '').trim()}>
-              {isConfirmingCode ? t.common.loading : t.account.confirmEmailChange}
-            </Button>
-            <p className="text-xs text-muted-foreground">{t.account.changeEmailSecurityHint}</p>
           </div>
         </div>
 
