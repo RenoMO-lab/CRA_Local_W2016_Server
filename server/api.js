@@ -448,10 +448,13 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
   const login = String(loginEmail ?? "").trim();
   const password = String(temporaryPassword ?? "").trim();
   const link = String(appUrl ?? "").trim();
+  const baseUrl = link.replace(/\/+$/, "");
+  const logoUrl = baseUrl ? `${baseUrl}/monroc-logo.png` : "";
   const sender = String(senderUpn ?? "").trim();
   const nowUtc = formatIsoUtc(new Date().toISOString());
 
   const safeLink = escapeHtml(link);
+  const safeLogoUrl = escapeHtml(logoUrl);
   const safeName = escapeHtml(name);
   const safeLogin = escapeHtml(login);
   const safePassword = escapeHtml(password);
@@ -480,6 +483,9 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
                     </tr>
                     <tr>
                       <td style="padding:22px 24px 8px 24px;">
+                        ${safeLogoUrl ? `<div style="margin:0 0 14px 0;">
+                          <img src="${safeLogoUrl}" alt="MONROC" width="180" style="display:block; width:180px; max-width:100%; height:auto;" />
+                        </div>` : ""}
                         <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Access Notification</div>
                         <div style="margin-top:6px; font-size:24px; font-weight:900; color:#111827; line-height:30px;">Your CRA account is ready</div>
                         <div style="margin-top:10px; font-size:14px; color:#374151; line-height:20px;">
