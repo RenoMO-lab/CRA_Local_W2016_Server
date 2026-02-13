@@ -89,6 +89,13 @@ export interface StatusHistoryEntry {
   comment?: string;
 }
 
+export interface SalesPaymentTerm {
+  paymentNumber: number;
+  paymentName: string;
+  paymentPercent: number | null;
+  comments: string;
+}
+
 export interface CustomerRequest {
   id: string;
   // General Information
@@ -182,6 +189,10 @@ export interface CustomerRequest {
   salesIncotermOther?: string;
   salesVatMode?: 'with' | 'without';
   salesVatRate?: number | null;
+  salesMargin?: number | null;
+  salesExpectedDeliveryDate?: string;
+  salesPaymentTermCount?: number;
+  salesPaymentTerms?: SalesPaymentTerm[];
   salesFeedbackComment?: string;
   salesAttachments?: Attachment[];
 }

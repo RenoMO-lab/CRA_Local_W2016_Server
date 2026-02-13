@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { CustomerRequest, RequestProduct, RequestStatus } from '@/types';
+import { CustomerRequest, RequestProduct, RequestStatus, SalesPaymentTerm } from '@/types';
 import { useAuth } from './AuthContext';
 
 type RequestUpdatePayload = Partial<CustomerRequest> & {
@@ -91,6 +91,23 @@ const reviveProduct = (p: any): RequestProduct => ({
   attachments: Array.isArray(p?.attachments) ? p.attachments.map(reviveAttachment) : [],
 });
 
+const reviveSalesPaymentTerms = (rawTerms: any, rawCount: any): { count: number; terms: SalesPaymentTerm[] } => {
+  const source = Array.isArray(rawTerms) ? rawTerms : [];
+  const parsedCount = Number.parseInt(String(rawCount ?? ''), 10);
+  const baseCount = Number.isFinite(parsedCount) ? parsedCount : source.length || 1;
+  const count = Math.min(6, Math.max(1, baseCount));
+  const terms = Array.from({ length: count }, (_v, index) => {
+    const raw = source[index] ?? {};
+    return {
+      paymentNumber: index + 1,
+      paymentName: typeof raw?.paymentName === 'string' ? raw.paymentName : '',
+      paymentPercent: typeof raw?.paymentPercent === 'number' ? raw.paymentPercent : null,
+      comments: typeof raw?.comments === 'string' ? raw.comments : '',
+    };
+  });
+  return { count, terms };
+};
+
 const reviveRequest = (r: any): CustomerRequest => {
   const attachments = Array.isArray(r?.attachments) ? r.attachments.map(reviveAttachment) : [];
   const rawProducts = Array.isArray(r?.products) ? r.products : [];
@@ -101,6 +118,7 @@ const reviveRequest = (r: any): CustomerRequest => {
   if (normalizedProducts.length === 1 && normalizedProducts[0].attachments.length === 0 && attachments.length) {
     normalizedProducts[0] = { ...normalizedProducts[0], attachments };
   }
+  const revivedPaymentTerms = reviveSalesPaymentTerms(r?.salesPaymentTerms, r?.salesPaymentTermCount);
 
   return {
     ...r,
@@ -130,6 +148,10 @@ const reviveRequest = (r: any): CustomerRequest => {
     salesIncotermOther: r?.salesIncotermOther ?? '',
     salesVatMode: r?.salesVatMode === 'with' ? 'with' : 'without',
     salesVatRate: typeof r?.salesVatRate === 'number' ? r.salesVatRate : null,
+    salesMargin: typeof r?.salesMargin === 'number' ? r.salesMargin : null,
+    salesExpectedDeliveryDate: r?.salesExpectedDeliveryDate ?? '',
+    salesPaymentTermCount: revivedPaymentTerms.count,
+    salesPaymentTerms: revivedPaymentTerms.terms,
     salesFeedbackComment: r?.salesFeedbackComment ?? '',
     salesAttachments: Array.isArray(r?.salesAttachments)
       ? r.salesAttachments.map(reviveAttachment)

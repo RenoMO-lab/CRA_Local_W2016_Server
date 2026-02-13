@@ -243,6 +243,9 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
   );
   const hasSalesData = Boolean(
     typeof request.salesFinalPrice === "number" ||
+      typeof request.salesMargin === "number" ||
+      (request.salesExpectedDeliveryDate ?? "").trim() ||
+      (Array.isArray(request.salesPaymentTerms) && request.salesPaymentTerms.length > 0) ||
       (request.salesFeedbackComment ?? "").trim() ||
       (Array.isArray(request.salesAttachments) && request.salesAttachments.length > 0)
   );
@@ -430,6 +433,14 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
               value={typeof request.salesFinalPrice === "number" ? `${request.salesCurrency ?? "EUR"} ${request.salesFinalPrice.toFixed(2)}` : "-"}
             />
             <FieldLine
+              label={t.panels.salesMargin}
+              value={typeof request.salesMargin === "number" ? `${request.salesMargin.toFixed(2)}%` : "-"}
+            />
+            <FieldLine
+              label={t.panels.salesExpectedDeliveryDate}
+              value={String(request.salesExpectedDeliveryDate ?? "").trim() || "-"}
+            />
+            <FieldLine
               label={t.panels.incoterm}
               value={(() => {
                 const inc = String((request as any).salesIncoterm ?? "").trim();
@@ -456,6 +467,24 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
             <FieldLine
               label={t.panels.salesFeedback}
               value={request.salesFeedbackComment?.trim() ? <div className="whitespace-pre-line text-right">{request.salesFeedbackComment}</div> : "-"}
+            />
+            <FieldLine
+              label={t.panels.paymentTerms}
+              value={(() => {
+                const terms = Array.isArray(request.salesPaymentTerms) ? request.salesPaymentTerms : [];
+                if (!terms.length) return "-";
+                return (
+                  <div className="space-y-1 text-right">
+                    {terms.map((term, index) => (
+                      <div key={`sales-payment-term-${index}`} className="whitespace-pre-line">
+                        #{term.paymentNumber || index + 1} {term.paymentName || "-"} |{" "}
+                        {typeof term.paymentPercent === "number" ? `${term.paymentPercent}%` : "-"} |{" "}
+                        {term.comments || "-"}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             />
           </StepTile>
           <div className="mt-4">

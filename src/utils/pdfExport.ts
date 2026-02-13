@@ -611,16 +611,25 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   const salesIncotermValue = request.salesIncoterm === 'other' ? request.salesIncotermOther : request.salesIncoterm;
   const hasSalesData =
     request.salesFinalPrice ||
+    typeof request.salesMargin === 'number' ||
+    request.salesExpectedDeliveryDate ||
     request.salesFeedbackComment ||
     salesIncotermValue ||
     salesAttachmentNames.length ||
-    (request.salesVatMode === 'with' && request.salesVatRate !== null);
+    (request.salesVatMode === 'with' && request.salesVatRate !== null) ||
+    (Array.isArray(request.salesPaymentTerms) && request.salesPaymentTerms.length > 0);
 
   if (hasSalesData) {
     drawSectionTitle(t.panels.salesFollowup);
     const salesCurrency = request.salesCurrency ?? 'EUR';
     drawFieldGrid([
       request.salesFinalPrice ? { label: t.panels.salesFinalPrice, value: `${salesCurrency} ${request.salesFinalPrice.toFixed(2)}` } : null,
+      typeof request.salesMargin === 'number'
+        ? { label: t.panels.salesMargin, value: `${request.salesMargin.toFixed(2)}%` }
+        : null,
+      request.salesExpectedDeliveryDate
+        ? { label: t.panels.salesExpectedDeliveryDate, value: String(request.salesExpectedDeliveryDate) }
+        : null,
       salesIncotermValue ? { label: t.panels.incoterm, value: salesIncotermValue } : null,
       request.salesVatMode ? {
         label: t.panels.vatMode,
@@ -629,6 +638,20 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
           : t.panels.withoutVat,
       } : null,
     ].filter(Boolean) as { label: string; value: string | number | null | undefined }[]);
+    const salesPaymentTerms = Array.isArray(request.salesPaymentTerms)
+      ? request.salesPaymentTerms
+      : [];
+    if (salesPaymentTerms.length) {
+      drawSubsectionTitle(t.panels.paymentTerms);
+      const lines = salesPaymentTerms.map((term: any, index: number) => {
+        const num = term?.paymentNumber || index + 1;
+        const name = term?.paymentName || '-';
+        const percent = typeof term?.paymentPercent === 'number' ? `${term.paymentPercent}%` : '-';
+        const comments = term?.comments || '-';
+        return `#${num} ${name} | ${percent} | ${comments}`;
+      });
+      drawParagraph(lines.join('\n'));
+    }
     if (request.salesFeedbackComment) {
       drawSubsectionTitle(t.panels.salesFeedback);
       drawParagraph(request.salesFeedbackComment);

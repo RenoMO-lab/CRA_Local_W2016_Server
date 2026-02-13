@@ -6,7 +6,7 @@ import { useRequests } from '@/context/RequestContext';
 import { useAdminSettings } from '@/context/AdminSettingsContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { useToast } from '@/hooks/use-toast';
-import { Attachment, CustomerRequest, FormMode, RequestStatus, RequestProduct } from '@/types';
+import { Attachment, CustomerRequest, FormMode, RequestStatus, RequestProduct, SalesPaymentTerm } from '@/types';
 import SectionGeneralInfo from '@/components/request/SectionGeneralInfo';
 import SectionExpectedDelivery from '@/components/request/SectionExpectedDelivery';
 import SectionClientApplication from '@/components/request/SectionClientApplication';
@@ -1092,6 +1092,15 @@ const RequestForm: React.FC = () => {
   const hasSalesInfo = Boolean(
     existingRequest &&
       (typeof existingRequest.salesFinalPrice === 'number' ||
+        typeof existingRequest.salesMargin === 'number' ||
+        (existingRequest.salesExpectedDeliveryDate ?? '').trim().length > 0 ||
+        (Array.isArray(existingRequest.salesPaymentTerms) &&
+          existingRequest.salesPaymentTerms.some(
+            (term) =>
+              (term.paymentName ?? '').trim().length > 0 ||
+              term.paymentPercent !== null ||
+              (term.comments ?? '').trim().length > 0
+          )) ||
         (existingRequest.salesFeedbackComment ?? '').trim().length > 0 ||
         (existingRequest.salesIncoterm ?? '').trim().length > 0 ||
         (Array.isArray(existingRequest.salesAttachments) && existingRequest.salesAttachments.length > 0))
@@ -1814,6 +1823,10 @@ const RequestForm: React.FC = () => {
     salesIncotermOther?: string;
     salesVatMode?: 'with' | 'without';
     salesVatRate?: number | null;
+    salesMargin?: number | null;
+    salesExpectedDeliveryDate?: string;
+    salesPaymentTermCount?: number;
+    salesPaymentTerms?: SalesPaymentTerm[];
     salesFeedbackComment?: string;
     salesAttachments?: Attachment[];
   }) => {

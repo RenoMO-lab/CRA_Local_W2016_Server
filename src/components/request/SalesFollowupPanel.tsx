@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Attachment, CustomerRequest, RequestStatus } from '@/types';
+import { Attachment, CustomerRequest, RequestStatus, SalesPaymentTerm } from '@/types';
 import { useLanguage } from '@/context/LanguageContext';
 import { DollarSign, CheckCircle, Loader2, Upload, File, Eye, Download, X, ShieldCheck } from 'lucide-react';
 import {
@@ -15,29 +15,54 @@ import {
 } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
+type SalesFollowupData = {
+  salesFinalPrice?: number;
+  salesCurrency?: 'USD' | 'EUR' | 'RMB';
+  salesIncoterm?: string;
+  salesIncotermOther?: string;
+  salesVatMode?: 'with' | 'without';
+  salesVatRate?: number | null;
+  salesMargin?: number | null;
+  salesExpectedDeliveryDate?: string;
+  salesPaymentTermCount?: number;
+  salesPaymentTerms?: SalesPaymentTerm[];
+  salesFeedbackComment?: string;
+  salesAttachments?: Attachment[];
+};
+
+const MAX_PAYMENT_TERMS = 6;
+
+const createPaymentTerm = (paymentNumber: number): SalesPaymentTerm => ({
+  paymentNumber,
+  paymentName: '',
+  paymentPercent: null,
+  comments: '',
+});
+
+const normalizePaymentTermsForEditor = (
+  rawTerms: SalesPaymentTerm[] | undefined,
+  rawCount: number | undefined
+): { count: number; terms: SalesPaymentTerm[] } => {
+  const source = Array.isArray(rawTerms) ? rawTerms : [];
+  const baseCount = Number.isFinite(rawCount as number) ? Number(rawCount) : source.length || 1;
+  const count = Math.min(MAX_PAYMENT_TERMS, Math.max(1, baseCount));
+  const terms = Array.from({ length: count }, (_v, index) => {
+    const raw = source[index] ?? createPaymentTerm(index + 1);
+    return {
+      paymentNumber: index + 1,
+      paymentName: typeof raw.paymentName === 'string' ? raw.paymentName : '',
+      paymentPercent: typeof raw.paymentPercent === 'number' ? raw.paymentPercent : null,
+      comments: typeof raw.comments === 'string' ? raw.comments : '',
+    };
+  });
+  return { count, terms };
+};
+
 interface SalesFollowupPanelProps {
   request: CustomerRequest;
   onUpdateStatus: (status: RequestStatus, comment?: string) => void | Promise<void>;
-  onUpdateSalesData: (data: {
-    salesFinalPrice?: number;
-    salesCurrency?: 'USD' | 'EUR' | 'RMB';
-    salesIncoterm?: string;
-    salesIncotermOther?: string;
-    salesVatMode?: 'with' | 'without';
-    salesVatRate?: number | null;
-    salesFeedbackComment?: string;
-    salesAttachments?: Attachment[];
-  }) => void | Promise<void>;
-  onSaveEdits?: (data: {
-    salesFinalPrice?: number;
-    salesCurrency?: 'USD' | 'EUR' | 'RMB';
-    salesIncoterm?: string;
-    salesIncotermOther?: string;
-    salesVatMode?: 'with' | 'without';
-    salesVatRate?: number | null;
-    salesFeedbackComment?: string;
-    salesAttachments?: Attachment[];
-  }) => void | Promise<void>;
+  onUpdateSalesData: (data: SalesFollowupData) => void | Promise<void>;
+  onSaveEdits?: (data: SalesFollowupData) => void | Promise<void>;
   isUpdating: boolean;
   readOnly?: boolean;
   forceEnableActions?: boolean;
@@ -59,6 +84,10 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   editMode = false,
 }) => {
   const { t } = useLanguage();
+  const initialPaymentTermState = normalizePaymentTermsForEditor(
+    Array.isArray(request.salesPaymentTerms) ? request.salesPaymentTerms : [],
+    request.salesPaymentTermCount
+  );
   const [salesFinalPrice, setSalesFinalPrice] = useState<string>(
     request.salesFinalPrice?.toString() || ''
   );
@@ -71,6 +100,14 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   const [salesVatRate, setSalesVatRate] = useState<string>(
     typeof request.salesVatRate === 'number' ? request.salesVatRate.toString() : ''
   );
+  const [salesMargin, setSalesMargin] = useState<string>(
+    typeof request.salesMargin === 'number' ? request.salesMargin.toString() : ''
+  );
+  const [salesExpectedDeliveryDate, setSalesExpectedDeliveryDate] = useState<string>(
+    request.salesExpectedDeliveryDate || ''
+  );
+  const [salesPaymentTermCount, setSalesPaymentTermCount] = useState<number>(initialPaymentTermState.count);
+  const [salesPaymentTerms, setSalesPaymentTerms] = useState<SalesPaymentTerm[]>(initialPaymentTermState.terms);
   const [salesFeedbackComment, setSalesFeedbackComment] = useState<string>(
     request.salesFeedbackComment || ''
   );
@@ -83,6 +120,24 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [approvalComment, setApprovalComment] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const parseOptionalNumber = (value: string): number | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number.parseFloat(trimmed);
+    return Number.isNaN(parsed) ? null : parsed;
+  };
+
+  const getActivePaymentTerms = () =>
+    Array.from({ length: salesPaymentTermCount }, (_v, index) => {
+      const term = salesPaymentTerms[index] ?? createPaymentTerm(index + 1);
+      return {
+        paymentNumber: index + 1,
+        paymentName: term.paymentName ?? '',
+        paymentPercent: typeof term.paymentPercent === 'number' ? term.paymentPercent : null,
+        comments: term.comments ?? '',
+      };
+    });
 
   const openPreview = (attachment: Attachment) => {
     setPreviewAttachment(attachment);
@@ -238,34 +293,77 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
     setSalesAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
+  const handlePaymentTermCountChange = (value: string) => {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return;
+    const nextCount = Math.min(MAX_PAYMENT_TERMS, Math.max(1, parsed));
+    setSalesPaymentTermCount(nextCount);
+    setSalesPaymentTerms((prev) =>
+      Array.from({ length: nextCount }, (_v, index) => {
+        const existing = prev[index];
+        if (!existing) return createPaymentTerm(index + 1);
+        return { ...existing, paymentNumber: index + 1 };
+      })
+    );
+  };
+
+  const updatePaymentTerm = (
+    index: number,
+    field: 'paymentName' | 'paymentPercent' | 'comments',
+    value: string
+  ) => {
+    setSalesPaymentTerms((prev) =>
+      prev.map((term, termIndex) => {
+        if (termIndex !== index) return term;
+        if (field === 'paymentPercent') {
+          return { ...term, paymentPercent: parseOptionalNumber(value) };
+        }
+        return { ...term, [field]: value };
+      })
+    );
+  };
+
+  const buildSalesPayload = (requireFinalPrice: boolean): SalesFollowupData | null => {
+    const finalPriceValue = parseOptionalNumber(salesFinalPrice);
+    if (requireFinalPrice && (finalPriceValue === null || finalPriceValue <= 0)) {
+      return null;
+    }
+    const salesVatRateValue = salesVatMode === 'with' ? parseOptionalNumber(salesVatRate) : null;
+    const paymentTerms = getActivePaymentTerms().map((term) => ({
+      paymentNumber: term.paymentNumber,
+      paymentName: term.paymentName.trim(),
+      paymentPercent: term.paymentPercent,
+      comments: term.comments.trim(),
+    }));
+    return {
+      salesFinalPrice: finalPriceValue ?? undefined,
+      salesCurrency,
+      salesIncoterm,
+      salesIncotermOther,
+      salesVatMode,
+      salesVatRate: salesVatRateValue,
+      salesMargin: parseOptionalNumber(salesMargin),
+      salesExpectedDeliveryDate: salesExpectedDeliveryDate.trim(),
+      salesPaymentTermCount,
+      salesPaymentTerms: paymentTerms,
+      salesFeedbackComment,
+      salesAttachments,
+    };
+  };
+
   const handleStartFollowup = async () => {
     await onUpdateStatus('sales_followup');
   };
 
   const handleSaveDraft = async () => {
-    await onUpdateSalesData({
-      salesFinalPrice: salesFinalPrice ? parseFloat(salesFinalPrice) : undefined,
-      salesCurrency,
-      salesIncoterm,
-      salesIncotermOther,
-      salesVatMode,
-      salesVatRate: salesVatMode === 'with' ? parseFloat(salesVatRate) : null,
-      salesFeedbackComment,
-      salesAttachments,
-    });
+    const payload = buildSalesPayload(false);
+    if (!payload) return;
+    await onUpdateSalesData(payload);
   };
 
   const handleSaveEdits = async () => {
-    const payload = {
-      salesFinalPrice: salesFinalPrice ? parseFloat(salesFinalPrice) : undefined,
-      salesCurrency,
-      salesIncoterm,
-      salesIncotermOther,
-      salesVatMode,
-      salesVatRate: salesVatMode === 'with' ? parseFloat(salesVatRate) : null,
-      salesFeedbackComment,
-      salesAttachments,
-    };
+    const payload = buildSalesPayload(false);
+    if (!payload) return;
     if (onSaveEdits) {
       await onSaveEdits(payload);
       return;
@@ -274,18 +372,9 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   };
 
   const handleSubmitForApproval = async () => {
-    const priceValue = parseFloat(salesFinalPrice);
-    if (isNaN(priceValue) || priceValue <= 0) return;
-    await onUpdateSalesData({
-      salesFinalPrice: priceValue,
-      salesCurrency,
-      salesIncoterm,
-      salesIncotermOther,
-      salesVatMode,
-      salesVatRate: salesVatMode === 'with' ? parseFloat(salesVatRate) : null,
-      salesFeedbackComment,
-      salesAttachments,
-    });
+    const payload = buildSalesPayload(true);
+    if (!payload) return;
+    await onUpdateSalesData(payload);
     await onUpdateStatus(
       'gm_approval_pending',
       salesFeedbackComment?.trim() ? salesFeedbackComment.trim() : undefined
@@ -304,8 +393,31 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   const canEditSales = forceEnableActions || (isSales && ['sales_followup', 'gm_rejected'].includes(request.status));
   const canSubmitForApproval = isSales && canEditSales;
   const canApprove = isAdmin && (forceEnableActions || request.status === 'gm_approval_pending');
-  const vatRateValid = salesVatMode === 'without' || (salesVatRate !== '' && !isNaN(parseFloat(salesVatRate)));
-  const isValidSubmission = salesFinalPrice && parseFloat(salesFinalPrice) > 0 && vatRateValid;
+  const finalPriceValue = parseOptionalNumber(salesFinalPrice);
+  const vatRateValue = parseOptionalNumber(salesVatRate);
+  const marginValue = parseOptionalNumber(salesMargin);
+  const paymentTermsForValidation = getActivePaymentTerms();
+  const paymentTermsComplete = paymentTermsForValidation.every(
+    (term) => term.paymentName.trim().length > 0 && term.paymentPercent !== null
+  );
+  const paymentPercentTotal = paymentTermsForValidation.reduce(
+    (sum, term) => sum + (term.paymentPercent ?? 0),
+    0
+  );
+  const paymentTermsRequiredValid = paymentTermsComplete;
+  const paymentTermsTotalValid =
+    paymentTermsComplete && Math.abs(paymentPercentTotal - 100) < 0.01;
+  const vatRateValid = salesVatMode === 'without' || vatRateValue !== null;
+  const marginValid = marginValue !== null;
+  const expectedDeliveryValid = salesExpectedDeliveryDate.trim().length > 0;
+  const isValidSubmission =
+    finalPriceValue !== null &&
+    finalPriceValue > 0 &&
+    vatRateValid &&
+    marginValid &&
+    expectedDeliveryValid &&
+    paymentTermsRequiredValid &&
+    paymentTermsTotalValid;
   const incotermDisplay = salesIncoterm === 'other' ? salesIncotermOther : salesIncoterm;
   const gmDecisionStatus: RequestStatus | null =
     request.status === 'gm_approved' || request.status === 'gm_rejected'
@@ -319,11 +431,21 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
     : undefined;
 
   const showEditor = !readOnly && (editMode || (isSales && ['sales_followup', 'gm_rejected'].includes(request.status)));
+  const summaryPaymentTerms = Array.isArray(request.salesPaymentTerms) ? request.salesPaymentTerms : [];
+  const hasSalesPaymentTerms = summaryPaymentTerms.some(
+    (term) =>
+      (term.paymentName ?? '').trim().length > 0 ||
+      term.paymentPercent !== null ||
+      (term.comments ?? '').trim().length > 0
+  );
   const hasSalesSummary = Boolean(
     request.salesFinalPrice ||
       request.salesFeedbackComment ||
       request.salesIncoterm ||
-      (request.salesVatMode === 'with' && request.salesVatRate !== null)
+      (request.salesVatMode === 'with' && request.salesVatRate !== null) ||
+      typeof request.salesMargin === 'number' ||
+      (request.salesExpectedDeliveryDate ?? '').trim().length > 0 ||
+      hasSalesPaymentTerms
   );
   const hasSalesAttachments = Boolean(
     Array.isArray(request.salesAttachments) && request.salesAttachments.length
@@ -394,6 +516,57 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
             </div>
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="salesMargin" className="text-sm font-medium">
+                {t.panels.salesMargin} (%) *
+              </Label>
+              <Input
+                id="salesMargin"
+                type="number"
+                min="0"
+                step="0.01"
+                value={salesMargin}
+                onChange={(e) => setSalesMargin(e.target.value)}
+                placeholder={t.panels.enterSalesMargin}
+                className="bg-background"
+                disabled={readOnly}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="salesExpectedDeliveryDate" className="text-sm font-medium">
+                {t.panels.salesExpectedDeliveryDate} *
+              </Label>
+              <Input
+                id="salesExpectedDeliveryDate"
+                type="date"
+                value={salesExpectedDeliveryDate}
+                onChange={(e) => setSalesExpectedDeliveryDate(e.target.value)}
+                className="bg-background"
+                disabled={readOnly}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">{t.panels.paymentSettlementCount} *</Label>
+              <Select
+                value={String(salesPaymentTermCount)}
+                onValueChange={handlePaymentTermCountChange}
+                disabled={readOnly}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={t.panels.selectPaymentSettlementCount} />
+                </SelectTrigger>
+                <SelectContent className="bg-card border border-border">
+                  {Array.from({ length: MAX_PAYMENT_TERMS }, (_v, index) => (
+                    <SelectItem key={index + 1} value={String(index + 1)}>
+                      {String(index + 1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-sm font-medium">{t.panels.incoterm}</Label>
@@ -441,6 +614,64 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
                 />
               )}
             </div>
+          </div>
+
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">{t.panels.paymentTerms}</Label>
+            <div className="space-y-3">
+              {paymentTermsForValidation.map((term, index) => (
+                <div key={term.paymentNumber} className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">{t.panels.paymentNumber}</Label>
+                      <Input value={String(term.paymentNumber)} disabled />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">{t.panels.paymentName} *</Label>
+                      <Input
+                        value={term.paymentName}
+                        onChange={(e) => updatePaymentTerm(index, 'paymentName', e.target.value)}
+                        placeholder={t.panels.enterPaymentName}
+                        disabled={readOnly}
+                        className="bg-background"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">{t.panels.paymentPercent} *</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={term.paymentPercent ?? ''}
+                        onChange={(e) => updatePaymentTerm(index, 'paymentPercent', e.target.value)}
+                        placeholder={t.panels.enterPaymentPercent}
+                        disabled={readOnly}
+                        className="bg-background"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">{t.panels.paymentComments}</Label>
+                      <Input
+                        value={term.comments}
+                        onChange={(e) => updatePaymentTerm(index, 'comments', e.target.value)}
+                        placeholder={t.panels.enterPaymentComments}
+                        disabled={readOnly}
+                        className="bg-background"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {t.panels.paymentTermsTotal}: {paymentPercentTotal.toFixed(2)}%
+            </p>
+            {!paymentTermsRequiredValid && (
+              <p className="text-xs text-destructive">{t.panels.paymentTermsRequired}</p>
+            )}
+            {paymentTermsRequiredValid && !paymentTermsTotalValid && (
+              <p className="text-xs text-destructive">{t.panels.paymentTermsTotalInvalid}</p>
+            )}
           </div>
 
           <div className="space-y-3">
@@ -564,6 +795,17 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
                   <span className="text-muted-foreground">{t.panels.salesFinalPrice}:</span> {request.salesCurrency ?? 'EUR'} {request.salesFinalPrice.toFixed(2)}
                 </p>
               )}
+              {typeof request.salesMargin === 'number' && (
+                <p className="text-sm text-foreground">
+                  <span className="text-muted-foreground">{t.panels.salesMargin}:</span> {request.salesMargin.toFixed(2)}%
+                </p>
+              )}
+              {request.salesExpectedDeliveryDate && (
+                <p className="text-sm text-foreground">
+                  <span className="text-muted-foreground">{t.panels.salesExpectedDeliveryDate}:</span>{' '}
+                  {request.salesExpectedDeliveryDate}
+                </p>
+              )}
               {request.salesIncoterm && (
                 <p className="text-sm text-foreground">
                   <span className="text-muted-foreground">{t.panels.incoterm}:</span> {incotermDisplay}
@@ -581,6 +823,20 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
                 <p className="text-sm text-foreground">
                   <span className="text-muted-foreground">{t.panels.salesFeedback}:</span> {request.salesFeedbackComment}
                 </p>
+              )}
+              {hasSalesPaymentTerms && (
+                <div className="space-y-1">
+                  <p className="text-sm text-foreground">
+                    <span className="text-muted-foreground">{t.panels.paymentTerms}:</span>
+                  </p>
+                  {summaryPaymentTerms.map((term, index) => (
+                    <p key={`summary-term-${index}`} className="text-sm text-foreground pl-3">
+                      #{term.paymentNumber || index + 1} {term.paymentName || '-'} |{' '}
+                      {typeof term.paymentPercent === 'number' ? `${term.paymentPercent}%` : '-'} |{' '}
+                      {term.comments || '-'}
+                    </p>
+                  ))}
+                </div>
               )}
             </div>
           )}

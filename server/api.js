@@ -548,6 +548,40 @@ const syncLegacyFromProduct = (target, product) => ({
   attachments: Array.isArray(product?.attachments) ? product.attachments : [],
 });
 
+const normalizeSalesPaymentTerms = (termsInput, countInput) => {
+  const source = Array.isArray(termsInput) ? termsInput : [];
+  const parsedCount = Number.parseInt(String(countInput ?? ""), 10);
+  const baseCount = Number.isFinite(parsedCount) ? parsedCount : source.length || 1;
+  const salesPaymentTermCount = Math.min(6, Math.max(1, baseCount));
+  const salesPaymentTerms = Array.from({ length: salesPaymentTermCount }, (_unused, index) => {
+    const raw = source[index] ?? {};
+    const percentRaw = raw?.paymentPercent;
+    let paymentPercent = null;
+    if (typeof percentRaw === "number" && Number.isFinite(percentRaw)) {
+      paymentPercent = percentRaw;
+    } else if (typeof percentRaw === "string" && percentRaw.trim() !== "") {
+      const parsed = Number.parseFloat(percentRaw);
+      paymentPercent = Number.isFinite(parsed) ? parsed : null;
+    }
+    return {
+      paymentNumber: index + 1,
+      paymentName: typeof raw?.paymentName === "string" ? raw.paymentName : "",
+      paymentPercent,
+      comments: typeof raw?.comments === "string" ? raw.comments : "",
+    };
+  });
+  return { salesPaymentTermCount, salesPaymentTerms };
+};
+
+const parseOptionalFiniteNumber = (value) => {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+};
+
 const normalizeRequestData = (data, nowIso) => {
   const history = Array.isArray(data.history) ? data.history : [];
   const attachments = Array.isArray(data.attachments) ? data.attachments : [];
@@ -560,6 +594,10 @@ const normalizeRequestData = (data, nowIso) => {
   const salesAttachments = Array.isArray(data.salesAttachments)
     ? data.salesAttachments
     : [];
+  const { salesPaymentTermCount, salesPaymentTerms } = normalizeSalesPaymentTerms(
+    data.salesPaymentTerms,
+    data.salesPaymentTermCount
+  );
   const productsPayload = Array.isArray(data.products) ? data.products : [];
   const products = productsPayload.length
     ? productsPayload.map(normalizeProduct)
@@ -584,7 +622,12 @@ const normalizeRequestData = (data, nowIso) => {
     salesIncoterm: typeof data.salesIncoterm === "string" ? data.salesIncoterm : "",
     salesIncotermOther: typeof data.salesIncotermOther === "string" ? data.salesIncotermOther : "",
     salesVatMode: data.salesVatMode === "with" ? "with" : "without",
-    salesVatRate: typeof data.salesVatRate === "number" ? data.salesVatRate : null,
+    salesVatRate: parseOptionalFiniteNumber(data.salesVatRate),
+    salesMargin: parseOptionalFiniteNumber(data.salesMargin),
+    salesExpectedDeliveryDate:
+      typeof data.salesExpectedDeliveryDate === "string" ? data.salesExpectedDeliveryDate : "",
+    salesPaymentTermCount,
+    salesPaymentTerms,
     salesFeedbackComment: typeof data.salesFeedbackComment === "string" ? data.salesFeedbackComment : "",
     salesAttachments,
     products,
