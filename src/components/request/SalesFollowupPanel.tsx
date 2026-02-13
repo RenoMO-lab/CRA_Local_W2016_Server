@@ -23,6 +23,7 @@ type SalesFollowupData = {
   salesVatMode?: 'with' | 'without';
   salesVatRate?: number | null;
   salesMargin?: number | null;
+  salesWarrantyPeriod?: string;
   salesExpectedDeliveryDate?: string;
   salesPaymentTermCount?: number;
   salesPaymentTerms?: SalesPaymentTerm[];
@@ -102,6 +103,9 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   );
   const [salesMargin, setSalesMargin] = useState<string>(
     typeof request.salesMargin === 'number' ? request.salesMargin.toString() : ''
+  );
+  const [salesWarrantyPeriod, setSalesWarrantyPeriod] = useState<string>(
+    request.salesWarrantyPeriod || ''
   );
   const [salesExpectedDeliveryDate, setSalesExpectedDeliveryDate] = useState<string>(
     request.salesExpectedDeliveryDate || ''
@@ -343,6 +347,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
       salesVatMode,
       salesVatRate: salesVatRateValue,
       salesMargin: parseOptionalNumber(salesMargin),
+      salesWarrantyPeriod: salesWarrantyPeriod.trim(),
       salesExpectedDeliveryDate: salesExpectedDeliveryDate.trim(),
       salesPaymentTermCount,
       salesPaymentTerms: paymentTerms,
@@ -444,6 +449,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
       request.salesIncoterm ||
       (request.salesVatMode === 'with' && request.salesVatRate !== null) ||
       typeof request.salesMargin === 'number' ||
+      (request.salesWarrantyPeriod ?? '').trim().length > 0 ||
       (request.salesExpectedDeliveryDate ?? '').trim().length > 0 ||
       hasSalesPaymentTerms
   );
@@ -477,147 +483,126 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
 
       {showEditor && (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="salesFinalPrice" className="text-sm font-medium flex items-center gap-2">
-                <DollarSign size={14} className="text-info" />
-                {t.panels.salesFinalPrice} *
-              </Label>
-              <div className="flex gap-2">
+          <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-4">
+            <h4 className="text-sm font-semibold text-foreground">{t.panels.commercialTerms}</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="salesFinalPrice" className="text-sm font-medium flex items-center gap-2">
+                  <DollarSign size={14} className="text-info" />
+                  {t.panels.salesFinalPrice} *
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="salesFinalPrice"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={salesFinalPrice}
+                    onChange={(e) => setSalesFinalPrice(e.target.value)}
+                    placeholder={`${t.common.add} ${t.panels.salesFinalPrice.toLowerCase()}...`}
+                    className="bg-background flex-1"
+                    disabled={readOnly}
+                  />
+                  <div className="min-w-[130px]">
+                    <Label className="sr-only">{t.panels.currency}</Label>
+                    <Select
+                      value={salesCurrency}
+                      onValueChange={(value) => setSalesCurrency(value as 'USD' | 'EUR' | 'RMB')}
+                      disabled={readOnly}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder={t.panels.selectCurrency} />
+                      </SelectTrigger>
+                      <SelectContent className="bg-card border border-border">
+                        <SelectItem value="USD">{t.panels.currencyUsd}</SelectItem>
+                        <SelectItem value="EUR">{t.panels.currencyEur}</SelectItem>
+                        <SelectItem value="RMB">{t.panels.currencyRmb}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">{t.panels.vatMode}</Label>
+                <Select value={salesVatMode} onValueChange={(value) => setSalesVatMode(value as 'with' | 'without')} disabled={readOnly}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t.panels.selectVatMode} />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border border-border">
+                    <SelectItem value="with">{t.panels.withVat}</SelectItem>
+                    <SelectItem value="without">{t.panels.withoutVat}</SelectItem>
+                  </SelectContent>
+                </Select>
+                {salesVatMode === 'with' && (
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    value={salesVatRate}
+                    onChange={(e) => setSalesVatRate(e.target.value)}
+                    placeholder={t.panels.enterVatRate}
+                    disabled={readOnly}
+                    className="bg-background"
+                  />
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="salesMargin" className="text-sm font-medium">
+                  {t.panels.salesMargin} (%) *
+                </Label>
                 <Input
-                  id="salesFinalPrice"
+                  id="salesMargin"
                   type="number"
                   min="0"
                   step="0.01"
-                  value={salesFinalPrice}
-                  onChange={(e) => setSalesFinalPrice(e.target.value)}
-                  placeholder={`${t.common.add} ${t.panels.salesFinalPrice.toLowerCase()}...`}
-                  className="bg-background flex-1"
+                  value={salesMargin}
+                  onChange={(e) => setSalesMargin(e.target.value)}
+                  placeholder={t.panels.enterSalesMargin}
+                  className="bg-background"
                   disabled={readOnly}
                 />
-                <div className="min-w-[130px]">
-                  <Label className="sr-only">{t.panels.currency}</Label>
-                  <Select
-                    value={salesCurrency}
-                    onValueChange={(value) => setSalesCurrency(value as 'USD' | 'EUR' | 'RMB')}
-                    disabled={readOnly}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={t.panels.selectCurrency} />
-                    </SelectTrigger>
-                    <SelectContent className="bg-card border border-border">
-                      <SelectItem value="USD">{t.panels.currencyUsd}</SelectItem>
-                      <SelectItem value="EUR">{t.panels.currencyEur}</SelectItem>
-                      <SelectItem value="RMB">{t.panels.currencyRmb}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="salesWarrantyPeriod" className="text-sm font-medium">
+                  {t.panels.warrantyPeriod}
+                </Label>
+                <Input
+                  id="salesWarrantyPeriod"
+                  value={salesWarrantyPeriod}
+                  onChange={(e) => setSalesWarrantyPeriod(e.target.value)}
+                  placeholder={t.panels.enterWarrantyPeriod}
+                  className="bg-background"
+                  disabled={readOnly}
+                />
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="salesMargin" className="text-sm font-medium">
-                {t.panels.salesMargin} (%) *
-              </Label>
-              <Input
-                id="salesMargin"
-                type="number"
-                min="0"
-                step="0.01"
-                value={salesMargin}
-                onChange={(e) => setSalesMargin(e.target.value)}
-                placeholder={t.panels.enterSalesMargin}
-                className="bg-background"
-                disabled={readOnly}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="salesExpectedDeliveryDate" className="text-sm font-medium">
-                {t.panels.salesExpectedDeliveryDate} *
-              </Label>
-              <Input
-                id="salesExpectedDeliveryDate"
-                type="date"
-                value={salesExpectedDeliveryDate}
-                onChange={(e) => setSalesExpectedDeliveryDate(e.target.value)}
-                className="bg-background"
-                disabled={readOnly}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">{t.panels.paymentSettlementCount} *</Label>
-              <Select
-                value={String(salesPaymentTermCount)}
-                onValueChange={handlePaymentTermCountChange}
-                disabled={readOnly}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t.panels.selectPaymentSettlementCount} />
-                </SelectTrigger>
-                <SelectContent className="bg-card border border-border">
-                  {Array.from({ length: MAX_PAYMENT_TERMS }, (_v, index) => (
-                    <SelectItem key={index + 1} value={String(index + 1)}>
-                      {String(index + 1)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">{t.panels.incoterm}</Label>
-              <Select value={salesIncoterm} onValueChange={(value) => setSalesIncoterm(value)} disabled={readOnly}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t.panels.selectIncoterm} />
-                </SelectTrigger>
-                <SelectContent className="bg-card border border-border">
-                  <SelectItem value="EXW">EXW</SelectItem>
-                  <SelectItem value="FOB">FOB</SelectItem>
-                  <SelectItem value="other">{t.common.other}</SelectItem>
-                </SelectContent>
-              </Select>
-              {salesIncoterm === 'other' && (
-                <Input
-                  value={salesIncotermOther}
-                  onChange={(e) => setSalesIncotermOther(e.target.value)}
-                  placeholder={t.panels.enterIncoterm}
+          <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+            <h4 className="text-sm font-semibold text-foreground">{t.panels.paymentTerms}</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">{t.panels.paymentSettlementCount} *</Label>
+                <Select
+                  value={String(salesPaymentTermCount)}
+                  onValueChange={handlePaymentTermCountChange}
                   disabled={readOnly}
-                  className="bg-background"
-                />
-              )}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t.panels.selectPaymentSettlementCount} />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border border-border">
+                    {Array.from({ length: MAX_PAYMENT_TERMS }, (_v, index) => (
+                      <SelectItem key={index + 1} value={String(index + 1)}>
+                        {String(index + 1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label className="text-sm font-medium">{t.panels.vatMode}</Label>
-              <Select value={salesVatMode} onValueChange={(value) => setSalesVatMode(value as 'with' | 'without')} disabled={readOnly}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={t.panels.selectVatMode} />
-                </SelectTrigger>
-                <SelectContent className="bg-card border border-border">
-                  <SelectItem value="with">{t.panels.withVat}</SelectItem>
-                  <SelectItem value="without">{t.panels.withoutVat}</SelectItem>
-                </SelectContent>
-              </Select>
-              {salesVatMode === 'with' && (
-                <Input
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  value={salesVatRate}
-                  onChange={(e) => setSalesVatRate(e.target.value)}
-                  placeholder={t.panels.enterVatRate}
-                  disabled={readOnly}
-                  className="bg-background"
-                />
-              )}
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <Label className="text-sm font-medium">{t.panels.paymentTerms}</Label>
             <div className="space-y-3">
               {paymentTermsForValidation.map((term, index) => (
                 <div key={term.paymentNumber} className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
@@ -672,6 +657,47 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
             {paymentTermsRequiredValid && !paymentTermsTotalValid && (
               <p className="text-xs text-destructive">{t.panels.paymentTermsTotalInvalid}</p>
             )}
+          </div>
+
+          <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-4">
+            <h4 className="text-sm font-semibold text-foreground">{t.panels.deliveryTerms}</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="salesExpectedDeliveryDate" className="text-sm font-medium">
+                  {t.panels.salesExpectedDeliveryDate} *
+                </Label>
+                <Input
+                  id="salesExpectedDeliveryDate"
+                  type="date"
+                  value={salesExpectedDeliveryDate}
+                  onChange={(e) => setSalesExpectedDeliveryDate(e.target.value)}
+                  className="bg-background"
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">{t.panels.incoterm}</Label>
+                <Select value={salesIncoterm} onValueChange={(value) => setSalesIncoterm(value)} disabled={readOnly}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t.panels.selectIncoterm} />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card border border-border">
+                    <SelectItem value="EXW">EXW</SelectItem>
+                    <SelectItem value="FOB">FOB</SelectItem>
+                    <SelectItem value="other">{t.common.other}</SelectItem>
+                  </SelectContent>
+                </Select>
+                {salesIncoterm === 'other' && (
+                  <Input
+                    value={salesIncotermOther}
+                    onChange={(e) => setSalesIncotermOther(e.target.value)}
+                    placeholder={t.panels.enterIncoterm}
+                    disabled={readOnly}
+                    className="bg-background"
+                  />
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="space-y-3">
@@ -790,7 +816,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
         <div className="space-y-3">
           {hasSalesSummary && (
             <div className="p-4 bg-muted/30 rounded-lg border border-border space-y-2">
-              {request.salesFinalPrice && (
+              {typeof request.salesFinalPrice === 'number' && (
                 <p className="text-sm text-foreground">
                   <span className="text-muted-foreground">{t.panels.salesFinalPrice}:</span> {request.salesCurrency ?? 'EUR'} {request.salesFinalPrice.toFixed(2)}
                 </p>
@@ -798,6 +824,11 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
               {typeof request.salesMargin === 'number' && (
                 <p className="text-sm text-foreground">
                   <span className="text-muted-foreground">{t.panels.salesMargin}:</span> {request.salesMargin.toFixed(2)}%
+                </p>
+              )}
+              {(request.salesWarrantyPeriod ?? '').trim().length > 0 && (
+                <p className="text-sm text-foreground">
+                  <span className="text-muted-foreground">{t.panels.warrantyPeriod}:</span> {request.salesWarrantyPeriod}
                 </p>
               )}
               {request.salesExpectedDeliveryDate && (

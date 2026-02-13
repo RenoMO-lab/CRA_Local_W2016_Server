@@ -149,6 +149,7 @@ const reviveRequest = (r: any): CustomerRequest => {
     salesVatMode: r?.salesVatMode === 'with' ? 'with' : 'without',
     salesVatRate: typeof r?.salesVatRate === 'number' ? r.salesVatRate : null,
     salesMargin: typeof r?.salesMargin === 'number' ? r.salesMargin : null,
+    salesWarrantyPeriod: r?.salesWarrantyPeriod ?? '',
     salesExpectedDeliveryDate: r?.salesExpectedDeliveryDate ?? '',
     salesPaymentTermCount: revivedPaymentTerms.count,
     salesPaymentTerms: revivedPaymentTerms.terms,

@@ -1093,6 +1093,7 @@ const RequestForm: React.FC = () => {
     existingRequest &&
       (typeof existingRequest.salesFinalPrice === 'number' ||
         typeof existingRequest.salesMargin === 'number' ||
+        (existingRequest.salesWarrantyPeriod ?? '').trim().length > 0 ||
         (existingRequest.salesExpectedDeliveryDate ?? '').trim().length > 0 ||
         (Array.isArray(existingRequest.salesPaymentTerms) &&
           existingRequest.salesPaymentTerms.some(
@@ -1824,6 +1825,7 @@ const RequestForm: React.FC = () => {
     salesVatMode?: 'with' | 'without';
     salesVatRate?: number | null;
     salesMargin?: number | null;
+    salesWarrantyPeriod?: string;
     salesExpectedDeliveryDate?: string;
     salesPaymentTermCount?: number;
     salesPaymentTerms?: SalesPaymentTerm[];

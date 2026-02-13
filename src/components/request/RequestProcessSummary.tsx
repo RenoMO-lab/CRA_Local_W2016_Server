@@ -244,6 +244,7 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
   const hasSalesData = Boolean(
     typeof request.salesFinalPrice === "number" ||
       typeof request.salesMargin === "number" ||
+      (request.salesWarrantyPeriod ?? "").trim() ||
       (request.salesExpectedDeliveryDate ?? "").trim() ||
       (Array.isArray(request.salesPaymentTerms) && request.salesPaymentTerms.length > 0) ||
       (request.salesFeedbackComment ?? "").trim() ||
@@ -435,6 +436,10 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
             <FieldLine
               label={t.panels.salesMargin}
               value={typeof request.salesMargin === "number" ? `${request.salesMargin.toFixed(2)}%` : "-"}
+            />
+            <FieldLine
+              label={t.panels.warrantyPeriod}
+              value={(request.salesWarrantyPeriod ?? "").trim() || "-"}
             />
             <FieldLine
               label={t.panels.salesExpectedDeliveryDate}

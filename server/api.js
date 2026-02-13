@@ -624,6 +624,8 @@ const normalizeRequestData = (data, nowIso) => {
     salesVatMode: data.salesVatMode === "with" ? "with" : "without",
     salesVatRate: parseOptionalFiniteNumber(data.salesVatRate),
     salesMargin: parseOptionalFiniteNumber(data.salesMargin),
+    salesWarrantyPeriod:
+      typeof data.salesWarrantyPeriod === "string" ? data.salesWarrantyPeriod : "",
     salesExpectedDeliveryDate:
       typeof data.salesExpectedDeliveryDate === "string" ? data.salesExpectedDeliveryDate : "",
     salesPaymentTermCount,

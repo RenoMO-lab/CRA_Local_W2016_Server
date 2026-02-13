@@ -190,6 +190,7 @@ export interface CustomerRequest {
   salesVatMode?: 'with' | 'without';
   salesVatRate?: number | null;
   salesMargin?: number | null;
+  salesWarrantyPeriod?: string;
   salesExpectedDeliveryDate?: string;
   salesPaymentTermCount?: number;
   salesPaymentTerms?: SalesPaymentTerm[];
