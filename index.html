@@ -12,7 +12,13 @@
           var systemDark =
             window.matchMedia &&
             window.matchMedia("(prefers-color-scheme: dark)").matches;
-          var useDark = theme === "dark" || (theme !== "light" && systemDark);
+          // Default for first-time visitors (no saved theme): dark.
+          // Respect saved choice for everyone else, including "system".
+          var useDark =
+            theme === null ||
+            theme === "dark" ||
+            (theme === "system" && systemDark) ||
+            (theme !== "light" && theme !== "system" && systemDark);
           var root = document.documentElement;
           if (useDark) root.classList.add("dark");
           else root.classList.remove("dark");
