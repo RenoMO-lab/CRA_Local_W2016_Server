@@ -1,5 +1,5 @@
 import express from "express";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { promises as fs } from "node:fs";
@@ -414,6 +414,132 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
         </td>
       </tr>
     </table>
+    </body>
+  </html>
+  `.trim();
+};
+
+const ACCESS_EMAIL_SUBJECT = "[CRA] Your platform access is ready";
+
+const generateTemporaryPassword = (length = 12) => {
+  const targetLen = Number.isFinite(length) ? Math.max(10, Math.floor(length)) : 12;
+  const lowers = "abcdefghijkmnopqrstuvwxyz";
+  const uppers = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const digits = "23456789";
+  const symbols = "@#$%&*-_!";
+  const all = `${lowers}${uppers}${digits}${symbols}`;
+
+  const pick = (charset) => charset[randomBytes(1)[0] % charset.length];
+  const chars = [pick(lowers), pick(uppers), pick(digits), pick(symbols)];
+  while (chars.length < targetLen) {
+    chars.push(pick(all));
+  }
+
+  // Fisher-Yates shuffle
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = randomBytes(1)[0] % (i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join("");
+};
+
+const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPassword, appUrl, senderUpn }) => {
+  const name = String(userName ?? "").trim() || "User";
+  const login = String(loginEmail ?? "").trim();
+  const password = String(temporaryPassword ?? "").trim();
+  const link = String(appUrl ?? "").trim();
+  const sender = String(senderUpn ?? "").trim();
+  const nowUtc = formatIsoUtc(new Date().toISOString());
+
+  const safeLink = escapeHtml(link);
+  const safeName = escapeHtml(name);
+  const safeLogin = escapeHtml(login);
+  const safePassword = escapeHtml(password);
+  const safeSender = escapeHtml(sender || "System Administrator");
+  const safeNowUtc = escapeHtml(nowUtc);
+
+  return `
+  <!doctype html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <meta name="color-scheme" content="light" />
+      <meta name="supported-color-schemes" content="light" />
+    </head>
+    <body style="margin:0; padding:0; background:#F5F7FB; color:#111827;">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" bgcolor="#F5F7FB" style="background:#F5F7FB; width:100%;">
+        <tr>
+          <td align="center" style="padding:28px 12px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px; max-width:640px;">
+              <tr>
+                <td bgcolor="#FFFFFF" style="background:#FFFFFF; border:1px solid #E5E7EB; border-radius:16px; overflow:hidden; font-family: Arial, sans-serif;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                    <tr>
+                      <td height="6" bgcolor="#2563EB" style="background:#2563EB; font-size:0; line-height:0;">&nbsp;</td>
+                    </tr>
+                    <tr>
+                      <td style="padding:22px 24px 8px 24px;">
+                        <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Access Notification</div>
+                        <div style="margin-top:6px; font-size:24px; font-weight:900; color:#111827; line-height:30px;">Your CRA account is ready</div>
+                        <div style="margin-top:10px; font-size:14px; color:#374151; line-height:20px;">
+                          Dear ${safeName},<br/><br/>
+                          Your access to the CRA platform has been configured. Please use the credentials below to sign in.
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:8px 24px 0 24px;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
+                          <tr>
+                            <td style="width:170px; padding:10px 0; font-size:12px; color:#6B7280; text-transform:uppercase;">Platform Link</td>
+                            <td style="padding:10px 0; font-size:14px; font-weight:700;">
+                              <a href="${safeLink}" style="color:#2563EB; text-decoration:underline; word-break:break-all;">${safeLink}</a>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td style="width:170px; padding:10px 0; font-size:12px; color:#6B7280; text-transform:uppercase;">Login</td>
+                            <td style="padding:10px 0; font-size:14px; font-weight:700; color:#111827;">${safeLogin}</td>
+                          </tr>
+                          <tr>
+                            <td style="width:170px; padding:10px 0; font-size:12px; color:#6B7280; text-transform:uppercase;">Temporary Password</td>
+                            <td style="padding:10px 0; font-size:14px; font-weight:700; color:#111827;">${safePassword}</td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:14px 24px 18px 24px;">
+                        <div style="padding:12px 14px; border:1px solid #E5E7EB; background:#F9FAFB; border-radius:10px; font-size:13px; color:#374151; line-height:19px;">
+                          For security reasons, please change your password immediately after your first login and do not share your credentials.
+                        </div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td style="padding:0 24px 22px 24px;">
+                        <center>
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="420" style="border-collapse:separate; width:420px; max-width:420px; margin:0 auto;">
+                            <tr>
+                              <td align="center" valign="middle" bgcolor="#D71920" style="background:#D71920; border-radius:12px; mso-padding-alt:15px 18px;">
+                                <a href="${safeLink}" style="display:block; font-family:Arial, sans-serif; font-size:15px; font-weight:800; color:#FFFFFF; text-decoration:none; padding:15px 18px; line-height:20px; border-radius:12px; text-align:center;">
+                                  <span style="color:#FFFFFF; text-decoration:none;">Open CRA Platform</span>
+                                </a>
+                              </td>
+                            </tr>
+                          </table>
+                        </center>
+                        <div style="margin-top:12px; font-size:11px; color:#6B7280; line-height:16px;">
+                          Provisioned by ${safeSender}${safeNowUtc ? ` on ${safeNowUtc}` : ""}.
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
     </body>
   </html>
   `.trim();
@@ -1889,6 +2015,150 @@ export const apiRouter = (() => {
       });
 
       res.json({ created, updated, total: created + updated });
+    })
+  );
+
+  router.post(
+    "/admin/users/:userId/access-email/preview",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const userId = String(req.params.userId ?? "").trim();
+      if (!userId) {
+        res.status(400).json({ error: "Missing user id" });
+        return;
+      }
+
+      const body = safeJson(req.body) ?? {};
+      const providedAppUrl = String(body.appUrl ?? "").trim();
+      const providedPassword = String(body.temporaryPassword ?? "").trim();
+
+      const pool = await getPool();
+      const { rows } = await pool.query(
+        "SELECT id, name, email, is_active FROM app_users WHERE id = $1 LIMIT 1",
+        [userId]
+      );
+      const targetUser = rows?.[0] ?? null;
+      if (!targetUser || targetUser.is_active === false) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+
+      const settings = await getM365Settings(pool);
+      const appUrl = providedAppUrl || String(settings.appBaseUrl ?? "").trim();
+      if (!appUrl) {
+        res.status(400).json({ error: "Missing app URL. Configure Microsoft 365 app base URL or provide appUrl." });
+        return;
+      }
+
+      const temporaryPassword = providedPassword || generateTemporaryPassword(12);
+      const subject = ACCESS_EMAIL_SUBJECT;
+      const html = renderAccessProvisionEmailHtml({
+        userName: targetUser.name,
+        loginEmail: targetUser.email,
+        temporaryPassword,
+        appUrl,
+        senderUpn: settings.senderUpn,
+      });
+
+      res.json({
+        toEmail: targetUser.email,
+        userName: targetUser.name,
+        loginEmail: targetUser.email,
+        appUrl,
+        temporaryPassword,
+        subject,
+        html,
+      });
+    })
+  );
+
+  router.post(
+    "/admin/users/:userId/access-email/send",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const userId = String(req.params.userId ?? "").trim();
+      if (!userId) {
+        res.status(400).json({ error: "Missing user id" });
+        return;
+      }
+
+      const body = safeJson(req.body) ?? {};
+      const providedAppUrl = String(body.appUrl ?? "").trim();
+      const providedPassword = String(body.temporaryPassword ?? "").trim();
+
+      const pool = await getPool();
+      const { rows } = await pool.query(
+        "SELECT id, name, email, is_active, password_hash FROM app_users WHERE id = $1 LIMIT 1",
+        [userId]
+      );
+      const targetUser = rows?.[0] ?? null;
+      if (!targetUser || targetUser.is_active === false) {
+        res.status(404).json({ error: "User not found" });
+        return;
+      }
+
+      const settings = await getM365Settings(pool);
+      const appUrl = providedAppUrl || String(settings.appBaseUrl ?? "").trim();
+      if (!appUrl) {
+        res.status(400).json({ error: "Missing app URL. Configure Microsoft 365 app base URL or provide appUrl." });
+        return;
+      }
+
+      const temporaryPassword = providedPassword || generateTemporaryPassword(12);
+      const subject = ACCESS_EMAIL_SUBJECT;
+      const html = renderAccessProvisionEmailHtml({
+        userName: targetUser.name,
+        loginEmail: targetUser.email,
+        temporaryPassword,
+        appUrl,
+        senderUpn: settings.senderUpn,
+      });
+
+      const nextPasswordHash = makePasswordHash(temporaryPassword);
+      const previousHash = String(targetUser.password_hash ?? "");
+      let passwordUpdated = false;
+
+      try {
+        await pool.query(
+          `UPDATE app_users
+              SET password_hash = $1,
+                  updated_at = now()
+            WHERE id = $2
+              AND is_active = true`,
+          [nextPasswordHash, userId]
+        );
+        passwordUpdated = true;
+
+        const accessToken = await getValidAccessToken(pool);
+        await sendMail({
+          accessToken,
+          subject,
+          bodyHtml: html,
+          toEmails: [String(targetUser.email)],
+        });
+      } catch (error) {
+        if (passwordUpdated && previousHash) {
+          try {
+            await pool.query(
+              `UPDATE app_users
+                  SET password_hash = $1,
+                      updated_at = now()
+                WHERE id = $2`,
+              [previousHash, userId]
+            );
+          } catch (restoreError) {
+            console.error("Failed to restore previous user password hash after email send failure:", restoreError);
+          }
+        }
+        throw error;
+      }
+
+      res.json({
+        ok: true,
+        toEmail: targetUser.email,
+        appUrl,
+        subject,
+      });
     })
   );
 

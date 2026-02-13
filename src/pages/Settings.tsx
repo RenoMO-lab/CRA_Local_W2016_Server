@@ -189,6 +189,16 @@ interface M365AdminResponse {
   } | null;
 }
 
+interface AccessEmailPreview {
+  toEmail: string;
+  userName: string;
+  loginEmail: string;
+  appUrl: string;
+  temporaryPassword: string;
+  subject: string;
+  html: string;
+}
+
 type DbMonitorWaitRow = {
   waitType: string;
   waitMs: number | null;
@@ -431,6 +441,14 @@ const Settings: React.FC = () => {
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<(UserItem & { newPassword?: string }) | null>(null);
   const [newUserForm, setNewUserForm] = useState({ name: '', email: '', role: 'sales' as UserRole, password: '' });
+  const [isAccessEmailOpen, setIsAccessEmailOpen] = useState(false);
+  const [accessEmailUser, setAccessEmailUser] = useState<UserItem | null>(null);
+  const [accessEmailAppUrl, setAccessEmailAppUrl] = useState('');
+  const [accessEmailTemporaryPassword, setAccessEmailTemporaryPassword] = useState('');
+  const [accessEmailSubject, setAccessEmailSubject] = useState('');
+  const [accessEmailHtml, setAccessEmailHtml] = useState('');
+  const [isAccessEmailPreviewLoading, setIsAccessEmailPreviewLoading] = useState(false);
+  const [isAccessEmailSending, setIsAccessEmailSending] = useState(false);
   const [isLegacyUserImporting, setIsLegacyUserImporting] = useState(false);
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
@@ -1720,6 +1738,108 @@ const Settings: React.FC = () => {
     setIsEditUserOpen(true);
   };
 
+  const loadAccessEmailPreview = async (
+    userId: string,
+    appUrl: string,
+    temporaryPassword: string
+  ) => {
+    setIsAccessEmailPreviewLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}/access-email/preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ appUrl, temporaryPassword }),
+      });
+      const data = (await res.json().catch(() => null)) as AccessEmailPreview | { error?: string } | null;
+      if (!res.ok) {
+        throw new Error(String((data as any)?.error ?? `Failed to load preview: ${res.status}`));
+      }
+      const parsed = data as AccessEmailPreview;
+      setAccessEmailAppUrl(String(parsed.appUrl ?? appUrl));
+      setAccessEmailTemporaryPassword(String(parsed.temporaryPassword ?? temporaryPassword));
+      setAccessEmailSubject(String(parsed.subject ?? ''));
+      setAccessEmailHtml(String(parsed.html ?? ''));
+    } catch (error) {
+      console.error('Failed to load access email preview:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsAccessEmailPreviewLoading(false);
+    }
+  };
+
+  const openAccessEmailDialog = (userItem: UserItem) => {
+    const fallbackBaseUrl =
+      typeof window !== 'undefined' && window.location?.origin
+        ? window.location.origin
+        : '';
+    const defaultAppUrl = String(m365Info?.settings?.appBaseUrl ?? fallbackBaseUrl).trim();
+    setAccessEmailUser(userItem);
+    setAccessEmailAppUrl(defaultAppUrl);
+    setAccessEmailTemporaryPassword('');
+    setAccessEmailSubject('');
+    setAccessEmailHtml('');
+    setIsAccessEmailOpen(true);
+    loadAccessEmailPreview(userItem.id, defaultAppUrl, '');
+  };
+
+  const handleSendAccessEmail = async () => {
+    if (!accessEmailUser) return;
+    if (!accessEmailAppUrl.trim()) {
+      toast({
+        title: t.settings.validationError,
+        description: t.settings.m365AppBaseUrl,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!accessEmailTemporaryPassword.trim()) {
+      toast({
+        title: t.settings.validationError,
+        description: t.settings.passwordRequired,
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsAccessEmailSending(true);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(accessEmailUser.id)}/access-email/send`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          appUrl: accessEmailAppUrl.trim(),
+          temporaryPassword: accessEmailTemporaryPassword.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(String(data?.error ?? `Failed to send access email: ${res.status}`));
+      }
+
+      toast({
+        title: t.settings.accessEmailSentTitle,
+        description: `${accessEmailUser.email} ${t.settings.accessEmailSentDesc}`,
+      });
+      setIsAccessEmailOpen(false);
+      setAccessEmailUser(null);
+      setAccessEmailHtml('');
+      setAccessEmailSubject('');
+    } catch (error) {
+      console.error('Failed to send access email:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsAccessEmailSending(false);
+    }
+  };
+
   const handleImportLegacyUsers = async () => {
     setIsLegacyUserImporting(true);
     try {
@@ -2084,6 +2204,14 @@ const Settings: React.FC = () => {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => openAccessEmailDialog(userItem)}
+                          title={t.settings.sendAccessEmail}
+                        >
+                          <Mail size={14} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => openEditUserDialog(userItem)}
                         >
                           <Pencil size={14} />
@@ -2188,6 +2316,101 @@ const Settings: React.FC = () => {
                   {t.common.cancel}
                 </Button>
                 <Button onClick={handleEditUser}>{t.settings.saveChanges}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={isAccessEmailOpen}
+            onOpenChange={(open) => {
+              setIsAccessEmailOpen(open);
+              if (!open) {
+                setAccessEmailUser(null);
+                setAccessEmailHtml('');
+                setAccessEmailSubject('');
+              }
+            }}
+          >
+            <DialogContent className="bg-card max-w-4xl">
+              <DialogHeader>
+                <DialogTitle>{t.settings.sendAccessEmail}</DialogTitle>
+                <DialogDescription>{t.settings.sendAccessEmailDesc}</DialogDescription>
+              </DialogHeader>
+              {accessEmailUser ? (
+                <div className="space-y-4 py-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>{t.common.name}</Label>
+                      <Input value={accessEmailUser.name} disabled />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{t.common.email}</Label>
+                      <Input value={accessEmailUser.email} disabled />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="access-app-url">{t.settings.appPlatformLink}</Label>
+                      <Input
+                        id="access-app-url"
+                        value={accessEmailAppUrl}
+                        onChange={(e) => setAccessEmailAppUrl(e.target.value)}
+                        placeholder="https://your-app-url"
+                        disabled={isAccessEmailSending}
+                      />
+                    </div>
+                    <div className="space-y-2 md:col-span-2">
+                      <Label htmlFor="access-temp-password">{t.settings.temporaryPassword}</Label>
+                      <Input
+                        id="access-temp-password"
+                        value={accessEmailTemporaryPassword}
+                        onChange={(e) => setAccessEmailTemporaryPassword(e.target.value)}
+                        placeholder={t.settings.enterPassword}
+                        disabled={isAccessEmailSending}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        loadAccessEmailPreview(
+                          accessEmailUser.id,
+                          accessEmailAppUrl.trim(),
+                          accessEmailTemporaryPassword.trim()
+                        )
+                      }
+                      disabled={isAccessEmailPreviewLoading || isAccessEmailSending}
+                    >
+                      {isAccessEmailPreviewLoading ? t.common.loading : t.settings.previewEmail}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => loadAccessEmailPreview(accessEmailUser.id, accessEmailAppUrl.trim(), '')}
+                      disabled={isAccessEmailPreviewLoading || isAccessEmailSending}
+                    >
+                      {t.settings.regeneratePassword}
+                    </Button>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                    <div className="text-xs text-muted-foreground">{t.settings.accessEmailSubject}</div>
+                    <div className="text-sm font-medium text-foreground break-words">{accessEmailSubject || '-'}</div>
+                    <div className="text-xs text-muted-foreground">{t.settings.accessEmailPreview}</div>
+                    <iframe
+                      title="access-email-preview"
+                      className="w-full h-[360px] rounded-md border border-border bg-background"
+                      srcDoc={accessEmailHtml || '<div></div>'}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAccessEmailOpen(false)} disabled={isAccessEmailSending}>
+                  {t.common.cancel}
+                </Button>
+                <Button onClick={handleSendAccessEmail} disabled={!accessEmailUser || isAccessEmailSending}>
+                  {isAccessEmailSending ? t.common.loading : t.settings.sendAccessEmail}
+                </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
