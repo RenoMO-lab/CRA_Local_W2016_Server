@@ -17,4 +17,54 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
           port: ${{ secrets.DEPLOY_PORT || '22' }}
-          script: powershell -NoProfile -ExecutionPolicy Bypass -File "C:\apps\CRA_Local\deploy\deploy.ps1"
+          script: |
+            $ErrorActionPreference = 'Stop'
+
+            $overrideScriptPath = "${{ secrets.DEPLOY_SCRIPT_PATH }}".Trim()
+            $candidateScripts = @()
+            if ($overrideScriptPath) {
+              $candidateScripts += $overrideScriptPath
+            }
+            $candidateScripts += @(
+              "C:\apps\CRA_Local\deploy\deploy.ps1",
+              "C:\apps\CRA_Local_W2016_Main\app\deploy\deploy.ps1",
+              "C:\CRA_Local_W2016_Main\deploy\deploy.ps1"
+            )
+
+            $scriptPath = $null
+            foreach ($candidate in ($candidateScripts | Select-Object -Unique)) {
+              if (Test-Path $candidate) {
+                $scriptPath = $candidate
+                break
+              }
+            }
+
+            if (-not $scriptPath) {
+              Write-Error "Deploy script not found. Checked: $($candidateScripts -join ', ')"
+              if (Test-Path "C:\apps") {
+                Write-Host "C:\apps content (debug):"
+                Get-ChildItem -Path "C:\apps" -Force | Select-Object Name,FullName,LastWriteTime
+              }
+              exit 1
+            }
+
+            $deployDir = Split-Path $scriptPath -Parent
+            $appPath = Split-Path $deployDir -Parent
+
+            $serviceCandidates = @("CRA_Local", "CRA_Local_W2016", "CRA_Local_App")
+            $serviceName = $null
+            foreach ($candidate in $serviceCandidates) {
+              if (Get-Service -Name $candidate -ErrorAction SilentlyContinue) {
+                $serviceName = $candidate
+                break
+              }
+            }
+            if (-not $serviceName) {
+              $serviceName = "CRA_Local"
+            }
+
+            Write-Host "Deploy script: $scriptPath"
+            Write-Host "App path: $appPath"
+            Write-Host "Service name: $serviceName"
+
+            powershell -NoProfile -ExecutionPolicy Bypass -File $scriptPath -AppPath $appPath -ServiceName $serviceName
