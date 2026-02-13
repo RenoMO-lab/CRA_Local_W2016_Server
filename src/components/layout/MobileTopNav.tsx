@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Menu, Plus, MessageCircle, Laptop, Sun, Moon } from 'lucide-react';
+import { LogOut, Menu, Plus, MessageCircle, Laptop, Sun, Moon, KeyRound } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { ROLE_CONFIG } from '@/types';
@@ -21,6 +21,7 @@ import {
   DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
 import FeedbackDialog from '@/components/feedback/FeedbackDialog';
+import AccountDialog from '@/components/account/AccountDialog';
 
 const MobileTopNav: React.FC = () => {
   const location = useLocation();
@@ -28,6 +29,7 @@ const MobileTopNav: React.FC = () => {
   const { user, logout } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const { theme, setTheme } = useTheme();
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
   const languages = [
     { code: 'en', label: 'English' },
     { code: 'fr', label: 'Français' },
@@ -102,6 +104,11 @@ const MobileTopNav: React.FC = () => {
                 />
               </div>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => setIsAccountOpen(true)} className="cursor-pointer">
+                <KeyRound size={14} className="mr-2" />
+                {t.account.myAccount}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <div className="py-1">
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger className="cursor-pointer">
@@ -149,6 +156,8 @@ const MobileTopNav: React.FC = () => {
           </DropdownMenu>
         </div>
       </div>
+
+      <AccountDialog open={isAccountOpen} onOpenChange={setIsAccountOpen} />
     </header>
   );
 };

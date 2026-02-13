@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileText, Plus, Settings, LogOut, ChevronLeft, Menu, Users, BarChart3, Languages, Tags, MessageCircle, LifeBuoy, MoreVertical, Laptop, Sun, Moon } from 'lucide-react';
+import { LayoutDashboard, FileText, Plus, Settings, LogOut, ChevronLeft, Menu, Users, BarChart3, Languages, Tags, MessageCircle, LifeBuoy, MoreVertical, Laptop, Sun, Moon, KeyRound } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { cn } from '@/lib/utils';
@@ -10,6 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import FeedbackDialog from '@/components/feedback/FeedbackDialog';
 import HelpDialog from '@/components/help/HelpDialog';
 import { useTheme } from "next-themes";
+import AccountDialog from '@/components/account/AccountDialog';
 interface SidebarProps {
   isCollapsed: boolean;
   onToggle: () => void;
@@ -29,6 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     setLanguage
   } = useLanguage();
   const { theme, setTheme } = useTheme();
+  const [isAccountOpen, setIsAccountOpen] = useState(false);
   const languages = [
     { code: 'en', label: 'English' },
     { code: 'fr', label: 'Français' },
@@ -187,6 +189,16 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                   <DropdownMenuSeparator />
 
+                  <DropdownMenuItem
+                    onSelect={() => setIsAccountOpen(true)}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-all duration-150 hover:bg-accent"
+                  >
+                    <KeyRound size={14} className="mr-2" />
+                    {t.account.myAccount}
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger className="flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-all duration-150 hover:bg-accent">
                       <Laptop size={14} className="mr-2" />
@@ -223,6 +235,8 @@ const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+
+      <AccountDialog open={isAccountOpen} onOpenChange={setIsAccountOpen} />
     </aside>;
 };
 export default Sidebar;

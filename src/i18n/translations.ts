@@ -132,6 +132,22 @@ export const translations = {
       reviewLoadFailed: 'Unable to load request details. Please refresh and try again.',
     },
 
+    // Account
+    account: {
+      myAccount: 'My account',
+      myAccountDesc: 'Manage your account credentials.',
+      changePassword: 'Change password',
+      currentPassword: 'Current password',
+      newPassword: 'New password',
+      confirmNewPassword: 'Confirm new password',
+      updatePassword: 'Update password',
+      passwordMinHint: 'Minimum 10 characters.',
+      passwordTooShort: 'Password must be at least 10 characters.',
+      passwordMismatch: 'New password and confirmation do not match.',
+      passwordUpdatedTitle: 'Password updated',
+      passwordUpdatedDesc: 'Your password has been changed successfully.',
+    },
+
     // Performance
     performance: {
       title: 'Performance Metrics',
@@ -1042,6 +1058,22 @@ export const translations = {
       reviewLoadFailed: 'Impossible de charger les détails. Veuillez actualiser et réessayer.',
     },
 
+    // Account
+    account: {
+      myAccount: 'Mon compte',
+      myAccountDesc: 'Gérez les identifiants de votre compte.',
+      changePassword: 'Changer le mot de passe',
+      currentPassword: 'Mot de passe actuel',
+      newPassword: 'Nouveau mot de passe',
+      confirmNewPassword: 'Confirmer le nouveau mot de passe',
+      updatePassword: 'Mettre à jour le mot de passe',
+      passwordMinHint: 'Minimum 10 caractères.',
+      passwordTooShort: 'Le mot de passe doit contenir au moins 10 caractères.',
+      passwordMismatch: 'Le nouveau mot de passe et la confirmation ne correspondent pas.',
+      passwordUpdatedTitle: 'Mot de passe mis à jour',
+      passwordUpdatedDesc: 'Votre mot de passe a été modifié avec succès.',
+    },
+
     // Performance
     performance: {
       title: 'Indicateurs de performance',
@@ -1950,6 +1982,22 @@ export const translations = {
       reviewActivityTitle: '最近动态',
       reviewNoActivity: '暂无动态。',
       reviewLoadFailed: '无法加载请求详情。请刷新后重试。',
+    },
+
+    // Account
+    account: {
+      myAccount: '我的账户',
+      myAccountDesc: '管理你的账户凭据。',
+      changePassword: '修改密码',
+      currentPassword: '当前密码',
+      newPassword: '新密码',
+      confirmNewPassword: '确认新密码',
+      updatePassword: '更新密码',
+      passwordMinHint: '至少 10 个字符。',
+      passwordTooShort: '密码至少需要 10 个字符。',
+      passwordMismatch: '新密码与确认密码不一致。',
+      passwordUpdatedTitle: '密码已更新',
+      passwordUpdatedDesc: '你的密码已成功修改。',
     },
 
     // Performance

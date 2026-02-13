@@ -532,6 +532,8 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
                       <td style="padding:14px 24px 18px 24px;">
                         <div style="padding:12px 14px; border:1px solid #E5E7EB; background:#F9FAFB; border-radius:10px; font-size:13px; color:#374151; line-height:19px;">
                           For security reasons, please change your password immediately after your first login and do not share your credentials.
+                          <br/><br/>
+                          In the CRA app, open the menu next to your name and select <b>My account</b> to change your password.
                         </div>
                       </td>
                     </tr>
@@ -1670,6 +1672,14 @@ export const apiRouter = (() => {
     next();
   };
 
+  const requireAuth = (req, res, next) => {
+    if (!req.authUser) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    next();
+  };
+
   router.post(
     "/auth/login",
     asyncHandler(async (req, res) => {
@@ -1716,6 +1726,73 @@ export const apiRouter = (() => {
         return;
       }
       res.json({ user: req.authUser });
+    })
+  );
+
+  // Self-service: allow any authenticated user to change their password.
+  router.post(
+    "/auth/change-password",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const body = safeJson(req.body) ?? {};
+      const currentPassword = String(body.currentPassword ?? "").trim();
+      const newPassword = String(body.newPassword ?? "").trim();
+      if (!currentPassword || !newPassword) {
+        res.status(400).json({ error: "Missing currentPassword or newPassword" });
+        return;
+      }
+      if (newPassword.length < 10) {
+        res.status(400).json({ error: "New password must be at least 10 characters" });
+        return;
+      }
+      if (currentPassword === newPassword) {
+        res.status(400).json({ error: "New password must be different from current password" });
+        return;
+      }
+
+      const pool = await getPool();
+      const userId = String(req.authUser?.id ?? "").trim();
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+
+      await withTransaction(pool, async (client) => {
+        const { rows } = await client.query(
+          "SELECT password_hash FROM app_users WHERE id = $1 AND is_active = true LIMIT 1",
+          [userId]
+        );
+        const row = rows?.[0] ?? null;
+        if (!row) {
+          res.status(404).json({ error: "User not found" });
+          return;
+        }
+
+        if (!verifyUserPassword(currentPassword, row.password_hash)) {
+          res.status(400).json({ error: "Invalid current password" });
+          return;
+        }
+
+        await client.query("UPDATE app_users SET password_hash = $1, updated_at = now() WHERE id = $2", [
+          makePasswordHash(newPassword),
+          userId,
+        ]);
+
+        // Revoke other active sessions for this user (keep current session alive).
+        if (req.authSessionId) {
+          await client.query(
+            `UPDATE auth_sessions
+                SET revoked_at = now()
+              WHERE user_id = $1
+                AND revoked_at IS NULL
+                AND id <> $2`,
+            [userId, req.authSessionId]
+          );
+        }
+      });
+
+      if (res.headersSent) return;
+      res.json({ ok: true });
     })
   );
 
