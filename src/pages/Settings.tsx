@@ -880,7 +880,9 @@ const Settings: React.FC = () => {
     setIsDeployLoading(true);
     setHasDeployError(false);
     try {
-      const res = await fetch('/api/admin/deploy-info?lines=200');
+      const res = await fetch(`/api/admin/deploy-info?lines=200&ts=${Date.now()}`, {
+        cache: 'no-store',
+      });
       if (!res.ok) throw new Error(`Failed to load deploy info: ${res.status}`);
       const data = await res.json();
 
