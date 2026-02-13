@@ -420,6 +420,20 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
 };
 
 const ACCESS_EMAIL_SUBJECT = "[CRA] Your platform access is ready";
+const ACCESS_EMAIL_LOGO_FILE = "monroc-logo.png";
+const ACCESS_EMAIL_LOGO_CID = "monroc-logo";
+let accessEmailLogoBase64 = null;
+
+const getAccessEmailLogoBase64 = async () => {
+  if (accessEmailLogoBase64) return accessEmailLogoBase64;
+  try {
+    const buf = await fs.readFile(path.join(REPO_ROOT, "public", ACCESS_EMAIL_LOGO_FILE));
+    accessEmailLogoBase64 = buf.toString("base64");
+    return accessEmailLogoBase64;
+  } catch {
+    return null;
+  }
+};
 
 const generateTemporaryPassword = (length = 12) => {
   const targetLen = Number.isFinite(length) ? Math.max(10, Math.floor(length)) : 12;
@@ -443,18 +457,18 @@ const generateTemporaryPassword = (length = 12) => {
   return chars.join("");
 };
 
-const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPassword, appUrl, senderUpn }) => {
+const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPassword, appUrl, senderUpn, logoSrc }) => {
   const name = String(userName ?? "").trim() || "User";
   const login = String(loginEmail ?? "").trim();
   const password = String(temporaryPassword ?? "").trim();
   const link = String(appUrl ?? "").trim();
-  const baseUrl = link.replace(/\/+$/, "");
-  const logoUrl = baseUrl ? `${baseUrl}/monroc-logo.png` : "";
+  const computedLogo = buildPublicAssetLink(link, ACCESS_EMAIL_LOGO_FILE);
+  const logo = String(logoSrc ?? "").trim() || computedLogo;
   const sender = String(senderUpn ?? "").trim();
   const nowUtc = formatIsoUtc(new Date().toISOString());
 
   const safeLink = escapeHtml(link);
-  const safeLogoUrl = escapeHtml(logoUrl);
+  const safeLogoSrc = escapeHtml(logo);
   const safeName = escapeHtml(name);
   const safeLogin = escapeHtml(login);
   const safePassword = escapeHtml(password);
@@ -483,8 +497,8 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
                     </tr>
                     <tr>
                       <td style="padding:22px 24px 8px 24px;">
-                        ${safeLogoUrl ? `<div style="margin:0 0 14px 0;">
-                          <img src="${safeLogoUrl}" alt="MONROC" width="180" style="display:block; width:180px; max-width:100%; height:auto;" />
+                        ${safeLogoSrc ? `<div style="margin:0 0 14px 0;">
+                          <img src="${safeLogoSrc}" alt="MONROC" width="180" style="display:block; width:180px; max-width:100%; height:auto;" />
                         </div>` : ""}
                         <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Access Notification</div>
                         <div style="margin-top:6px; font-size:24px; font-weight:900; color:#111827; line-height:30px;">Your CRA account is ready</div>
@@ -2058,12 +2072,17 @@ export const apiRouter = (() => {
 
       const temporaryPassword = providedPassword || generateTemporaryPassword(12);
       const subject = ACCESS_EMAIL_SUBJECT;
+      const logoB64 = await getAccessEmailLogoBase64();
+      const logoSrc = logoB64
+        ? `data:image/png;base64,${logoB64}`
+        : buildPublicAssetLink(appUrl, ACCESS_EMAIL_LOGO_FILE);
       const html = renderAccessProvisionEmailHtml({
         userName: targetUser.name,
         loginEmail: targetUser.email,
         temporaryPassword,
         appUrl,
         senderUpn: settings.senderUpn,
+        logoSrc,
       });
 
       res.json({
@@ -2112,12 +2131,27 @@ export const apiRouter = (() => {
 
       const temporaryPassword = providedPassword || generateTemporaryPassword(12);
       const subject = ACCESS_EMAIL_SUBJECT;
+      const logoB64 = await getAccessEmailLogoBase64();
+      const attachments = logoB64
+        ? [
+            {
+              "@odata.type": "#microsoft.graph.fileAttachment",
+              name: ACCESS_EMAIL_LOGO_FILE,
+              contentType: "image/png",
+              contentBytes: logoB64,
+              contentId: ACCESS_EMAIL_LOGO_CID,
+              isInline: true,
+            },
+          ]
+        : [];
+      const logoSrc = logoB64 ? `cid:${ACCESS_EMAIL_LOGO_CID}` : buildPublicAssetLink(appUrl, ACCESS_EMAIL_LOGO_FILE);
       const html = renderAccessProvisionEmailHtml({
         userName: targetUser.name,
         loginEmail: targetUser.email,
         temporaryPassword,
         appUrl,
         senderUpn: settings.senderUpn,
+        logoSrc,
       });
 
       const nextPasswordHash = makePasswordHash(temporaryPassword);
@@ -2141,6 +2175,7 @@ export const apiRouter = (() => {
           subject,
           bodyHtml: html,
           toEmails: [String(targetUser.email)],
+          attachments,
         });
       } catch (error) {
         if (passwordUpdated && previousHash) {
