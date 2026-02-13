@@ -56,19 +56,38 @@ const SectionAdditionalInfo: React.FC<SectionAdditionalInfoProps> = ({
 
   const attachments = formData.attachments || [];
 
-  const handleFileUpload = (files: FileList | null, type: 'rim_drawing' | 'picture') => {
+  const readAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+
+  const handleFileUpload = async (files: FileList | null, type: 'rim_drawing' | 'picture') => {
     if (!files) return;
 
-    const newAttachments: Attachment[] = Array.from(files).map((file, index) => ({
-      id: `${Date.now()}-${index}`,
-      type,
-      filename: file.name,
-      url: URL.createObjectURL(file),
-      uploadedAt: new Date(),
-      uploadedBy: 'current-user',
-    }));
+    try {
+      const newAttachments: Attachment[] = await Promise.all(
+        Array.from(files).map(async (file, index) => ({
+          id: `${Date.now()}-${index}`,
+          type,
+          filename: file.name,
+          // Persist as data URL (base64) so the server can store it and it still works after reopening.
+          url: await readAsDataUrl(file),
+          uploadedAt: new Date(),
+          uploadedBy: 'current-user',
+        }))
+      );
 
-    onChange('attachments', [...attachments, ...newAttachments]);
+      // Ignore any failed reads; keep existing attachments intact.
+      const valid = newAttachments.filter((a) => typeof a.url === 'string' && a.url.trim());
+      if (valid.length) {
+        onChange('attachments', [...attachments, ...valid]);
+      }
+    } catch {
+      // Ignore failed reads; keep existing attachments intact.
+    }
   };
 
   const removeAttachment = (id: string) => {
