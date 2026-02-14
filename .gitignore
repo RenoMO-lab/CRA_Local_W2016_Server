@@ -24,3 +24,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Deployment artifacts (manual git bundles)
+*.bundle
+
+# Local maintenance scripts (keep repo clean)
+deploy/fix-dbmonitor-pg-stat-statements.ps1
