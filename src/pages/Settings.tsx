@@ -3313,24 +3313,34 @@ const Settings: React.FC = () => {
                           Automatic schedule, retained files, manual backups, and restore workflow.
                         </p>
                       </div>
-                      <div className="flex flex-wrap gap-2 md:justify-end">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full md:w-auto md:min-w-[440px] md:justify-end">
                         <Button
+                          size="sm"
                           variant="outline"
                           onClick={loadDbBackups}
                           disabled={isDbBackupsLoading || isDbBackupCreating}
+                          className="h-11 w-full justify-center"
                         >
                           <RefreshCw size={16} className="mr-2" />
                           {isDbBackupsLoading ? t.common.loading : 'Refresh'}
                         </Button>
-                        <Button onClick={createDbBackup} disabled={isDbBackupCreating || isDbBackupsLoading}>
+                        <Button
+                          size="sm"
+                          onClick={createDbBackup}
+                          disabled={isDbBackupCreating || isDbBackupsLoading}
+                          className="h-11 w-full justify-center"
+                        >
                           <Database size={16} className="mr-2" />
                           {isDbBackupCreating ? 'Creating backup...' : 'Run backup now'}
                         </Button>
                         <Button
+                          size="sm"
                           variant="outline"
                           onClick={() => setIsDbBackupSetupOpen(true)}
                           disabled={isDbBackupSetupSaving}
+                          className="h-11 w-full justify-center sm:col-span-2"
                         >
+                          <SettingsIcon size={16} className="mr-2" />
                           {configured ? 'Update setup' : 'Setup credentials'}
                         </Button>
                       </div>
