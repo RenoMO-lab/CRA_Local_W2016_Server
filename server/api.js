@@ -1745,20 +1745,34 @@ const createDbBackup = async () => {
 };
 
 const getGitInfo = async () => {
-  try {
-    const { stdout } = await execFileAsync("git", [
-      "-C",
-      REPO_ROOT,
-      "log",
-      "-1",
-      "--pretty=format:%H%n%s%n%an%n%ad",
-      "--date=iso-strict",
-    ]);
-    const [hash, message, author, date] = stdout.trim().split("\n");
-    return { hash, message, author, date };
-  } catch {
-    return readBuildInfo();
+  const args = [
+    "-C",
+    REPO_ROOT,
+    "log",
+    "-1",
+    "--pretty=format:%H%n%s%n%an%n%ad",
+    "--date=iso-strict",
+  ];
+
+  const candidates = [
+    process.env.GIT_EXECUTABLE ? String(process.env.GIT_EXECUTABLE).trim() : null,
+    "git",
+    // Windows server bundle path: C:\CRA_Local_Main\tools\git\cmd\git.exe (sibling of app)
+    path.join(REPO_ROOT, "..", "tools", "git", "cmd", "git.exe"),
+    path.join(REPO_ROOT, "..", "tools", "git", "bin", "git.exe"),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      const { stdout } = await execFileAsync(candidate, args, { timeout: 3000, windowsHide: true });
+      const [hash, message, author, date] = stdout.trim().split("\n");
+      return { hash, message, author, date };
+    } catch {
+      // Try the next candidate.
+    }
   }
+
+  return readBuildInfo();
 };
 
 const checkRateLimit = async (pool, req) => {
