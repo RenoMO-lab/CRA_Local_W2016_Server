@@ -1917,27 +1917,6 @@ const Settings: React.FC = () => {
         </p>
       </div>
 
-      <div className="flex justify-end">
-        <div className="w-full md:w-[320px] space-y-2">
-          <Label>{t.common.section}</Label>
-          <Select value={activeTab} onValueChange={setActiveTab}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="export">{t.settings.export}</SelectItem>
-              <SelectItem value="lists">{t.settings.systemLists}</SelectItem>
-              <SelectItem value="users">{t.settings.usersRoles}</SelectItem>
-              <SelectItem value="feedback">{t.settings.feedbackTab}</SelectItem>
-              <SelectItem value="m365">{t.settings.m365Tab}</SelectItem>
-              <SelectItem value="dbmonitor">{t.settings.dbMonitorTab}</SelectItem>
-              <SelectItem value="auditlog">{t.settings.auditLogTab}</SelectItem>
-              <SelectItem value="deployments">{t.settings.deploymentsTab}</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsContent value="export" className="space-y-6">
           <div className="bg-card rounded-lg border border-border p-4 md:p-6">
