@@ -431,6 +431,7 @@ const Settings: React.FC = () => {
   } = useAdminSettings();
 
   const validTabs = new Set([
+    'export',
     'lists',
     'users',
     'feedback',
@@ -439,8 +440,8 @@ const Settings: React.FC = () => {
     'auditlog',
     'deployments',
   ]);
-  const activeTabCandidate = String(searchParams.get('tab') ?? '').trim() || 'lists';
-  const activeTab = validTabs.has(activeTabCandidate) ? activeTabCandidate : 'lists';
+  const activeTabCandidate = String(searchParams.get('tab') ?? '').trim() || 'export';
+  const activeTab = validTabs.has(activeTabCandidate) ? activeTabCandidate : 'export';
   const setActiveTab = (tab: string) => {
     const next = new URLSearchParams(searchParams);
     next.set('tab', tab);
@@ -1916,52 +1917,6 @@ const Settings: React.FC = () => {
         </p>
       </div>
 
-      <div className="bg-card rounded-lg border border-border p-4 md:p-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold text-foreground">{t.settings.adminTools}</h2>
-            <p className="text-sm text-muted-foreground">{t.settings.exportDataDesc || t.settings.exportCsvDesc}</p>
-          </div>
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:self-start">
-            <div className="inline-flex items-center rounded-xl border border-border bg-muted/40 p-1">
-              <button
-                type="button"
-                onClick={() => setExportFormat('csv')}
-                aria-pressed={exportFormat === 'csv'}
-                className={cn(
-                  'px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors',
-                  exportFormat === 'csv'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-primary/10 hover:text-primary'
-                )}
-              >
-                CSV
-              </button>
-              <button
-                type="button"
-                onClick={() => setExportFormat('xlsx')}
-                aria-pressed={exportFormat === 'xlsx'}
-                className={cn(
-                  'px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors',
-                  exportFormat === 'xlsx'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-primary/10 hover:text-primary'
-                )}
-              >
-                Excel
-              </button>
-            </div>
-            <Button
-              onClick={() => (exportFormat === 'csv' ? exportRequestsCsv() : exportRequestsXlsx())}
-              className="md:min-w-32"
-            >
-              <Download size={16} className="mr-2" />
-              {t.settings.export}
-            </Button>
-          </div>
-        </div>
-      </div>
-
       <div className="flex justify-end">
         <div className="w-full md:w-[320px] space-y-2">
           <Label>{t.common.section}</Label>
@@ -1970,6 +1925,7 @@ const Settings: React.FC = () => {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="export">{t.settings.export}</SelectItem>
               <SelectItem value="lists">{t.settings.systemLists}</SelectItem>
               <SelectItem value="users">{t.settings.usersRoles}</SelectItem>
               <SelectItem value="feedback">{t.settings.feedbackTab}</SelectItem>
@@ -1983,6 +1939,54 @@ const Settings: React.FC = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsContent value="export" className="space-y-6">
+          <div className="bg-card rounded-lg border border-border p-4 md:p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <h2 className="text-lg font-semibold text-foreground">{t.settings.export}</h2>
+                <p className="text-sm text-muted-foreground">{t.settings.exportDataDesc || t.settings.exportCsvDesc}</p>
+              </div>
+              <div className="flex flex-col gap-2 md:flex-row md:items-center md:self-start">
+                <div className="inline-flex items-center rounded-xl border border-border bg-muted/40 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setExportFormat('csv')}
+                    aria-pressed={exportFormat === 'csv'}
+                    className={cn(
+                      'px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors',
+                      exportFormat === 'csv'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-foreground hover:bg-primary/10 hover:text-primary'
+                    )}
+                  >
+                    CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExportFormat('xlsx')}
+                    aria-pressed={exportFormat === 'xlsx'}
+                    className={cn(
+                      'px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors',
+                      exportFormat === 'xlsx'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-foreground hover:bg-primary/10 hover:text-primary'
+                    )}
+                  >
+                    Excel
+                  </button>
+                </div>
+                <Button
+                  onClick={() => (exportFormat === 'csv' ? exportRequestsCsv() : exportRequestsXlsx())}
+                  className="md:min-w-32"
+                >
+                  <Download size={16} className="mr-2" />
+                  {t.settings.export}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
         <TabsContent value="lists" className="space-y-6">
           {(() => {
             const renderListPanel = (

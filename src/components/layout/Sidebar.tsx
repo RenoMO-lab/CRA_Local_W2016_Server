@@ -38,8 +38,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   ];
   const isSettingsActive = location.pathname === '/settings';
   const settingsTab = useMemo(() => {
-    if (!isSettingsActive) return 'lists';
-    return new URLSearchParams(location.search).get('tab') || 'lists';
+    if (!isSettingsActive) return 'export';
+    return new URLSearchParams(location.search).get('tab') || 'export';
   }, [isSettingsActive, location.search]);
   const [adminOpen, setAdminOpen] = useState(isSettingsActive);
   useEffect(() => {
@@ -70,6 +70,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   const filteredNavItems = navItems.filter(item => user && item.roles.includes(user.role));
 
   const adminNavItems = useMemo(() => ([
+    { tab: 'export', label: t.settings.export, icon: FileText },
     { tab: 'lists', label: t.settings.systemLists, icon: Settings },
     { tab: 'users', label: t.settings.usersRoles, icon: Users },
     { tab: 'feedback', label: t.settings.feedbackTab, icon: MessageCircle },
@@ -124,7 +125,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <div className={cn("pt-2", isCollapsed && "pt-0")}>
             {isCollapsed ? (
               <Link
-                to="/settings?tab=lists"
+                to="/settings?tab=export"
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
                   isSettingsActive
@@ -133,25 +134,42 @@ const Sidebar: React.FC<SidebarProps> = ({
                   "justify-center px-2"
                 )}
                 aria-label={t.nav.admin}
+                title={t.nav.admin}
               >
                 <Settings size={20} className={isSettingsActive ? "text-primary" : ""} />
               </Link>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={() => setAdminOpen((v) => !v)}
+                <div
                   className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
+                    "w-full flex items-center rounded-lg transition-all duration-200 overflow-hidden",
                     isSettingsActive
                       ? "bg-sidebar-accent text-sidebar-foreground border-l-2 border-primary"
                       : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground"
                   )}
                 >
-                  <Settings size={20} className={isSettingsActive ? "text-primary" : ""} />
-                  <span className="font-medium flex-1 text-left">{t.nav.admin}</span>
-                  <ChevronDown size={16} className={cn("transition-transform", adminOpen ? "rotate-180" : "rotate-0")} />
-                </button>
+                  <Link
+                    to="/settings?tab=export"
+                    onClick={() => setAdminOpen(true)}
+                    className="flex flex-1 items-center gap-3 px-3 py-2.5"
+                  >
+                    <Settings size={20} className={isSettingsActive ? "text-primary" : ""} />
+                    <span className="font-medium flex-1 text-left">{t.nav.admin}</span>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setAdminOpen((v) => !v);
+                    }}
+                    className="px-3 py-2.5 text-sidebar-muted hover:text-sidebar-foreground"
+                    aria-label={adminOpen ? t.common.close : t.common.openMenu}
+                    title={adminOpen ? t.common.close : t.common.openMenu}
+                  >
+                    <ChevronDown size={16} className={cn("transition-transform", adminOpen ? "rotate-180" : "rotate-0")} />
+                  </button>
+                </div>
 
                 {adminOpen ? (
                   <div className="mt-1 space-y-1 pl-3">

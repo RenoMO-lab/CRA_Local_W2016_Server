@@ -37,8 +37,8 @@ const MobileTopNav: React.FC = () => {
   ];
 
   const settingsTab = (() => {
-    if (location.pathname !== '/settings') return 'lists';
-    return new URLSearchParams(location.search).get('tab') || 'lists';
+    if (location.pathname !== '/settings') return 'export';
+    return new URLSearchParams(location.search).get('tab') || 'export';
   })();
 
   const navItems = [
@@ -48,6 +48,7 @@ const MobileTopNav: React.FC = () => {
     { path: '/performance', label: t.nav.performance, roles: ['sales', 'design', 'costing', 'admin'] },
     ...(user?.role === 'admin'
       ? [
+          { path: '/settings?tab=export', label: t.settings.export, roles: ['admin'] },
           { path: '/settings?tab=lists', label: t.settings.systemLists, roles: ['admin'] },
           { path: '/settings?tab=users', label: t.settings.usersRoles, roles: ['admin'] },
           { path: '/settings?tab=feedback', label: t.settings.feedbackTab, roles: ['admin'] },
