@@ -3173,13 +3173,13 @@ const Settings: React.FC = () => {
                 ? 'border-emerald-500/20 bg-emerald-500/10'
                 : status === 'yellow'
                   ? 'border-amber-500/25 bg-amber-500/10'
-                  : 'border-red-500/25 bg-red-500/10';
+                  : 'border-destructive/25 bg-destructive/10';
             const iconClasses =
               status === 'green'
                 ? 'bg-emerald-500 text-white'
                 : status === 'yellow'
                   ? 'bg-amber-500 text-white'
-                  : 'bg-red-500 text-white';
+                  : 'bg-destructive text-destructive-foreground';
 
             return (
               <div className="bg-card rounded-lg border border-border p-4 md:p-6">
@@ -3280,30 +3280,6 @@ const Settings: React.FC = () => {
                   );
                 };
 
-                const slots = [
-                  { key: 'day' as const, title: 'Today', fileName: dbBackupRetentionKept?.day ?? null },
-                  { key: 'day-1' as const, title: 'Yesterday', fileName: dbBackupRetentionKept?.['day-1'] ?? null },
-                  { key: 'week-1' as const, title: 'Week-1', fileName: dbBackupRetentionKept?.['week-1'] ?? null },
-                ].map((slot) => {
-                  const prefix = slot.fileName ? getBackupPrefixFromFileName(slot.fileName) : '';
-                  const set = prefix ? dbBackupSets.find((s) => s.prefix === prefix) : null;
-                  const dump = set?.artifacts.dump ?? null;
-                  const globals = set?.artifacts.globals ?? null;
-                  const manifest = set?.artifacts.manifest ?? null;
-                  const ready = Boolean(set?.restoreReady && dump);
-
-                  return {
-                    ...slot,
-                    set,
-                    dump,
-                    globals,
-                    manifest,
-                    ready,
-                    createdLabel: set ? formatDateTime(set.createdAt) : '-',
-                    sizeLabel: set ? formatBytes(set.totalSizeBytes) : '-',
-                  };
-                });
-
                 return (
                   <>
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -3359,88 +3335,10 @@ const Settings: React.FC = () => {
                       {pill('Retention', `${keptCount}/3 files`, keptCount === 3 ? 'ok' : 'error')}
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
-                      <div className="lg:col-span-2 flex flex-col gap-2 h-full">
-                        <div className="text-sm font-medium text-foreground">Retained backup slots</div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1 items-stretch">
-                          {slots.map((slot) => (
-                            <div key={slot.key} className="rounded-lg border border-border bg-muted/10 p-3 flex flex-col h-full">
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="text-sm font-semibold text-foreground">{slot.title}</div>
-                                <div className={cn('text-[11px] px-2 py-0.5 rounded-full border',
-                                  slot.fileName ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10'
-                                )}>
-                                  {slot.fileName ? 'Available' : 'Missing'}
-                                </div>
-                              </div>
-
-                              {slot.fileName ? (
-                                <div className="space-y-1 mt-2">
-                                  <div className="text-xs text-muted-foreground truncate" title={slot.fileName}>
-                                    <span className="font-mono">{slot.fileName}</span>
-                                  </div>
-                                  <div className="text-xs text-muted-foreground flex items-center justify-between">
-                                    <span>{slot.createdLabel}</span>
-                                    <span className="tabular-nums">{slot.sizeLabel}</span>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="text-xs text-muted-foreground mt-2">Not available yet.</div>
-                              )}
-
-                              <div className="flex flex-wrap gap-2 mt-auto pt-4">
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button size="sm" variant="outline" disabled={!slot.set}>
-                                      <Download size={14} className="mr-2" />
-                                      Download
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
-                                    <DropdownMenuItem
-                                      disabled={!slot.dump}
-                                      onClick={() => slot.dump && downloadBackupFile(slot.dump.fileName)}
-                                    >
-                                      dump
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      disabled={!slot.globals}
-                                      onClick={() => slot.globals && downloadBackupFile(slot.globals.fileName)}
-                                    >
-                                      globals
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      disabled={!slot.manifest}
-                                      onClick={() => slot.manifest && downloadBackupFile(slot.manifest.fileName)}
-                                    >
-                                      manifest
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      disabled={!slot.set?.isComplete}
-                                      onClick={() => slot.set && downloadAllBackupArtifacts(slot.set)}
-                                    >
-                                      all
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  onClick={() => slot.dump && setDbBackupRestoreTarget(slot.dump.fileName)}
-                                  disabled={isDbBackupRestoring || !slot.ready}
-                                >
-                                  Restore
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col gap-2 h-full">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+                      <div className="flex flex-col gap-2">
                         <div className="text-sm font-medium text-foreground">Schedule details</div>
-                        <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1 flex-1">
+                        <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1">
                           <div>
                             <span className="text-muted-foreground">Frequency:</span>{' '}
                             <span className="text-foreground">{dbBackupAutomatic?.frequency || 'Daily at 01:00'}</span>
@@ -3460,8 +3358,11 @@ const Settings: React.FC = () => {
                             </span>
                           </div>
                         </div>
+                      </div>
 
-                        <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1 flex-1">
+                      <div className="flex flex-col gap-2">
+                        <div className="text-sm font-medium text-foreground">Recent activity</div>
+                        <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1">
                           <div>
                             <span className="text-muted-foreground">Last restore:</span>{' '}
                             <span className="text-foreground">
@@ -3674,16 +3575,6 @@ const Settings: React.FC = () => {
                     Storage path: {dbBackupDirectory || CANONICAL_DB_BACKUP_DIR}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={loadDbBackups} disabled={isDbBackupsLoading || isDbBackupCreating}>
-                    <RefreshCw size={16} className="mr-2" />
-                    {isDbBackupsLoading ? t.common.loading : 'Refresh'}
-                  </Button>
-                  <Button onClick={createDbBackup} disabled={isDbBackupCreating || isDbBackupsLoading}>
-                    <Database size={16} className="mr-2" />
-                    {isDbBackupCreating ? 'Creating...' : 'Create backup'}
-                  </Button>
-                </div>
               </div>
 
             <Dialog open={isDbBackupSetupOpen} onOpenChange={setIsDbBackupSetupOpen}>
@@ -3782,93 +3673,225 @@ const Settings: React.FC = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {dbBackupSets.map((item) => {
-                      const dump = item.artifacts.dump;
-                      const globals = item.artifacts.globals;
-                      const manifest = item.artifacts.manifest;
-                      const allReady = Boolean(dump && globals && manifest);
-                      const retained = getRetentionBucketForDump(dump?.fileName ?? null);
+                    {(() => {
+                      const retainedTargets = [
+                        { bucket: 'day' as const, title: 'day', dumpFileName: dbBackupRetentionKept?.day ?? null },
+                        { bucket: 'day-1' as const, title: 'day-1', dumpFileName: dbBackupRetentionKept?.['day-1'] ?? null },
+                        { bucket: 'week-1' as const, title: 'week-1', dumpFileName: dbBackupRetentionKept?.['week-1'] ?? null },
+                      ];
+
+                      const retainedRows = retainedTargets.map((t) => {
+                        const prefix = t.dumpFileName ? getBackupPrefixFromFileName(t.dumpFileName) : '';
+                        const set = prefix ? dbBackupSets.find((s) => s.prefix === prefix) : null;
+                        const dump = set?.artifacts.dump ?? null;
+                        const globals = set?.artifacts.globals ?? null;
+                        const manifest = set?.artifacts.manifest ?? null;
+                        const allReady = Boolean(dump && globals && manifest);
+                        const missing = !t.dumpFileName || !set || !dump;
+                        return { ...t, prefix, set, dump, globals, manifest, allReady, missing };
+                      });
+
+                      const retainedPrefixes = new Set(retainedRows.map((r) => r.set?.prefix).filter(Boolean));
+                      const otherSets = dbBackupSets.filter((s) => !retainedPrefixes.has(s.prefix));
+
+                      const retainedBadge = (bucket: 'day' | 'day-1' | 'week-1') => (
+                        <span
+                          className={cn(
+                            'inline-flex rounded-full px-2 py-0.5 text-[11px] border',
+                            bucket === 'day'
+                              ? 'border-green-500/40 text-green-300 bg-green-500/10'
+                              : bucket === 'day-1'
+                                ? 'border-blue-500/40 text-blue-300 bg-blue-500/10'
+                                : 'border-purple-500/40 text-purple-300 bg-purple-500/10'
+                          )}
+                        >
+                          {bucket}
+                        </span>
+                      );
+
+                      const renderRowForSet = (item: DbBackupSet) => {
+                        const dump = item.artifacts.dump;
+                        const globals = item.artifacts.globals;
+                        const manifest = item.artifacts.manifest;
+                        const allReady = Boolean(dump && globals && manifest);
+                        const retained = getRetentionBucketForDump(dump?.fileName ?? null);
+
+                        return (
+                          <TableRow key={item.prefix}>
+                            <TableCell className="text-xs">
+                              {retained ? retainedBadge(retained as 'day' | 'day-1' | 'week-1') : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <div className="font-mono break-all">{item.prefix}</div>
+                              <div
+                                className={cn(
+                                  'mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] border',
+                                  item.isComplete
+                                    ? 'border-green-500/40 text-green-400 bg-green-500/10'
+                                    : 'border-amber-500/40 text-amber-400 bg-amber-500/10'
+                                )}
+                              >
+                                {item.isComplete ? 'Complete' : 'Partial'}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm">{formatDateTime(item.createdAt)}</TableCell>
+                            <TableCell className="text-right text-sm">{formatBytes(item.totalSizeBytes)}</TableCell>
+                            <TableCell className="text-xs">
+                              <div className="flex flex-wrap gap-2">
+                                <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', dump ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
+                                  dump
+                                </span>
+                                <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', globals ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
+                                  globals
+                                </span>
+                                <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', manifest ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
+                                  manifest
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <div className="inline-flex items-center gap-2">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button size="sm" variant="outline">
+                                      <Download size={14} className="mr-2" />
+                                      Download
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem disabled={!dump} onClick={() => dump && downloadBackupFile(dump.fileName)}>
+                                      dump
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem disabled={!globals} onClick={() => globals && downloadBackupFile(globals.fileName)}>
+                                      globals
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem disabled={!manifest} onClick={() => manifest && downloadBackupFile(manifest.fileName)}>
+                                      manifest
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem disabled={!allReady} onClick={() => downloadAllBackupArtifacts(item)}>
+                                      all
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => dump && setDbBackupRestoreTarget(dump.fileName)}
+                                  disabled={isDbBackupRestoring || !item.restoreReady || !dump}
+                                >
+                                  {isDbBackupRestoring && dbBackupRestoreTarget === dump?.fileName ? 'Restoring...' : 'Restore'}
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      };
 
                       return (
-                        <TableRow key={item.prefix}>
-                          <TableCell className="text-xs">
-                            {retained ? (
-                              <span className={cn('inline-flex rounded-full px-2 py-0.5 text-[11px] border',
-                                retained === 'day' ? 'border-green-500/40 text-green-300 bg-green-500/10'
-                                  : retained === 'day-1' ? 'border-blue-500/40 text-blue-300 bg-blue-500/10'
-                                    : 'border-purple-500/40 text-purple-300 bg-purple-500/10'
-                              )}>
-                                {retained}
+                        <>
+                          {retainedRows.map((r) => {
+                            const item = r.set;
+                            const createdAt = item?.createdAt ? formatDateTime(item.createdAt) : '-';
+                            const size = item ? formatBytes(item.totalSizeBytes) : '-';
+                            const statusBadge = r.missing ? (
+                              <span className="ml-2 inline-flex rounded-full px-2 py-0.5 text-[11px] border border-destructive/40 text-destructive bg-destructive/10">
+                                Missing
                               </span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            <div className="font-mono break-all">{item.prefix}</div>
-                            <div
-                              className={cn(
-                                'mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] border',
-                                item.isComplete
-                                  ? 'border-green-500/40 text-green-400 bg-green-500/10'
-                                  : 'border-amber-500/40 text-amber-400 bg-amber-500/10'
-                              )}
-                            >
-                              {item.isComplete ? 'Complete' : 'Partial'}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm">{formatDateTime(item.createdAt)}</TableCell>
-                          <TableCell className="text-right text-sm">{formatBytes(item.totalSizeBytes)}</TableCell>
-                          <TableCell className="text-xs">
-                            <div className="flex flex-wrap gap-2">
-                              <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', dump ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
-                                dump
-                              </span>
-                              <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', globals ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
-                                globals
-                              </span>
-                              <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', manifest ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
-                                manifest
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="inline-flex items-center gap-2">
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button size="sm" variant="outline">
-                                    <Download size={14} className="mr-2" />
-                                    Download
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem disabled={!dump} onClick={() => dump && downloadBackupFile(dump.fileName)}>
-                                    dump
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem disabled={!globals} onClick={() => globals && downloadBackupFile(globals.fileName)}>
-                                    globals
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem disabled={!manifest} onClick={() => manifest && downloadBackupFile(manifest.fileName)}>
-                                    manifest
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem disabled={!allReady} onClick={() => downloadAllBackupArtifacts(item)}>
-                                    all
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => dump && setDbBackupRestoreTarget(dump.fileName)}
-                                disabled={isDbBackupRestoring || !item.restoreReady || !dump}
-                              >
-                                {isDbBackupRestoring && dbBackupRestoreTarget === dump?.fileName ? 'Restoring...' : 'Restore'}
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
+                            ) : null;
+
+                            return (
+                              <TableRow key={`retained-${r.bucket}`} className="bg-muted/5">
+                                <TableCell className="text-xs">
+                                  {retainedBadge(r.bucket)}
+                                </TableCell>
+                                <TableCell className="text-xs">
+                                  {item ? (
+                                    <>
+                                      <div className="font-mono break-all">{item.prefix}</div>
+                                      <div
+                                        className={cn(
+                                          'mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] border',
+                                          item.isComplete
+                                            ? 'border-green-500/40 text-green-400 bg-green-500/10'
+                                            : 'border-amber-500/40 text-amber-400 bg-amber-500/10'
+                                        )}
+                                      >
+                                        {item.isComplete ? 'Complete' : 'Partial'}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="text-sm text-muted-foreground">
+                                      Retention target {statusBadge}
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-sm">{createdAt}</TableCell>
+                                <TableCell className="text-right text-sm">{size}</TableCell>
+                                <TableCell className="text-xs">
+                                  <div className="flex flex-wrap gap-2">
+                                    <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', r.dump ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
+                                      dump
+                                    </span>
+                                    <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', r.globals ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
+                                      globals
+                                    </span>
+                                    <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', r.manifest ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
+                                      manifest
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="inline-flex items-center gap-2">
+                                    <DropdownMenu>
+                                      <DropdownMenuTrigger asChild>
+                                        <Button size="sm" variant="outline" disabled={!item}>
+                                          <Download size={14} className="mr-2" />
+                                          Download
+                                        </Button>
+                                      </DropdownMenuTrigger>
+                                      <DropdownMenuContent align="end">
+                                        <DropdownMenuItem disabled={!r.dump} onClick={() => r.dump && downloadBackupFile(r.dump.fileName)}>
+                                          dump
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem disabled={!r.globals} onClick={() => r.globals && downloadBackupFile(r.globals.fileName)}>
+                                          globals
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem disabled={!r.manifest} onClick={() => r.manifest && downloadBackupFile(r.manifest.fileName)}>
+                                          manifest
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem disabled={!r.allReady} onClick={() => item && downloadAllBackupArtifacts(item)}>
+                                          all
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      onClick={() => r.dump && setDbBackupRestoreTarget(r.dump.fileName)}
+                                      disabled={isDbBackupRestoring || !item?.restoreReady || !r.dump}
+                                    >
+                                      Restore
+                                    </Button>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+
+                          {otherSets.length ? (
+                            <TableRow>
+                              <TableCell colSpan={6} className="p-0">
+                                <div className="h-px bg-border/60" />
+                              </TableCell>
+                            </TableRow>
+                          ) : null}
+
+                          {otherSets.map(renderRowForSet)}
+                        </>
                       );
-                    })}
+                    })()}
                   </TableBody>
                 </Table>
               </div>
