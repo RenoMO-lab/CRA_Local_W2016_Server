@@ -3263,12 +3263,14 @@ const Settings: React.FC = () => {
                   dbBackupRetentionKept?.['week-1'],
                 ].filter(Boolean).length;
 
-                const pill = (label: string, value: string, tone: 'ok' | 'warn' | 'muted' = 'muted') => {
+                const pill = (label: string, value: string, tone: 'ok' | 'warn' | 'error' | 'muted' = 'muted') => {
                   const toneCls =
                     tone === 'ok'
                       ? 'border-green-500/40 text-green-300 bg-green-500/10'
                       : tone === 'warn'
                         ? 'border-amber-500/40 text-amber-300 bg-amber-500/10'
+                        : tone === 'error'
+                          ? 'border-destructive/40 text-destructive bg-destructive/10'
                         : 'border-border text-muted-foreground bg-muted/10';
                   return (
                     <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs border', toneCls)}>
@@ -3344,33 +3346,26 @@ const Settings: React.FC = () => {
                           : '-',
                         dbBackupAutomatic?.latestAuto?.status === 'success' ? 'ok' : dbBackupAutomatic?.latestAuto?.status ? 'warn' : 'muted'
                       )}
-                      {pill('Retention', `${keptCount}/3 files`, keptCount >= 2 ? 'ok' : keptCount ? 'warn' : 'muted')}
-                      {dbBackupConfig?.encryptionUsingFallback ? pill('Security', 'Fallback key', 'warn') : null}
+                      {pill('Retention', `${keptCount}/3 files`, keptCount === 3 ? 'ok' : 'error')}
                     </div>
 
-                    {dbBackupConfig?.encryptionUsingFallback ? (
-                      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
-                        Using fallback encryption key. Set <span className="font-mono">BACKUP_CREDENTIALS_SECRET</span> in server environment for stronger security.
-                      </div>
-                    ) : null}
-
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-                      <div className="lg:col-span-2 space-y-2">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+                      <div className="lg:col-span-2 flex flex-col gap-2 h-full">
                         <div className="text-sm font-medium text-foreground">Retained backup slots</div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 flex-1 items-stretch">
                           {slots.map((slot) => (
-                            <div key={slot.key} className="rounded-lg border border-border bg-muted/10 p-3 space-y-2">
+                            <div key={slot.key} className="rounded-lg border border-border bg-muted/10 p-3 flex flex-col h-full">
                               <div className="flex items-center justify-between gap-2">
                                 <div className="text-sm font-semibold text-foreground">{slot.title}</div>
                                 <div className={cn('text-[11px] px-2 py-0.5 rounded-full border',
-                                  slot.fileName ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-border text-muted-foreground bg-background/20'
+                                  slot.fileName ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10'
                                 )}>
                                   {slot.fileName ? 'Available' : 'Missing'}
                                 </div>
                               </div>
 
                               {slot.fileName ? (
-                                <div className="space-y-1">
+                                <div className="space-y-1 mt-2">
                                   <div className="text-xs text-muted-foreground truncate" title={slot.fileName}>
                                     <span className="font-mono">{slot.fileName}</span>
                                   </div>
@@ -3380,10 +3375,10 @@ const Settings: React.FC = () => {
                                   </div>
                                 </div>
                               ) : (
-                                <div className="text-xs text-muted-foreground">Not available yet.</div>
+                                <div className="text-xs text-muted-foreground mt-2">Not available yet.</div>
                               )}
 
-                              <div className="flex flex-wrap gap-2">
+                              <div className="flex flex-wrap gap-2 mt-auto pt-4">
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <Button size="sm" variant="outline" disabled={!slot.set}>
@@ -3433,9 +3428,9 @@ const Settings: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="space-y-2">
+                      <div className="flex flex-col gap-2 h-full">
                         <div className="text-sm font-medium text-foreground">Schedule details</div>
-                        <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1">
+                        <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1 flex-1">
                           <div>
                             <span className="text-muted-foreground">Frequency:</span>{' '}
                             <span className="text-foreground">{dbBackupAutomatic?.frequency || 'Daily at 01:00'}</span>
@@ -3456,7 +3451,7 @@ const Settings: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1">
+                        <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1 flex-1">
                           <div>
                             <span className="text-muted-foreground">Last restore:</span>{' '}
                             <span className="text-foreground">
