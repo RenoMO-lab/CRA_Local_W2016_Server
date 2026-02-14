@@ -1848,13 +1848,28 @@ const fetchAdminLists = async (pool) => {
   return lists;
 };
 
+let rateLimitUnavailable = false;
+
 export const apiRouter = (() => {
   const router = express.Router();
 
   router.use(
     asyncHandler(async (req, res, next) => {
       const pool = await getPool();
-      const retryAt = await checkRateLimit(pool, req);
+      // Best-effort rate limiting: if the DB role doesn't have access to the
+      // `rate_limits` table (or the table is missing), we don't want the whole API
+      // to fail. We log once and disable rate limiting for the lifetime of the
+      // process.
+      let retryAt = null;
+      if (!rateLimitUnavailable) {
+        try {
+          retryAt = await checkRateLimit(pool, req);
+        } catch (error) {
+          rateLimitUnavailable = true;
+          console.error("Rate limit check failed; disabling rate limiting:", error?.message ?? error);
+          retryAt = null;
+        }
+      }
       if (retryAt) {
         res.status(429).json({
           error: "Rate limit exceeded",
