@@ -78,6 +78,64 @@ const safeJson = (value) => {
   return value;
 };
 
+const getRequestIp = (req) => {
+  const forwarded = req?.headers?.["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+  return String(req?.socket?.remoteAddress ?? "").trim() || null;
+};
+
+const getRequestUserAgent = (req) => {
+  const ua = req?.headers?.["user-agent"];
+  return typeof ua === "string" ? ua.slice(0, 512) : null;
+};
+
+const writeAuditLogBestEffort = async (db, req, entry) => {
+  try {
+    const actor = entry?.actor ?? req?.authUser ?? null;
+    const actorUserId = actor?.id ? String(actor.id) : null;
+    const actorEmail = entry?.actorEmail ?? (actor?.email ? String(actor.email) : null);
+    const actorRole = entry?.actorRole ?? (actor?.role ? String(actor.role) : null);
+
+    const action = String(entry?.action ?? "").trim();
+    if (!action) return;
+
+    const targetType = entry?.targetType ? String(entry.targetType).trim() : null;
+    const targetId = entry?.targetId ? String(entry.targetId).trim() : null;
+    const result = entry?.result === "error" ? "error" : "ok";
+    const errorMessage = entry?.errorMessage ? String(entry.errorMessage).slice(0, 1000) : null;
+
+    const ip = entry?.ip ?? getRequestIp(req);
+    const userAgent = entry?.userAgent ?? getRequestUserAgent(req);
+    const metadata = entry?.metadata && typeof entry.metadata === "object" ? entry.metadata : null;
+
+    await db.query(
+      `INSERT INTO audit_log
+        (id, actor_user_id, actor_email, actor_role, action, target_type, target_id, ip, user_agent, result, error_message, metadata)
+       VALUES
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`,
+      [
+        randomUUID(),
+        actorUserId,
+        actorEmail,
+        actorRole,
+        action,
+        targetType,
+        targetId,
+        ip,
+        userAgent,
+        result,
+        errorMessage,
+        metadata ? JSON.stringify(metadata) : null,
+      ]
+    );
+  } catch (e) {
+    // Never block the request for audit log failures.
+    console.error("audit_log insert failed:", e?.message ?? e);
+  }
+};
+
 const escapeHtml = (value) =>
   String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1869,12 +1927,25 @@ export const apiRouter = (() => {
 
       const user = await findUserForLogin(pool, email);
       if (!user || !verifyUserPassword(password, user.password_hash)) {
+        await writeAuditLogBestEffort(pool, req, {
+          action: "auth.login_failed",
+          actorEmail: email,
+          result: "error",
+          errorMessage: "Invalid credentials",
+        });
         res.status(401).json({ error: "Invalid credentials" });
         return;
       }
 
       const session = await createUserSession(pool, user.id);
       setSessionCookie(res, session.token, session.expiresAt);
+      await writeAuditLogBestEffort(pool, req, {
+        action: "auth.login_success",
+        actor: { id: user.id, email: user.email, role: user.role },
+        targetType: "session",
+        targetId: session.sessionId ?? null,
+        metadata: { expiresAt: session.expiresAt },
+      });
       res.json({ user: mapUserRow(user) });
     })
   );
@@ -1887,6 +1958,11 @@ export const apiRouter = (() => {
         await revokeSessionById(pool, req.authSessionId);
       }
       clearSessionCookie(res);
+      await writeAuditLogBestEffort(pool, req, {
+        action: "auth.logout",
+        targetType: "session",
+        targetId: req.authSessionId ?? null,
+      });
       res.json({ ok: true });
     })
   );
@@ -1942,6 +2018,11 @@ export const apiRouter = (() => {
         }
 
         if (!verifyUserPassword(currentPassword, row.password_hash)) {
+          await writeAuditLogBestEffort(client, req, {
+            action: "auth.password_change_failed",
+            result: "error",
+            errorMessage: "Invalid current password",
+          });
           res.status(400).json({ error: "Invalid current password" });
           return;
         }
@@ -1962,6 +2043,12 @@ export const apiRouter = (() => {
             [userId, req.authSessionId]
           );
         }
+
+        await writeAuditLogBestEffort(client, req, {
+          action: "auth.password_changed",
+          targetType: "user",
+          targetId: userId,
+        });
       });
 
       if (res.headersSent) return;
@@ -2313,7 +2400,7 @@ export const apiRouter = (() => {
 
       const pool = await getPool();
       const { rows } = await pool.query(
-        "SELECT filename, content_type, data FROM request_attachments WHERE id=$1 LIMIT 1",
+        "SELECT request_id, filename, content_type, data FROM request_attachments WHERE id=$1 LIMIT 1",
         [id]
       );
       const row = rows[0] ?? null;
@@ -2321,6 +2408,16 @@ export const apiRouter = (() => {
         res.status(404).json({ error: "Attachment not found" });
         return;
       }
+
+      await writeAuditLogBestEffort(pool, req, {
+        action: "attachment.fetch",
+        targetType: "attachment",
+        targetId: id,
+        metadata: {
+          requestId: row.request_id ?? null,
+          filename: row.filename ?? null,
+        },
+      });
 
       const filename = normalizeFilenameForHeader(row.filename);
       const contentType = String(row.content_type ?? "") || guessContentTypeFromFilename(filename);
@@ -2398,18 +2495,24 @@ export const apiRouter = (() => {
       const pool = await getPool();
       const id = randomUUID();
       const passwordHash = makePasswordHash(parsed.value.password);
-      try {
-        const { rows } = await pool.query(
-          `INSERT INTO app_users (id, name, email, role, password_hash, is_active)
-           VALUES ($1, $2, $3, $4, $5, true)
-           RETURNING id, name, email, role, created_at`,
-          [id, parsed.value.name, parsed.value.email, parsed.value.role, passwordHash]
-        );
-        res.status(201).json(mapUserRow(rows[0]));
-      } catch (error) {
-        if (String(error?.code ?? "") === "23505") {
-          res.status(409).json({ error: "Email already exists" });
-          return;
+        try {
+          const { rows } = await pool.query(
+            `INSERT INTO app_users (id, name, email, role, password_hash, is_active)
+             VALUES ($1, $2, $3, $4, $5, true)
+             RETURNING id, name, email, role, created_at`,
+            [id, parsed.value.name, parsed.value.email, parsed.value.role, passwordHash]
+          );
+          await writeAuditLogBestEffort(pool, req, {
+            action: "admin.user_created",
+            targetType: "user",
+            targetId: id,
+            metadata: { email: parsed.value.email, role: parsed.value.role, name: parsed.value.name },
+          });
+          res.status(201).json(mapUserRow(rows[0]));
+        } catch (error) {
+          if (String(error?.code ?? "") === "23505") {
+            res.status(409).json({ error: "Email already exists" });
+            return;
         }
         throw error;
       }
@@ -2442,6 +2545,7 @@ export const apiRouter = (() => {
       const pool = await getPool();
       try {
         let updated = null;
+        let previousRole = null;
         await withTransaction(pool, async (client) => {
           const targetRes = await client.query(
             "SELECT id, role FROM app_users WHERE id = $1 AND is_active = true",
@@ -2452,6 +2556,7 @@ export const apiRouter = (() => {
             res.status(404).json({ error: "User not found" });
             return;
           }
+          previousRole = target.role ?? null;
 
           if (target.role === "admin" && parsed.value.role !== "admin") {
             const countRes = await client.query(
@@ -2487,6 +2592,17 @@ export const apiRouter = (() => {
         });
 
         if (res.headersSent) return;
+        await writeAuditLogBestEffort(pool, req, {
+          action: "admin.user_updated",
+          targetType: "user",
+          targetId: userId,
+          metadata: {
+            email: parsed.value.email,
+            role: parsed.value.role,
+            previousRole,
+            passwordChanged: Boolean(newPassword),
+          },
+        });
         res.json(mapUserRow(updated));
       } catch (error) {
         if (String(error?.code ?? "") === "23505") {
@@ -2514,6 +2630,7 @@ export const apiRouter = (() => {
       }
 
       const pool = await getPool();
+      let targetRole = null;
       await withTransaction(pool, async (client) => {
         const countResult = await client.query(
           "SELECT COUNT(*)::int AS count FROM app_users WHERE role = 'admin' AND is_active = true"
@@ -2529,6 +2646,7 @@ export const apiRouter = (() => {
           res.status(404).json({ error: "User not found" });
           return;
         }
+        targetRole = target.role ?? null;
 
         if (target.role === "admin" && adminCount <= 1) {
           res.status(400).json({ error: "Cannot delete the last admin user" });
@@ -2546,6 +2664,12 @@ export const apiRouter = (() => {
       });
 
       if (res.headersSent) return;
+      await writeAuditLogBestEffort(pool, req, {
+        action: "admin.user_deactivated",
+        targetType: "user",
+        targetId: userId,
+        metadata: { role: targetRole },
+      });
       res.status(204).send();
     })
   );
@@ -2775,11 +2899,113 @@ export const apiRouter = (() => {
         throw error;
       }
 
+      await writeAuditLogBestEffort(pool, req, {
+        action: "admin.user_access_email_sent",
+        targetType: "user",
+        targetId: userId,
+        metadata: { toEmail: String(targetUser.email), appUrl },
+      });
+
       res.json({
         ok: true,
         toEmail: targetUser.email,
         appUrl,
         subject,
+      });
+    })
+  );
+
+  router.get(
+    "/admin/audit-log",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const pool = await getPool();
+
+      const clampInt = (value, def, min, max) => {
+        const parsed = Number.parseInt(String(value ?? ""), 10);
+        if (!Number.isFinite(parsed)) return def;
+        return Math.min(max, Math.max(min, parsed));
+      };
+
+      const page = clampInt(req.query.page, 1, 1, 10_000);
+      const pageSize = clampInt(req.query.pageSize, 50, 10, 200);
+      const offset = (page - 1) * pageSize;
+
+      const parseDate = (value) => {
+        const raw = String(value ?? "").trim();
+        if (!raw) return null;
+        const d = new Date(raw);
+        if (Number.isNaN(d.getTime())) return null;
+        return d.toISOString();
+      };
+
+      const from = parseDate(req.query.from);
+      const to = parseDate(req.query.to);
+      const actorEmail = String(req.query.actorEmail ?? "").trim();
+      const actorUserId = String(req.query.actorUserId ?? "").trim();
+      const action = String(req.query.action ?? "").trim();
+      const targetType = String(req.query.targetType ?? "").trim();
+      const targetId = String(req.query.targetId ?? "").trim();
+      const result = String(req.query.result ?? "").trim();
+      const q = String(req.query.q ?? "").trim();
+
+      const where = [];
+      const params = [];
+      const add = (sql, value) => {
+        params.push(value);
+        where.push(sql.replace("$?", `$${params.length}`));
+      };
+
+      if (from) add("ts >= $?", from);
+      if (to) add("ts <= $?", to);
+      if (actorUserId) add("actor_user_id = $?", actorUserId);
+      if (actorEmail) add("actor_email ILIKE $?", `%${actorEmail}%`);
+      if (action) add("action = $?", action);
+      if (targetType) add("target_type = $?", targetType);
+      if (targetId) add("target_id ILIKE $?", `%${targetId}%`);
+      if (result === "ok" || result === "error") add("result = $?", result);
+      if (q) {
+        params.push(`%${q}%`);
+        const idx = `$${params.length}`;
+        where.push(
+          `(actor_email ILIKE ${idx} OR action ILIKE ${idx} OR target_id ILIKE ${idx} OR error_message ILIKE ${idx})`
+        );
+      }
+
+      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const totalRes = await pool.query(`SELECT COUNT(*)::int AS count FROM audit_log ${whereSql}`, params);
+      const total = Number.parseInt(totalRes.rows?.[0]?.count ?? "0", 10) || 0;
+
+      const listParams = [...params, pageSize, offset];
+      const listRes = await pool.query(
+        `SELECT id, ts, actor_user_id, actor_email, actor_role, action, target_type, target_id, ip, user_agent, result, error_message, metadata
+           FROM audit_log
+           ${whereSql}
+          ORDER BY ts DESC
+          LIMIT $${params.length + 1}
+         OFFSET $${params.length + 2}`,
+        listParams
+      );
+
+      res.json({
+        page,
+        pageSize,
+        total,
+        rows: listRes.rows.map((r) => ({
+          id: r.id,
+          ts: r.ts,
+          actorUserId: r.actor_user_id,
+          actorEmail: r.actor_email,
+          actorRole: r.actor_role,
+          action: r.action,
+          targetType: r.target_type,
+          targetId: r.target_id,
+          ip: r.ip,
+          userAgent: r.user_agent,
+          result: r.result,
+          errorMessage: r.error_message,
+          metadata: r.metadata ?? null,
+        })),
       });
     })
   );
@@ -4026,6 +4252,13 @@ export const apiRouter = (() => {
         console.error("Failed to enqueue create email:", e);
       }
 
+      await writeAuditLogBestEffort(pool, req, {
+        action: "request.created",
+        targetType: "request",
+        targetId: id,
+        metadata: { status: requestData.status ?? status ?? null },
+      });
+
       res.status(201).json(requestData);
     })
   );
@@ -4117,6 +4350,13 @@ export const apiRouter = (() => {
       } catch (e) {
         console.error("Failed to enqueue status change email:", e);
       }
+
+      await writeAuditLogBestEffort(pool, req, {
+        action: "request.status_changed",
+        targetType: "request",
+        targetId: requestId,
+        metadata: { from: previousStatus, to: updated.status ?? null },
+      });
 
       res.json(updated);
     })
@@ -4281,6 +4521,16 @@ export const apiRouter = (() => {
         updated.status ?? existing.status,
         new Date(nowIso),
       ]);
+
+      await writeAuditLogBestEffort(pool, req, {
+        action: "request.updated",
+        targetType: "request",
+        targetId: requestId,
+        metadata: {
+          status: updated.status ?? existing.status ?? null,
+          historyEvent: historyEvent ?? null,
+        },
+      });
 
       res.json(updated);
     })

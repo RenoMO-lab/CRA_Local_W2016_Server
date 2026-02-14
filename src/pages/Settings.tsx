@@ -49,10 +49,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, Database, RefreshCw, Mail, ChevronDown, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
+import { Plus, Trash2, Users, Settings as SettingsIcon, Globe, Truck, Pencil, Layers, ArrowRightLeft, Box, Circle, Download, Droplets, Route, Wind, Repeat, PackageCheck, MessageCircle, Server, Database, RefreshCw, Mail, ChevronDown, CheckCircle2, AlertTriangle, XCircle, ScrollText } from 'lucide-react';
 import { ROLE_CONFIG, UserRole } from '@/types';
 import { cn } from '@/lib/utils';
 import ListManager from '@/components/settings/ListManager';
+import AuditLogPanel from '@/components/settings/AuditLogPanel';
 import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -1964,6 +1965,10 @@ const Settings: React.FC = () => {
           <TabsTrigger value="dbmonitor" className="data-[state=active]:bg-background">
             <Database size={16} className="mr-2" />
             {t.settings.dbMonitorTab}
+          </TabsTrigger>
+          <TabsTrigger value="auditlog" className="data-[state=active]:bg-background">
+            <ScrollText size={16} className="mr-2" />
+            {t.settings.auditLogTab}
           </TabsTrigger>
           <TabsTrigger value="deployments" className="data-[state=active]:bg-background">
             <Server size={16} className="mr-2" />
@@ -4017,6 +4022,10 @@ const Settings: React.FC = () => {
               </div>
             );
           })()}
+        </TabsContent>
+
+        <TabsContent value="auditlog" className="space-y-6">
+          <AuditLogPanel />
         </TabsContent>
 
         <TabsContent value="deployments" className="space-y-6">
