@@ -2700,12 +2700,12 @@ const Settings: React.FC = () => {
                 <h3 className="text-lg font-semibold text-foreground">{t.settings.m365Title}</h3>
                 <p className="text-sm text-muted-foreground">{t.settings.m365Description}</p>
               </div>
-                <div className="flex flex-wrap gap-3">
-                  <Button onClick={saveM365Settings} disabled={hasM365Error || isM365Loading}>
+                <div className="grid w-full gap-3 md:w-[280px]">
+                  <Button size="lg" className="w-full" onClick={saveM365Settings} disabled={hasM365Error || isM365Loading}>
                     {t.settings.saveChanges}
                   </Button>
-                  <Button variant="outline" onClick={loadM365Info} disabled={isM365Loading}>
-                    <RefreshCw size={16} className="mr-2" />
+                  <Button size="lg" className="w-full" variant="outline" onClick={loadM365Info} disabled={isM365Loading}>
+                    <RefreshCw size={16} className={cn("mr-2", isM365Loading ? "animate-spin" : "")} />
                     {isM365Loading ? t.common.loading : t.feedback.refresh}
                   </Button>
                 </div>
