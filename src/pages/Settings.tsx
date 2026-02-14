@@ -685,6 +685,32 @@ const Settings: React.FC = () => {
     });
   };
 
+  const getBackupPrefixFromFileName = (fileName: string) => {
+    const raw = String(fileName ?? '').trim();
+    if (!raw) return '';
+    return raw
+      .replace(/\.dump$/i, '')
+      .replace(/_globals\.sql$/i, '')
+      .replace(/_manifest\.json$/i, '');
+  };
+
+  const getRetentionBucketForDump = (dumpFileName: string | null | undefined) => {
+    const name = String(dumpFileName ?? '').trim();
+    if (!name) return '';
+    if (dbBackupRetentionKept?.day && name === dbBackupRetentionKept.day) return 'day';
+    if (dbBackupRetentionKept?.['day-1'] && name === dbBackupRetentionKept['day-1']) return 'day-1';
+    if (dbBackupRetentionKept?.['week-1'] && name === dbBackupRetentionKept['week-1']) return 'week-1';
+    return '';
+  };
+
+  const formatDateTime = (value: string | null | undefined) => {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '-';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return raw;
+    return format(d, 'MMM d, yyyy HH:mm');
+  };
+
   const getFlowValue = (status: string, role: M365RoleKey) => {
     const map = (m365Info?.settings?.flowMap ?? DEFAULT_FLOW_MAP) as M365FlowMap;
     return Boolean(map?.[status]?.[role]);
@@ -3227,91 +3253,232 @@ const Settings: React.FC = () => {
               </p>
             </div>
 
-            <div className="rounded-xl border border-border bg-background/30 p-4 md:p-5 space-y-3">
-              <h4 className="text-base font-semibold text-foreground">Automatic Backups</h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Frequency:</span>{' '}
-                  <span className="text-foreground">{dbBackupAutomatic?.frequency || 'Daily at 01:00'}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Policy:</span>{' '}
-                  <span className="text-foreground">{dbBackupAutomatic?.policy || 'Keep latest day, day-1, and week-1 backup'}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Task name:</span>{' '}
-                  <span className="text-foreground font-mono">{dbBackupAutomatic?.taskName || 'CRA_Local_DailyDbBackup'}</span>
-                </div>
-              </div>
+            <div className="rounded-xl border border-border bg-background/30 p-4 md:p-5 space-y-4">
+              {(() => {
+                const configured = Boolean(dbBackupAutomatic?.configured);
+                const enabled = Boolean(dbBackupAutomatic?.enabled);
+                const keptCount = [
+                  dbBackupRetentionKept?.day,
+                  dbBackupRetentionKept?.['day-1'],
+                  dbBackupRetentionKept?.['week-1'],
+                ].filter(Boolean).length;
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                <div>
-                  <span className="text-muted-foreground">Configured:</span>{' '}
-                  <span className={cn('font-medium', dbBackupAutomatic?.configured ? 'text-green-500' : 'text-amber-500')}>
-                    {dbBackupAutomatic?.configured ? 'Yes' : 'No'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Auto mode:</span>{' '}
-                  <span className="text-foreground">{dbBackupAutomatic?.enabled ? 'Enabled' : 'Disabled'}</span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Next run:</span>{' '}
-                  <span className="text-foreground">
-                    {dbBackupAutomatic?.nextRunAt
-                      ? format(new Date(dbBackupAutomatic.nextRunAt), 'MMM d, yyyy HH:mm')
-                      : '-'}
-                  </span>
-                </div>
-              </div>
+                const pill = (label: string, value: string, tone: 'ok' | 'warn' | 'muted' = 'muted') => {
+                  const toneCls =
+                    tone === 'ok'
+                      ? 'border-green-500/40 text-green-300 bg-green-500/10'
+                      : tone === 'warn'
+                        ? 'border-amber-500/40 text-amber-300 bg-amber-500/10'
+                        : 'border-border text-muted-foreground bg-muted/10';
+                  return (
+                    <span className={cn('inline-flex items-center rounded-full px-2.5 py-1 text-xs border', toneCls)}>
+                      <span className="text-foreground/80 mr-1.5">{label}:</span>
+                      <span className="font-semibold">{value}</span>
+                    </span>
+                  );
+                };
 
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => setIsDbBackupSetupOpen(true)} disabled={isDbBackupSetupSaving}>
-                  {dbBackupAutomatic?.configured ? 'Update backup setup' : 'Setup backup credentials'}
-                </Button>
-              </div>
-              {dbBackupConfig?.encryptionUsingFallback ? (
-                <p className="text-xs text-amber-500">
-                  Using fallback encryption key. Set BACKUP_CREDENTIALS_SECRET in server environment for stronger security.
-                </p>
-              ) : null}
+                const slots = [
+                  { key: 'day' as const, title: 'Today', fileName: dbBackupRetentionKept?.day ?? null },
+                  { key: 'day-1' as const, title: 'Yesterday', fileName: dbBackupRetentionKept?.['day-1'] ?? null },
+                  { key: 'week-1' as const, title: 'Week-1', fileName: dbBackupRetentionKept?.['week-1'] ?? null },
+                ].map((slot) => {
+                  const prefix = slot.fileName ? getBackupPrefixFromFileName(slot.fileName) : '';
+                  const set = prefix ? dbBackupSets.find((s) => s.prefix === prefix) : null;
+                  const dump = set?.artifacts.dump ?? null;
+                  const globals = set?.artifacts.globals ?? null;
+                  const manifest = set?.artifacts.manifest ?? null;
+                  const ready = Boolean(set?.restoreReady && dump);
 
-              <div className="rounded-md border border-border bg-muted/10 p-3">
-                <div className="text-sm font-medium text-foreground">Current retained files</div>
-                <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                  <div>
-                    <span className="text-muted-foreground">day:</span>{' '}
-                    <span className="text-foreground font-mono break-all">{dbBackupRetentionKept?.day || '-'}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">day-1:</span>{' '}
-                    <span className="text-foreground font-mono break-all">{dbBackupRetentionKept?.['day-1'] || '-'}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">week-1:</span>{' '}
-                    <span className="text-foreground font-mono break-all">{dbBackupRetentionKept?.['week-1'] || '-'}</span>
-                  </div>
-                </div>
-              </div>
+                  return {
+                    ...slot,
+                    set,
+                    dump,
+                    globals,
+                    manifest,
+                    ready,
+                    createdLabel: set ? formatDateTime(set.createdAt) : '-',
+                    sizeLabel: set ? formatBytes(set.totalSizeBytes) : '-',
+                  };
+                });
 
-              <div className="rounded-md border border-border bg-muted/10 p-3 text-xs space-y-1">
-                <div>
-                  <span className="text-muted-foreground">Last automatic run:</span>{' '}
-                  <span className="text-foreground">
-                    {dbBackupAutomatic?.latestAuto?.started_at
-                      ? `${format(new Date(dbBackupAutomatic.latestAuto.started_at), 'MMM d, yyyy HH:mm')} (${dbBackupAutomatic.latestAuto.status})`
-                      : '-'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Last restore:</span>{' '}
-                  <span className="text-foreground">
-                    {dbBackupAutomatic?.latestRestore?.started_at
-                      ? `${format(new Date(dbBackupAutomatic.latestRestore.started_at), 'MMM d, yyyy HH:mm')} (${dbBackupAutomatic.latestRestore.status})`
-                      : '-'}
-                  </span>
-                </div>
-              </div>
+                return (
+                  <>
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="space-y-1">
+                        <h4 className="text-base font-semibold text-foreground">Backup Status</h4>
+                        <p className="text-sm text-muted-foreground">
+                          Automatic schedule, retained files, manual backups, and restore workflow.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 md:justify-end">
+                        <Button
+                          variant="outline"
+                          onClick={loadDbBackups}
+                          disabled={isDbBackupsLoading || isDbBackupCreating}
+                        >
+                          <RefreshCw size={16} className="mr-2" />
+                          {isDbBackupsLoading ? t.common.loading : 'Refresh'}
+                        </Button>
+                        <Button onClick={createDbBackup} disabled={isDbBackupCreating || isDbBackupsLoading}>
+                          <Database size={16} className="mr-2" />
+                          {isDbBackupCreating ? 'Creating backup...' : 'Run backup now'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => setIsDbBackupSetupOpen(true)}
+                          disabled={isDbBackupSetupSaving}
+                        >
+                          {configured ? 'Update setup' : 'Setup credentials'}
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {pill('Configured', configured ? 'Yes' : 'No', configured ? 'ok' : 'warn')}
+                      {pill('Auto', enabled ? 'Enabled' : 'Disabled', enabled ? 'ok' : 'warn')}
+                      {pill(
+                        'Last auto',
+                        dbBackupAutomatic?.latestAuto?.started_at
+                          ? `${formatDateTime(dbBackupAutomatic.latestAuto.started_at)} (${dbBackupAutomatic.latestAuto.status})`
+                          : '-',
+                        dbBackupAutomatic?.latestAuto?.status === 'success' ? 'ok' : dbBackupAutomatic?.latestAuto?.status ? 'warn' : 'muted'
+                      )}
+                      {pill('Retention', `${keptCount}/3 files`, keptCount >= 2 ? 'ok' : keptCount ? 'warn' : 'muted')}
+                      {dbBackupConfig?.encryptionUsingFallback ? pill('Security', 'Fallback key', 'warn') : null}
+                    </div>
+
+                    {dbBackupConfig?.encryptionUsingFallback ? (
+                      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+                        Using fallback encryption key. Set <span className="font-mono">BACKUP_CREDENTIALS_SECRET</span> in server environment for stronger security.
+                      </div>
+                    ) : null}
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+                      <div className="lg:col-span-2 space-y-2">
+                        <div className="text-sm font-medium text-foreground">Retained backup slots</div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          {slots.map((slot) => (
+                            <div key={slot.key} className="rounded-lg border border-border bg-muted/10 p-3 space-y-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-sm font-semibold text-foreground">{slot.title}</div>
+                                <div className={cn('text-[11px] px-2 py-0.5 rounded-full border',
+                                  slot.fileName ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-border text-muted-foreground bg-background/20'
+                                )}>
+                                  {slot.fileName ? 'Available' : 'Missing'}
+                                </div>
+                              </div>
+
+                              {slot.fileName ? (
+                                <div className="space-y-1">
+                                  <div className="text-xs text-muted-foreground truncate" title={slot.fileName}>
+                                    <span className="font-mono">{slot.fileName}</span>
+                                  </div>
+                                  <div className="text-xs text-muted-foreground flex items-center justify-between">
+                                    <span>{slot.createdLabel}</span>
+                                    <span className="tabular-nums">{slot.sizeLabel}</span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="text-xs text-muted-foreground">Not available yet.</div>
+                              )}
+
+                              <div className="flex flex-wrap gap-2">
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button size="sm" variant="outline" disabled={!slot.set}>
+                                      <Download size={14} className="mr-2" />
+                                      Download
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    <DropdownMenuItem
+                                      disabled={!slot.dump}
+                                      onClick={() => slot.dump && downloadBackupFile(slot.dump.fileName)}
+                                    >
+                                      dump
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      disabled={!slot.globals}
+                                      onClick={() => slot.globals && downloadBackupFile(slot.globals.fileName)}
+                                    >
+                                      globals
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      disabled={!slot.manifest}
+                                      onClick={() => slot.manifest && downloadBackupFile(slot.manifest.fileName)}
+                                    >
+                                      manifest
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      disabled={!slot.set?.isComplete}
+                                      onClick={() => slot.set && downloadAllBackupArtifacts(slot.set)}
+                                    >
+                                      all
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => slot.dump && setDbBackupRestoreTarget(slot.dump.fileName)}
+                                  disabled={isDbBackupRestoring || !slot.ready}
+                                >
+                                  Restore
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="text-sm font-medium text-foreground">Schedule details</div>
+                        <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1">
+                          <div>
+                            <span className="text-muted-foreground">Frequency:</span>{' '}
+                            <span className="text-foreground">{dbBackupAutomatic?.frequency || 'Daily at 01:00'}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Policy:</span>{' '}
+                            <span className="text-foreground">{dbBackupAutomatic?.policy || 'Keep latest day, day-1, and week-1 backup'}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Task name:</span>{' '}
+                            <span className="text-foreground font-mono break-all">{dbBackupAutomatic?.taskName || 'CRA_Local_DailyDbBackup'}</span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Next run:</span>{' '}
+                            <span className="text-foreground">
+                              {dbBackupAutomatic?.nextRunAt ? formatDateTime(dbBackupAutomatic.nextRunAt) : '-'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1">
+                          <div>
+                            <span className="text-muted-foreground">Last restore:</span>{' '}
+                            <span className="text-foreground">
+                              {dbBackupAutomatic?.latestRestore?.started_at
+                                ? `${formatDateTime(dbBackupAutomatic.latestRestore.started_at)} (${dbBackupAutomatic.latestRestore.status})`
+                                : '-'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">Last manual:</span>{' '}
+                            <span className="text-foreground">
+                              {dbBackupAutomatic?.latestManual?.started_at
+                                ? `${formatDateTime(dbBackupAutomatic.latestManual.started_at)} (${dbBackupAutomatic.latestManual.status})`
+                                : '-'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
             <div className="h-px bg-border/60" />
@@ -3494,22 +3661,22 @@ const Settings: React.FC = () => {
             <div className="rounded-xl border border-border bg-background/30 p-4 md:p-5 space-y-4">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="space-y-1">
-                  <h4 className="text-base font-semibold text-foreground">Manual Database Backups</h4>
-                <p className="text-sm text-muted-foreground">
-                  Create and download PostgreSQL backups
-                </p>
-                <p className="text-xs text-muted-foreground break-all">
-                  Storage path: {dbBackupDirectory || CANONICAL_DB_BACKUP_DIR}
-                </p>
+                  <h4 className="text-base font-semibold text-foreground">Available Backup Sets</h4>
+                  <p className="text-sm text-muted-foreground">
+                    View, download, and restore backup sets (auto and manual).
+                  </p>
+                  <p className="text-xs text-muted-foreground break-all">
+                    Storage path: {dbBackupDirectory || CANONICAL_DB_BACKUP_DIR}
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={loadDbBackups} disabled={isDbBackupsLoading || isDbBackupCreating}>
                     <RefreshCw size={16} className="mr-2" />
-                    {isDbBackupsLoading ? t.common.loading : 'Refresh list'}
+                    {isDbBackupsLoading ? t.common.loading : 'Refresh'}
                   </Button>
                   <Button onClick={createDbBackup} disabled={isDbBackupCreating || isDbBackupsLoading}>
                     <Database size={16} className="mr-2" />
-                    {isDbBackupCreating ? 'Creating backup...' : 'Create backup'}
+                    {isDbBackupCreating ? 'Creating...' : 'Create backup'}
                   </Button>
                 </div>
               </div>
@@ -3601,41 +3768,65 @@ const Settings: React.FC = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[110px]">Retained</TableHead>
                       <TableHead>Backup set</TableHead>
-                      <TableHead>Artifacts</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead className="text-right">Size</TableHead>
-                      <TableHead className="text-right">Action</TableHead>
+                      <TableHead className="w-[190px]">Created</TableHead>
+                      <TableHead className="w-[110px] text-right">Size</TableHead>
+                      <TableHead className="w-[200px]">Files</TableHead>
+                      <TableHead className="w-[220px] text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {dbBackupSets.map((item) => {
-                      const createdDate = new Date(item.createdAt);
-                      const createdLabel = Number.isNaN(createdDate.getTime())
-                        ? item.createdAt
-                        : format(createdDate, 'MMM d, yyyy HH:mm');
                       const dump = item.artifacts.dump;
                       const globals = item.artifacts.globals;
                       const manifest = item.artifacts.manifest;
                       const allReady = Boolean(dump && globals && manifest);
+                      const retained = getRetentionBucketForDump(dump?.fileName ?? null);
 
                       return (
                         <TableRow key={item.prefix}>
                           <TableCell className="text-xs">
+                            {retained ? (
+                              <span className={cn('inline-flex rounded-full px-2 py-0.5 text-[11px] border',
+                                retained === 'day' ? 'border-green-500/40 text-green-300 bg-green-500/10'
+                                  : retained === 'day-1' ? 'border-blue-500/40 text-blue-300 bg-blue-500/10'
+                                    : 'border-purple-500/40 text-purple-300 bg-purple-500/10'
+                              )}>
+                                {retained}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs">
                             <div className="font-mono break-all">{item.prefix}</div>
-                            <div className={cn('mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] border', item.isComplete ? 'border-green-500/40 text-green-400 bg-green-500/10' : 'border-amber-500/40 text-amber-400 bg-amber-500/10')}>
+                            <div
+                              className={cn(
+                                'mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] border',
+                                item.isComplete
+                                  ? 'border-green-500/40 text-green-400 bg-green-500/10'
+                                  : 'border-amber-500/40 text-amber-400 bg-amber-500/10'
+                              )}
+                            >
                               {item.isComplete ? 'Complete' : 'Partial'}
                             </div>
                           </TableCell>
+                          <TableCell className="text-sm">{formatDateTime(item.createdAt)}</TableCell>
+                          <TableCell className="text-right text-sm">{formatBytes(item.totalSizeBytes)}</TableCell>
                           <TableCell className="text-xs">
-                            <div className="space-y-1">
-                              <div className={cn('font-mono break-all', dump ? 'text-foreground' : 'text-destructive')}>dump: {dump?.fileName || 'missing'}</div>
-                              <div className={cn('font-mono break-all', globals ? 'text-foreground' : 'text-destructive')}>globals: {globals?.fileName || 'missing'}</div>
-                              <div className={cn('font-mono break-all', manifest ? 'text-foreground' : 'text-destructive')}>manifest: {manifest?.fileName || 'missing'}</div>
+                            <div className="flex flex-wrap gap-2">
+                              <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', dump ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
+                                dump
+                              </span>
+                              <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', globals ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
+                                globals
+                              </span>
+                              <span className={cn('px-2 py-0.5 rounded-full text-[11px] border', manifest ? 'border-green-500/40 text-green-300 bg-green-500/10' : 'border-destructive/40 text-destructive bg-destructive/10')}>
+                                manifest
+                              </span>
                             </div>
                           </TableCell>
-                          <TableCell className="text-sm">{createdLabel || '-'}</TableCell>
-                          <TableCell className="text-right text-sm">{formatBytes(item.totalSizeBytes)}</TableCell>
                           <TableCell className="text-right">
                             <div className="inline-flex items-center gap-2">
                               <DropdownMenu>
@@ -3646,28 +3837,16 @@ const Settings: React.FC = () => {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                  <DropdownMenuItem
-                                    disabled={!dump}
-                                    onClick={() => dump && downloadBackupFile(dump.fileName)}
-                                  >
+                                  <DropdownMenuItem disabled={!dump} onClick={() => dump && downloadBackupFile(dump.fileName)}>
                                     dump
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    disabled={!globals}
-                                    onClick={() => globals && downloadBackupFile(globals.fileName)}
-                                  >
+                                  <DropdownMenuItem disabled={!globals} onClick={() => globals && downloadBackupFile(globals.fileName)}>
                                     globals
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    disabled={!manifest}
-                                    onClick={() => manifest && downloadBackupFile(manifest.fileName)}
-                                  >
+                                  <DropdownMenuItem disabled={!manifest} onClick={() => manifest && downloadBackupFile(manifest.fileName)}>
                                     manifest
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    disabled={!allReady}
-                                    onClick={() => downloadAllBackupArtifacts(item)}
-                                  >
+                                  <DropdownMenuItem disabled={!allReady} onClick={() => downloadAllBackupArtifacts(item)}>
                                     all
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
