@@ -36,17 +36,39 @@ const MobileTopNav: React.FC = () => {
     { code: 'zh', label: '中文' },
   ];
 
+  const settingsTab = (() => {
+    if (location.pathname !== '/settings') return 'lists';
+    return new URLSearchParams(location.search).get('tab') || 'lists';
+  })();
+
   const navItems = [
-    { path: '/dashboard', labelKey: 'dashboard' as const, roles: ['sales', 'design', 'costing', 'admin'] },
-    { path: '/requests/new', labelKey: 'newRequest' as const, roles: ['sales', 'admin'] },
-    { path: '/price-list', labelKey: 'priceList' as const, roles: ['sales', 'admin'] },
-    { path: '/performance', labelKey: 'performance' as const, roles: ['sales', 'design', 'costing', 'admin'] },
-    { path: '/settings', labelKey: 'settings' as const, roles: ['admin'] },
+    { path: '/dashboard', label: t.nav.dashboard, roles: ['sales', 'design', 'costing', 'admin'] },
+    { path: '/requests/new', label: t.nav.newRequest, roles: ['sales', 'admin'] },
+    { path: '/price-list', label: t.nav.priceList, roles: ['sales', 'admin'] },
+    { path: '/performance', label: t.nav.performance, roles: ['sales', 'design', 'costing', 'admin'] },
+    ...(user?.role === 'admin'
+      ? [
+          { path: '/settings?tab=lists', label: t.settings.systemLists, roles: ['admin'] },
+          { path: '/settings?tab=users', label: t.settings.usersRoles, roles: ['admin'] },
+          { path: '/settings?tab=feedback', label: t.settings.feedbackTab, roles: ['admin'] },
+          { path: '/settings?tab=m365', label: t.settings.m365Tab, roles: ['admin'] },
+          { path: '/settings?tab=dbmonitor', label: t.settings.dbMonitorTab, roles: ['admin'] },
+          { path: '/settings?tab=auditlog', label: t.settings.auditLogTab, roles: ['admin'] },
+          { path: '/settings?tab=deployments', label: t.settings.deploymentsTab, roles: ['admin'] },
+        ]
+      : []),
   ];
 
   const filteredNavItems = navItems.filter((item) => user && item.roles.includes(user.role));
   const showCreateButton = user?.role === 'sales' || user?.role === 'admin';
-  const isActive = (path: string) => location.pathname === path;
+  const isActive = (path: string) => {
+    if (path.startsWith('/settings?')) {
+      if (location.pathname !== '/settings') return false;
+      const tab = new URLSearchParams(path.split('?')[1] || '').get('tab') || 'lists';
+      return settingsTab === tab;
+    }
+    return location.pathname === path;
+  };
 
   return (
     <header className="md:hidden border-b border-border bg-background/95 backdrop-blur sticky top-0 z-50">
@@ -88,7 +110,7 @@ const MobileTopNav: React.FC = () => {
                     onClick={() => navigate(item.path)}
                     className={cn("cursor-pointer", isActive(item.path) && 'bg-primary/10 text-primary font-medium')}
                   >
-                    {t.nav[item.labelKey]}
+                    {item.label}
                   </DropdownMenuItem>
                 ))}
               </div>

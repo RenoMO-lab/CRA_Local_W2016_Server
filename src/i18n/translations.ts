@@ -51,6 +51,10 @@ export const translations = {
       themeSystem: 'System',
       themeLight: 'Light',
       themeDark: 'Dark',
+      section: 'Section',
+      showing: 'Showing',
+      of: 'of',
+      loadMore: 'Load more',
     },
 
     // Auth
@@ -1017,6 +1021,10 @@ export const translations = {
       themeSystem: 'Système',
       themeLight: 'Clair',
       themeDark: 'Sombre',
+      section: 'Section',
+      showing: 'Affichage',
+      of: 'sur',
+      loadMore: 'Charger plus',
     },
 
     // Auth
@@ -1983,6 +1991,10 @@ export const translations = {
       themeSystem: '跟随系统',
       themeLight: '浅色',
       themeDark: '深色',
+      section: '部分',
+      showing: '显示',
+      of: '/',
+      loadMore: '加载更多',
     },
 
     // Auth

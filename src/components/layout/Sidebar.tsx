@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileText, Plus, Settings, LogOut, ChevronLeft, Menu, Users, BarChart3, Languages, Tags, MessageCircle, LifeBuoy, MoreVertical, Laptop, Sun, Moon, KeyRound } from 'lucide-react';
+import { LayoutDashboard, FileText, Plus, Settings, LogOut, ChevronLeft, ChevronDown, Menu, Users, BarChart3, Languages, Tags, MessageCircle, LifeBuoy, MoreVertical, Laptop, Sun, Moon, KeyRound, Mail, Database, Server, ScrollText } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { cn } from '@/lib/utils';
@@ -36,6 +36,15 @@ const Sidebar: React.FC<SidebarProps> = ({
     { code: 'fr', label: 'Français' },
     { code: 'zh', label: '中文' },
   ];
+  const isSettingsActive = location.pathname === '/settings';
+  const settingsTab = useMemo(() => {
+    if (!isSettingsActive) return 'lists';
+    return new URLSearchParams(location.search).get('tab') || 'lists';
+  }, [isSettingsActive, location.search]);
+  const [adminOpen, setAdminOpen] = useState(isSettingsActive);
+  useEffect(() => {
+    if (isSettingsActive) setAdminOpen(true);
+  }, [isSettingsActive]);
   const isActive = (path: string) => location.pathname === path;
   const navItems = [{
     path: '/dashboard',
@@ -57,13 +66,18 @@ const Sidebar: React.FC<SidebarProps> = ({
     labelKey: 'performance' as const,
     icon: BarChart3,
     roles: ['sales', 'design', 'costing', 'admin']
-  }, {
-    path: '/settings',
-    labelKey: 'settings' as const,
-    icon: Settings,
-    roles: ['admin']
   }];
   const filteredNavItems = navItems.filter(item => user && item.roles.includes(user.role));
+
+  const adminNavItems = useMemo(() => ([
+    { tab: 'lists', label: t.settings.systemLists, icon: Settings },
+    { tab: 'users', label: t.settings.usersRoles, icon: Users },
+    { tab: 'feedback', label: t.settings.feedbackTab, icon: MessageCircle },
+    { tab: 'm365', label: t.settings.m365Tab, icon: Mail },
+    { tab: 'dbmonitor', label: t.settings.dbMonitorTab, icon: Database },
+    { tab: 'auditlog', label: t.settings.auditLogTab, icon: ScrollText },
+    { tab: 'deployments', label: t.settings.deploymentsTab, icon: Server },
+  ]), [t.settings]);
 
   // Get translated role label
   const getRoleLabel = (role: UserRole) => {
@@ -105,6 +119,67 @@ const Sidebar: React.FC<SidebarProps> = ({
               {!isCollapsed && <span className="font-medium">{t.nav[item.labelKey]}</span>}
             </Link>;
       })}
+
+        {user?.role === 'admin' && (
+          <div className={cn("pt-2", isCollapsed && "pt-0")}>
+            {isCollapsed ? (
+              <Link
+                to="/settings?tab=lists"
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
+                  isSettingsActive
+                    ? "bg-sidebar-accent text-sidebar-foreground border-l-2 border-primary"
+                    : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground",
+                  "justify-center px-2"
+                )}
+                aria-label={t.nav.admin}
+              >
+                <Settings size={20} className={isSettingsActive ? "text-primary" : ""} />
+              </Link>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setAdminOpen((v) => !v)}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
+                    isSettingsActive
+                      ? "bg-sidebar-accent text-sidebar-foreground border-l-2 border-primary"
+                      : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  )}
+                >
+                  <Settings size={20} className={isSettingsActive ? "text-primary" : ""} />
+                  <span className="font-medium flex-1 text-left">{t.nav.admin}</span>
+                  <ChevronDown size={16} className={cn("transition-transform", adminOpen ? "rotate-180" : "rotate-0")} />
+                </button>
+
+                {adminOpen ? (
+                  <div className="mt-1 space-y-1 pl-3">
+                    {adminNavItems.map((it) => {
+                      const Icon = it.icon;
+                      const active = isSettingsActive && settingsTab === it.tab;
+                      return (
+                        <Link
+                          key={it.tab}
+                          to={`/settings?tab=${encodeURIComponent(it.tab)}`}
+                          className={cn(
+                            "flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-sm",
+                            active
+                              ? "bg-sidebar-accent text-sidebar-foreground"
+                              : "text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                          )}
+                        >
+                          <Icon size={16} className={active ? "text-primary" : ""} />
+                          <span className="truncate">{it.label}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
+        )}
       </nav>
 
       {/* Language Selector */}

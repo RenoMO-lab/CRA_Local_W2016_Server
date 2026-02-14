@@ -3,13 +3,13 @@ import { useAuth } from '@/context/AuthContext';
 import { useAdminSettings, ListItem, UserItem, ListCategory } from '@/context/AdminSettingsContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { useRequests } from '@/context/RequestContext';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent } from '@/components/ui/tabs';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { 
   Table, 
@@ -397,6 +397,7 @@ const Settings: React.FC = () => {
   const { toast } = useToast();
   const { t } = useLanguage();
   const { requests, isLoading } = useRequests();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     applicationVehicles,
     countries,
@@ -428,6 +429,23 @@ const Settings: React.FC = () => {
     deleteUser,
     importLegacyUsers,
   } = useAdminSettings();
+
+  const validTabs = new Set([
+    'lists',
+    'users',
+    'feedback',
+    'm365',
+    'dbmonitor',
+    'auditlog',
+    'deployments',
+  ]);
+  const activeTabCandidate = String(searchParams.get('tab') ?? '').trim() || 'lists';
+  const activeTab = validTabs.has(activeTabCandidate) ? activeTabCandidate : 'lists';
+  const setActiveTab = (tab: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', tab);
+    setSearchParams(next, { replace: true });
+  };
 
   if (user?.role !== 'admin') {
     return <Navigate to="/dashboard" replace />;
@@ -1944,38 +1962,27 @@ const Settings: React.FC = () => {
         </div>
       </div>
 
-      <Tabs defaultValue="lists" className="space-y-6">
-        <TabsList className="bg-muted/50">
-          <TabsTrigger value="lists" className="data-[state=active]:bg-background">
-            <SettingsIcon size={16} className="mr-2" />
-            {t.settings.systemLists}
-          </TabsTrigger>
-          <TabsTrigger value="users" className="data-[state=active]:bg-background">
-            <Users size={16} className="mr-2" />
-            {t.settings.usersRoles}
-          </TabsTrigger>
-          <TabsTrigger value="feedback" className="data-[state=active]:bg-background">
-            <MessageCircle size={16} className="mr-2" />
-            {t.settings.feedbackTab}
-          </TabsTrigger>
-          <TabsTrigger value="m365" className="data-[state=active]:bg-background">
-            <Mail size={16} className="mr-2" />
-            {t.settings.m365Tab}
-          </TabsTrigger>
-          <TabsTrigger value="dbmonitor" className="data-[state=active]:bg-background">
-            <Database size={16} className="mr-2" />
-            {t.settings.dbMonitorTab}
-          </TabsTrigger>
-          <TabsTrigger value="auditlog" className="data-[state=active]:bg-background">
-            <ScrollText size={16} className="mr-2" />
-            {t.settings.auditLogTab}
-          </TabsTrigger>
-          <TabsTrigger value="deployments" className="data-[state=active]:bg-background">
-            <Server size={16} className="mr-2" />
-            {t.settings.deploymentsTab}
-          </TabsTrigger>
-        </TabsList>
+      <div className="flex justify-end">
+        <div className="w-full md:w-[320px] space-y-2">
+          <Label>{t.common.section}</Label>
+          <Select value={activeTab} onValueChange={setActiveTab}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="lists">{t.settings.systemLists}</SelectItem>
+              <SelectItem value="users">{t.settings.usersRoles}</SelectItem>
+              <SelectItem value="feedback">{t.settings.feedbackTab}</SelectItem>
+              <SelectItem value="m365">{t.settings.m365Tab}</SelectItem>
+              <SelectItem value="dbmonitor">{t.settings.dbMonitorTab}</SelectItem>
+              <SelectItem value="auditlog">{t.settings.auditLogTab}</SelectItem>
+              <SelectItem value="deployments">{t.settings.deploymentsTab}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsContent value="lists" className="space-y-6">
           {(() => {
             const renderListPanel = (

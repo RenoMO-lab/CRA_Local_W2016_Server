@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { cn } from '@/lib/utils';
 
 type AuditLogRow = {
@@ -34,6 +35,8 @@ type AuditLogResponse = {
   total: number;
   rows: AuditLogRow[];
 };
+
+const DEFAULT_PAGE_SIZE = 200;
 
 const toIsoOrEmpty = (value: string) => {
   const trimmed = String(value ?? '').trim();
@@ -65,7 +68,7 @@ const AuditLogPanel: React.FC = () => {
   const [filters, setFilters] = useState(draft);
 
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(0);
   const [rows, setRows] = useState<AuditLogRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -73,10 +76,11 @@ const AuditLogPanel: React.FC = () => {
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil((total || 0) / pageSize)), [total, pageSize]);
+  const canLoadMore = useMemo(() => (total || 0) > 0 && rows.length < total, [rows.length, total]);
 
-  const buildQueryString = useCallback(() => {
+  const buildQueryString = useCallback((pageToLoad: number) => {
     const qs = new URLSearchParams();
-    qs.set('page', String(page));
+    qs.set('page', String(pageToLoad));
     qs.set('pageSize', String(pageSize));
 
     const fromIso = toIsoOrEmpty(filters.from);
@@ -89,19 +93,22 @@ const AuditLogPanel: React.FC = () => {
     if (filters.result !== 'all') qs.set('result', filters.result);
     if (filters.q.trim()) qs.set('q', filters.q.trim());
     return qs.toString();
-  }, [filters, page, pageSize]);
+  }, [filters, pageSize]);
 
-  const load = useCallback(async () => {
+  const loadPage = useCallback(async (pageToLoad: number, options?: { append?: boolean }) => {
+    const append = options?.append === true;
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/audit-log?${buildQueryString()}`);
+      const res = await fetch(`/api/admin/audit-log?${buildQueryString(pageToLoad)}`);
       const data = (await res.json().catch(() => null)) as AuditLogResponse | null;
       if (!res.ok) {
         const message = String((data as any)?.error ?? `Failed to load audit log (${res.status})`);
         throw new Error(message);
       }
-      setRows(Array.isArray(data?.rows) ? data!.rows : []);
+      const nextRows = Array.isArray(data?.rows) ? data!.rows : [];
+      setRows((prev) => (append ? [...prev, ...nextRows] : nextRows));
       setTotal(typeof data?.total === 'number' ? data.total : 0);
+      setPage(pageToLoad);
     } catch (e: any) {
       toast({
         title: t.settings.auditLogTab,
@@ -110,26 +117,39 @@ const AuditLogPanel: React.FC = () => {
       });
       setRows([]);
       setTotal(0);
+      setPage(1);
     } finally {
       setLoading(false);
     }
   }, [buildQueryString, toast, t.settings.auditLogTab]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const loadFirst = useCallback(async () => {
+    await loadPage(1, { append: false });
+  }, [loadPage]);
+
+  const loadMore = useCallback(async () => {
+    if (loading) return;
+    if (!canLoadMore) return;
+    const nextPage = Math.min(totalPages, page + 1);
+    if (nextPage === page) return;
+    await loadPage(nextPage, { append: true });
+  }, [canLoadMore, loadPage, loading, page, totalPages]);
 
   const applyFilters = () => {
     setFilters(draft);
-    setPage(1);
+    // The effect below will load with the updated filters.
   };
 
   const clearFilters = () => {
     const next = { from: '', to: '', actorEmail: '', action: '', targetId: '', result: 'all' as const, q: '' };
     setDraft(next);
     setFilters(next);
-    setPage(1);
   };
+
+  useEffect(() => {
+    // Whenever filters or page size changes, reset to the first page.
+    void loadFirst();
+  }, [filters, pageSize, loadFirst]);
 
   const openDetails = (row: AuditLogRow) => {
     setSelected(row);
@@ -143,122 +163,117 @@ const AuditLogPanel: React.FC = () => {
         <p className="text-sm text-muted-foreground">{t.settings.auditLogDesc}</p>
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-4 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div className="space-y-2">
-            <Label>{t.settings.auditLogFrom}</Label>
-            <Input
-              type="datetime-local"
-              value={draft.from}
-              onChange={(e) => setDraft((p) => ({ ...p, from: e.target.value }))}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>{t.settings.auditLogTo}</Label>
-            <Input
-              type="datetime-local"
-              value={draft.to}
-              onChange={(e) => setDraft((p) => ({ ...p, to: e.target.value }))}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>{t.common.email}</Label>
-            <Input
-              value={draft.actorEmail}
-              onChange={(e) => setDraft((p) => ({ ...p, actorEmail: e.target.value }))}
-              placeholder="user@company.com"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>{t.settings.auditLogAction}</Label>
-            <Input
-              value={draft.action}
-              onChange={(e) => setDraft((p) => ({ ...p, action: e.target.value }))}
-              placeholder="auth.login_success"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>{t.settings.auditLogTarget}</Label>
-            <Input
-              value={draft.targetId}
-              onChange={(e) => setDraft((p) => ({ ...p, targetId: e.target.value }))}
-              placeholder={t.table.requestId}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>{t.settings.auditLogResult}</Label>
-            <Select value={draft.result} onValueChange={(v) => setDraft((p) => ({ ...p, result: v as any }))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t.common.all}</SelectItem>
-                <SelectItem value="ok">OK</SelectItem>
-                <SelectItem value="error">{t.common.error}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2 md:col-span-2 xl:col-span-2">
-            <Label>{t.common.search}</Label>
-            <Input
-              value={draft.q}
-              onChange={(e) => setDraft((p) => ({ ...p, q: e.target.value }))}
-              placeholder={t.settings.auditLogSearchHint}
-            />
-          </div>
-        </div>
+      <Accordion type="single" collapsible defaultValue="" className="rounded-xl border border-border bg-card">
+        <AccordionItem value="filters" className="border-b-0">
+          <AccordionTrigger className="px-4 py-3 hover:no-underline">
+            <span className="text-sm font-semibold text-foreground">{t.common.filter}</span>
+          </AccordionTrigger>
+          <AccordionContent className="px-4 pb-4">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label>{t.settings.auditLogFrom}</Label>
+                  <Input
+                    type="datetime-local"
+                    value={draft.from}
+                    onChange={(e) => setDraft((p) => ({ ...p, from: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.settings.auditLogTo}</Label>
+                  <Input
+                    type="datetime-local"
+                    value={draft.to}
+                    onChange={(e) => setDraft((p) => ({ ...p, to: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.common.email}</Label>
+                  <Input
+                    value={draft.actorEmail}
+                    onChange={(e) => setDraft((p) => ({ ...p, actorEmail: e.target.value }))}
+                    placeholder="user@company.com"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.settings.auditLogAction}</Label>
+                  <Input
+                    value={draft.action}
+                    onChange={(e) => setDraft((p) => ({ ...p, action: e.target.value }))}
+                    placeholder="auth.login_success"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.settings.auditLogTarget}</Label>
+                  <Input
+                    value={draft.targetId}
+                    onChange={(e) => setDraft((p) => ({ ...p, targetId: e.target.value }))}
+                    placeholder={t.table.requestId}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.settings.auditLogResult}</Label>
+                  <Select value={draft.result} onValueChange={(v) => setDraft((p) => ({ ...p, result: v as any }))}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t.common.all}</SelectItem>
+                      <SelectItem value="ok">OK</SelectItem>
+                      <SelectItem value="error">{t.common.error}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 md:col-span-2 xl:col-span-2">
+                  <Label>{t.common.search}</Label>
+                  <Input
+                    value={draft.q}
+                    onChange={(e) => setDraft((p) => ({ ...p, q: e.target.value }))}
+                    placeholder={t.settings.auditLogSearchHint}
+                  />
+                </div>
+              </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={applyFilters} disabled={loading}>
-            <Search size={16} className="mr-2" />
-            {t.common.apply}
-          </Button>
-          <Button variant="outline" onClick={clearFilters} disabled={loading}>
-            <XCircle size={16} className="mr-2" />
-            {t.common.clear}
-          </Button>
-          <Button variant="outline" onClick={load} disabled={loading}>
-            <RefreshCw size={16} className={cn('mr-2', loading ? 'animate-spin' : '')} />
-            {t.common.refresh}
-          </Button>
-
-          <div className="ml-auto flex items-center gap-2">
-            <Label className="text-xs text-muted-foreground">{t.common.page}</Label>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={loading || page <= 1}
-            >
-              {t.common.previous}
-            </Button>
-            <div className="text-sm text-muted-foreground tabular-nums">
-              {page} / {totalPages}
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={applyFilters} disabled={loading}>
+                  <Search size={16} className="mr-2" />
+                  {t.common.apply}
+                </Button>
+                <Button variant="outline" onClick={clearFilters} disabled={loading}>
+                  <XCircle size={16} className="mr-2" />
+                  {t.common.clear}
+                </Button>
+                <Button variant="outline" onClick={loadFirst} disabled={loading}>
+                  <RefreshCw size={16} className={cn('mr-2', loading ? 'animate-spin' : '')} />
+                  {t.common.refresh}
+                </Button>
+              </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={loading || page >= totalPages}
-            >
-              {t.common.next}
-            </Button>
-            <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setPage(1); }}>
-              <SelectTrigger className="w-[92px]">
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between px-4 py-3 border-b border-border">
+          <div className="text-sm text-muted-foreground tabular-nums">
+            {t.common.showing} {rows.length} {t.common.of} {total}
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+              <SelectTrigger className="w-[110px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="25">25</SelectItem>
                 <SelectItem value="50">50</SelectItem>
                 <SelectItem value="100">100</SelectItem>
                 <SelectItem value="200">200</SelectItem>
               </SelectContent>
             </Select>
+            <Button variant="outline" onClick={loadMore} disabled={loading || !canLoadMore}>
+              {t.common.loadMore}
+            </Button>
           </div>
         </div>
-      </div>
-
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
@@ -352,4 +367,3 @@ const AuditLogPanel: React.FC = () => {
 };
 
 export default AuditLogPanel;
-
