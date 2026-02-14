@@ -37,6 +37,12 @@ type AuditLogResponse = {
 };
 
 const DEFAULT_PAGE_SIZE = 200;
+const MIN_SPINNER_MS = 600;
+const sleepMs = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+const ensureMinSpinnerMs = async (startedAtMs: number, minMs = MIN_SPINNER_MS) => {
+  const elapsed = Date.now() - startedAtMs;
+  if (elapsed < minMs) await sleepMs(minMs - elapsed);
+};
 
 const toIsoOrEmpty = (value: string) => {
   const trimmed = String(value ?? '').trim();
@@ -97,6 +103,7 @@ const AuditLogPanel: React.FC = () => {
 
   const loadPage = useCallback(async (pageToLoad: number, options?: { append?: boolean }) => {
     const append = options?.append === true;
+    const startedAt = Date.now();
     setLoading(true);
     try {
       const res = await fetch(`/api/admin/audit-log?${buildQueryString(pageToLoad)}`);
@@ -119,6 +126,7 @@ const AuditLogPanel: React.FC = () => {
       setTotal(0);
       setPage(1);
     } finally {
+      await ensureMinSpinnerMs(startedAt);
       setLoading(false);
     }
   }, [buildQueryString, toast, t.settings.auditLogTab]);
@@ -244,7 +252,9 @@ const AuditLogPanel: React.FC = () => {
                   {t.common.clear}
                 </Button>
                 <Button variant="outline" onClick={loadFirst} disabled={loading}>
-                  <RefreshCw size={16} className={cn('mr-2', loading ? 'animate-spin' : '')} />
+                  <span className={cn("mr-2 inline-flex", loading ? "animate-spin" : "")}>
+                    <RefreshCw size={16} />
+                  </span>
                   {t.common.refresh}
                 </Button>
               </div>

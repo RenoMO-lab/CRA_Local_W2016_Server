@@ -149,11 +149,19 @@ interface DeployInfo {
     message: string;
     author: string;
     date: string;
+    builtAt?: string;
+  };
+  build?: {
+    builtAt?: string;
   };
   log: {
     lines: number;
     content: string;
     available: boolean;
+    fileName?: string;
+    directory?: string;
+    tried?: string[];
+    candidates?: Array<{ name: string; sizeBytes: number; modifiedAt: string }>;
   };
 }
 
@@ -711,6 +719,13 @@ const Settings: React.FC = () => {
     return format(d, 'MMM d, yyyy HH:mm');
   };
 
+  const MIN_SPINNER_MS = 600;
+  const sleepMs = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+  const ensureMinSpinnerMs = async (startedAtMs: number, minMs = MIN_SPINNER_MS) => {
+    const elapsed = Date.now() - startedAtMs;
+    if (elapsed < minMs) await sleepMs(minMs - elapsed);
+  };
+
   const getFlowValue = (status: string, role: M365RoleKey) => {
     const map = (m365Info?.settings?.flowMap ?? DEFAULT_FLOW_MAP) as M365FlowMap;
     return Boolean(map?.[status]?.[role]);
@@ -748,6 +763,7 @@ const Settings: React.FC = () => {
   };
 
   const loadM365Info = async () => {
+    const startedAt = Date.now();
     setIsM365Loading(true);
     setHasM365Error(false);
     try {
@@ -769,6 +785,7 @@ const Settings: React.FC = () => {
       setM365Info(null);
       setHasM365Error(true);
     } finally {
+      await ensureMinSpinnerMs(startedAt);
       setIsM365Loading(false);
     }
   };
@@ -941,6 +958,7 @@ const Settings: React.FC = () => {
   };
 
   const loadDeployInfo = async () => {
+    const startedAt = Date.now();
     setIsDeployLoading(true);
     setHasDeployError(false);
     try {
@@ -985,11 +1003,13 @@ const Settings: React.FC = () => {
       setDeployInfo(null);
       setHasDeployError(true);
     } finally {
+      await ensureMinSpinnerMs(startedAt);
       setIsDeployLoading(false);
     }
   };
 
   const loadDbMonitor = async () => {
+    const startedAt = Date.now();
     setIsDbMonitorLoading(true);
     setHasDbMonitorError(false);
     try {
@@ -1002,11 +1022,13 @@ const Settings: React.FC = () => {
       setDbMonitor(null);
       setHasDbMonitorError(true);
     } finally {
+      await ensureMinSpinnerMs(startedAt);
       setIsDbMonitorLoading(false);
     }
   };
 
   const loadDbBackups = async () => {
+    const startedAt = Date.now();
     setIsDbBackupsLoading(true);
     setDbBackupError(null);
     try {
@@ -1028,6 +1050,7 @@ const Settings: React.FC = () => {
       setDbBackupRetentionKept(null);
       setDbBackupAutomatic(null);
     } finally {
+      await ensureMinSpinnerMs(startedAt);
       setIsDbBackupsLoading(false);
     }
   };
@@ -1176,6 +1199,7 @@ const Settings: React.FC = () => {
   };
 
   const validateDbBackupImport = async (importId: string) => {
+    const startedAt = Date.now();
     setIsDbBackupImportValidating(true);
     setDbBackupImportError(null);
     try {
@@ -1192,6 +1216,7 @@ const Settings: React.FC = () => {
       setDbBackupImportError(message);
       toast({ title: t.request.error, description: message, variant: 'destructive' });
     } finally {
+      await ensureMinSpinnerMs(startedAt);
       setIsDbBackupImportValidating(false);
     }
   };
@@ -1258,6 +1283,7 @@ const Settings: React.FC = () => {
   };
 
   const refreshDbMonitor = async () => {
+    const startedAt = Date.now();
     setIsDbMonitorLoading(true);
     setHasDbMonitorError(false);
     try {
@@ -1274,6 +1300,7 @@ const Settings: React.FC = () => {
         variant: 'destructive',
       });
     } finally {
+      await ensureMinSpinnerMs(startedAt);
       setIsDbMonitorLoading(false);
     }
   };
@@ -1290,6 +1317,7 @@ const Settings: React.FC = () => {
   }, []);
 
   const loadFeedback = useCallback(async () => {
+    const startedAt = Date.now();
     setIsFeedbackLoading(true);
     setHasFeedbackError(false);
     try {
@@ -1302,6 +1330,7 @@ const Settings: React.FC = () => {
       setFeedbackItems([]);
       setHasFeedbackError(true);
     } finally {
+      await ensureMinSpinnerMs(startedAt);
       setIsFeedbackLoading(false);
     }
   }, []);
@@ -2108,7 +2137,9 @@ const Settings: React.FC = () => {
         <TabsContent value="users" className="space-y-6">
           <div className="flex flex-wrap justify-end gap-2">
             <Button variant="outline" onClick={() => refreshUsers()} disabled={isUsersLoading || isLegacyUserImporting}>
-              <RefreshCw size={16} className="mr-2" />
+              <span className={cn("mr-2 inline-flex", isUsersLoading ? "animate-spin" : "")}>
+                <RefreshCw size={16} />
+              </span>
               {isUsersLoading ? t.common.loading : 'Refresh users'}
             </Button>
             <Button
@@ -2446,7 +2477,9 @@ const Settings: React.FC = () => {
                 <p className="text-sm text-muted-foreground">{t.feedback.tableDesc}</p>
               </div>
               <Button variant="outline" onClick={loadFeedback} disabled={isFeedbackLoading}>
-                <RefreshCw size={16} className="mr-2" />
+                <span className={cn("mr-2 inline-flex", isFeedbackLoading ? "animate-spin" : "")}>
+                  <RefreshCw size={16} />
+                </span>
                 {isFeedbackLoading ? t.common.loading : t.feedback.refresh}
               </Button>
             </div>
@@ -2705,7 +2738,9 @@ const Settings: React.FC = () => {
                     {t.settings.saveChanges}
                   </Button>
                   <Button size="lg" className="w-full" variant="outline" onClick={loadM365Info} disabled={isM365Loading}>
-                    <RefreshCw size={16} className={cn("mr-2", isM365Loading ? "animate-spin" : "")} />
+                    <span className={cn("mr-2 inline-flex", isM365Loading ? "animate-spin" : "")}>
+                      <RefreshCw size={16} />
+                    </span>
                     {isM365Loading ? t.common.loading : t.feedback.refresh}
                   </Button>
                 </div>
@@ -3236,7 +3271,9 @@ const Settings: React.FC = () => {
                     <div className="text-sm font-semibold text-foreground">{t.settings.dbMonitorTitle}</div>
                     <p className="text-sm text-muted-foreground">{t.settings.dbMonitorDescription}</p>
                     <Button variant="outline" onClick={refreshDbMonitor} disabled={isDbMonitorLoading} className="self-start">
-                      <RefreshCw size={16} className="mr-2" />
+                      <span className={cn("mr-2 inline-flex", isDbMonitorLoading ? "animate-spin" : "")}>
+                        <RefreshCw size={16} />
+                      </span>
                       {isDbMonitorLoading ? t.common.loading : t.settings.dbMonitorRefresh}
                     </Button>
                   </div>
@@ -3297,7 +3334,9 @@ const Settings: React.FC = () => {
                           disabled={isDbBackupsLoading || isDbBackupCreating}
                           className="h-11 w-full justify-center"
                         >
-                          <RefreshCw size={16} className="mr-2" />
+                          <span className={cn("mr-2 inline-flex", isDbBackupsLoading ? "animate-spin" : "")}>
+                            <RefreshCw size={16} />
+                          </span>
                           {isDbBackupsLoading ? t.common.loading : 'Refresh'}
                         </Button>
                         <Button
@@ -3463,7 +3502,9 @@ const Settings: React.FC = () => {
                         onClick={() => dbBackupImportId && void validateDbBackupImport(dbBackupImportId)}
                         disabled={!dbBackupImportId || isDbBackupImportUploading || isDbBackupImportValidating || isDbBackupImportRestoring}
                       >
-                        <RefreshCw size={16} className="mr-2" />
+                        <span className={cn("mr-2 inline-flex", isDbBackupImportValidating ? "animate-spin" : "")}>
+                          <RefreshCw size={16} />
+                        </span>
                         {isDbBackupImportValidating ? t.common.loading : 'Validate'}
                       </Button>
                     </div>
@@ -4234,7 +4275,9 @@ const Settings: React.FC = () => {
                 <p className="text-sm text-muted-foreground">{t.settings.deployDescription}</p>
               </div>
               <Button variant="outline" onClick={loadDeployInfo} disabled={isDeployLoading}>
-                <RefreshCw size={16} className="mr-2" />
+                <span className={cn("mr-2 inline-flex", isDeployLoading ? "animate-spin" : "")}>
+                  <RefreshCw size={16} />
+                </span>
                 {isDeployLoading ? t.common.loading : t.settings.deployRefresh}
               </Button>
             </div>
@@ -4262,6 +4305,17 @@ const Settings: React.FC = () => {
                     {deployInfo?.git?.date ? format(new Date(deployInfo.git.date), 'MMM d, yyyy HH:mm') : '-'}
                   </span>
                 </div>
+                <div className="flex items-start justify-between gap-4">
+                  <span className="text-muted-foreground">Built</span>
+                  <span className="text-right">
+                    {(() => {
+                      const raw = String(deployInfo?.build?.builtAt || deployInfo?.git?.builtAt || '').trim();
+                      if (!raw) return '-';
+                      const d = new Date(raw);
+                      return Number.isNaN(d.getTime()) ? raw : format(d, 'MMM d, yyyy HH:mm');
+                    })()}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -4271,7 +4325,24 @@ const Settings: React.FC = () => {
                 <p className="text-sm text-destructive">{t.settings.deployLoadError}</p>
               ) : (
                 <pre className="text-xs font-mono whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 max-h-96 overflow-auto">
-                  {isDeployLoading ? t.common.loading : (deployInfo?.log?.content || t.settings.deployLogEmpty)}
+                  {isDeployLoading
+                    ? t.common.loading
+                    : (() => {
+                        const log = deployInfo?.log;
+                        if (!log) return t.settings.deployLogEmpty;
+                        if (log.available) return log.content || t.settings.deployLogEmpty;
+                        const candidates = Array.isArray(log.candidates) ? log.candidates : [];
+                        const names = candidates.map((c) => c.name).filter(Boolean);
+                        const lines: string[] = [];
+                        lines.push('Deploy log is not available on this host.');
+                        if (names.length) {
+                          lines.push('Found log files:');
+                          lines.push(...names.slice(0, 10).map((n) => `- ${n}`));
+                        } else {
+                          lines.push('No log files found under deploy/logs/.');
+                        }
+                        return lines.join('\n');
+                      })()}
                 </pre>
               )}
             </div>

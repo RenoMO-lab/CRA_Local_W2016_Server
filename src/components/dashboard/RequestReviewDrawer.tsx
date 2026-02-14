@@ -28,6 +28,13 @@ type Props = {
   userRole: UserRole;
 };
 
+const MIN_SPINNER_MS = 600;
+const sleepMs = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+const ensureMinSpinnerMs = async (startedAtMs: number, minMs = MIN_SPINNER_MS) => {
+  const elapsed = Date.now() - startedAtMs;
+  if (elapsed < minMs) await sleepMs(minMs - elapsed);
+};
+
 const getPrimaryProduct = (request: CustomerRequest): Partial<RequestProduct> => {
   if (request.products && request.products.length) {
     return request.products[0];
@@ -56,6 +63,7 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
 
   const load = async (id: string) => {
     latestRequestIdRef.current = id;
+    const startedAt = Date.now();
     setIsLoading(true);
     setLoadError(null);
     try {
@@ -69,6 +77,7 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
       setLoadError(t.dashboard.reviewLoadFailed);
     } finally {
       if (latestRequestIdRef.current !== id) return;
+      await ensureMinSpinnerMs(startedAt);
       setIsLoading(false);
     }
   };
@@ -217,7 +226,9 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
               disabled={!requestId || isLoading}
               className="text-muted-foreground"
             >
-              <RefreshCw size={16} className={cn("mr-2", isLoading ? "animate-spin" : "")} />
+              <span className={cn("mr-2 inline-flex", isLoading ? "animate-spin" : "")}>
+                <RefreshCw size={16} />
+              </span>
               {t.common.update}
             </Button>
           </div>

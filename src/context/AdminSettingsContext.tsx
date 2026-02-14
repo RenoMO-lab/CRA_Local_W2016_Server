@@ -1,5 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
+const MIN_SPINNER_MS = 600;
+const sleepMs = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+const ensureMinSpinnerMs = async (startedAtMs: number, minMs = MIN_SPINNER_MS) => {
+  const elapsed = Date.now() - startedAtMs;
+  if (elapsed < minMs) await sleepMs(minMs - elapsed);
+};
+
 interface ListItem {
   id: string;
   value: string;
@@ -414,12 +421,14 @@ export const AdminSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const refreshUsers = async () => {
+    const startedAt = Date.now();
     setIsUsersLoading(true);
     try {
       const data = await fetchJson<UserItem[]>(USERS_API_BASE);
       const mapped = Array.isArray(data) ? data.map(mapUser) : [];
       setUsers(mapped.filter((item) => item.id && item.email));
     } finally {
+      await ensureMinSpinnerMs(startedAt);
       setIsUsersLoading(false);
     }
   };

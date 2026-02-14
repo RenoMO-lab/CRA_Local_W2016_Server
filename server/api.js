@@ -1240,7 +1240,8 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, "..");
 const DEFAULT_LOG_LINES = 200;
 const MAX_LOG_LINES = 1000;
-const LOG_PATH = path.join(REPO_ROOT, "deploy", "logs", "auto-deploy.log");
+const LOG_DIR = path.join(REPO_ROOT, "deploy", "logs");
+const DEFAULT_DEPLOY_LOG_PATH = path.join(LOG_DIR, "auto-deploy.log");
 const BUILD_INFO_PATH = path.join(REPO_ROOT, "dist", "build-info.json");
 const DB_BACKUP_DIR = path.resolve(process.env.DB_BACKUP_DIR || "C:\\CRA_Local_W2016_Main\\backups\\postgres");
 const MAX_DB_BACKUP_LIST = 100;
@@ -1284,11 +1285,53 @@ const readBuildInfo = async () => {
     const message = String(parsed?.message ?? "").trim();
     const author = String(parsed?.author ?? "").trim();
     const date = String(parsed?.date ?? "").trim();
-    if (!hash && !message && !author && !date) return null;
-    return { hash, message, author, date };
+    const builtAt = String(parsed?.builtAt ?? "").trim();
+    if (!hash && !message && !author && !date && !builtAt) return null;
+    return { hash, message, author, date, builtAt };
   } catch {
     return null;
   }
+};
+
+const listLogFiles = async (dirPath, maxFiles = 25) => {
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    const names = entries.filter((e) => e.isFile()).map((e) => e.name);
+    const stats = await Promise.all(
+      names.map(async (name) => {
+        try {
+          const fullPath = path.join(dirPath, name);
+          const st = await fs.stat(fullPath);
+          return { name, fullPath, mtimeMs: st.mtimeMs, sizeBytes: st.size };
+        } catch {
+          return null;
+        }
+      })
+    );
+    return stats
+      .filter(Boolean)
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .slice(0, maxFiles);
+  } catch {
+    return [];
+  }
+};
+
+const resolveDeployLog = async () => {
+  const tried = [DEFAULT_DEPLOY_LOG_PATH];
+  try {
+    const st = await fs.stat(DEFAULT_DEPLOY_LOG_PATH);
+    if (st.isFile()) {
+      return { selectedPath: DEFAULT_DEPLOY_LOG_PATH, tried, files: [] };
+    }
+  } catch {
+    // fallthrough
+  }
+
+  const files = await listLogFiles(LOG_DIR, 10);
+  // Only use the explicit deploy log. Other files in deploy/logs (e.g. db-backup.log, manual-start logs)
+  // are not a reliable source for "last deployment" and would be confusing to show as deploy history.
+  return { selectedPath: null, tried, files };
 };
 
 const formatBackupTimestamp = (date = new Date()) => {
@@ -3046,17 +3089,29 @@ export const apiRouter = (() => {
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
       const lines = clampLineCount(req.query.lines);
-      const [gitInfo, logContent] = await Promise.all([
+      const [gitInfo, buildInfo, logResolve] = await Promise.all([
         getGitInfo(),
-        readLogTail(LOG_PATH, lines),
+        readBuildInfo(),
+        resolveDeployLog(),
       ]);
+
+      const logContent = logResolve.selectedPath ? await readLogTail(logResolve.selectedPath, lines) : null;
 
       res.json({
         git: gitInfo ?? { hash: "", message: "", author: "", date: "" },
+        build: buildInfo ?? { builtAt: "" },
         log: {
           lines,
           content: logContent ?? "",
           available: logContent !== null,
+          fileName: logResolve.selectedPath ? path.basename(logResolve.selectedPath) : "",
+          directory: LOG_DIR,
+          tried: logResolve.tried,
+          candidates: logResolve.files.map((f) => ({
+            name: f.name,
+            sizeBytes: f.sizeBytes,
+            modifiedAt: new Date(f.mtimeMs).toISOString(),
+          })),
         },
       });
     })
