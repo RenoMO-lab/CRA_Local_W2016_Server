@@ -79,6 +79,28 @@ Authentication notes:
 
 ## Local development
 
+### Local Dev (Win11) With Docker Desktop (Recommended)
+
+If the production server is down, you can still develop and test locally on your Windows 11 PC.
+
+This will:
+- Start a local PostgreSQL using Docker (`cra-pg`)
+- Create a local `.env` (kept on your PC only; not committed to Git)
+- Run migrations locally
+- Start both API and UI dev servers
+
+Run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\local-dev.ps1
+```
+
+Reset the local DB (deletes local test data):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\local-dev.ps1 -ResetDb
+```
+
 Bun (recommended):
 
 ```sh
