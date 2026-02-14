@@ -39,7 +39,51 @@ Set-Location $repoRoot
 try {
   docker --version | Out-Null
 } catch {
-  throw "Docker is not available. Install Docker Desktop and make sure 'docker' works in PowerShell."
+  # Docker Desktop may be installed but not yet on PATH for this session.
+  $dockerBin = "C:\\Program Files\\Docker\\Docker\\resources\\bin"
+  if (Test-Path (Join-Path $dockerBin "docker.exe")) {
+    $env:Path = "$dockerBin;$env:Path"
+  } else {
+    throw "Docker is not available. Install Docker Desktop and make sure 'docker' works in PowerShell."
+  }
+}
+
+# Ensure Docker Desktop backend is started.
+try {
+  $svc = Get-Service -Name "com.docker.service" -ErrorAction SilentlyContinue
+  if ($svc -and $svc.Status -ne "Running") {
+    Write-Info "Starting Docker service (com.docker.service)..."
+    Start-Service -Name "com.docker.service" -ErrorAction SilentlyContinue
+  }
+} catch {
+  # Non-fatal: Docker Desktop can still be started via the app.
+}
+
+try {
+  $desktopExe = "C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe"
+  if (Test-Path $desktopExe) {
+    $already = Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue
+    if (-not $already) {
+      Write-Info "Launching Docker Desktop..."
+      Start-Process -FilePath $desktopExe | Out-Null
+    }
+  }
+} catch {}
+
+# Wait for engine to become ready.
+Write-Info "Waiting for Docker engine to be ready..."
+$ready = $false
+for ($i = 0; $i -lt 36; $i++) {
+  try {
+    docker info | Out-Null
+    $ready = $true
+    break
+  } catch {
+    Start-Sleep -Seconds 5
+  }
+}
+if (-not $ready) {
+  throw "Docker is installed but the engine is not ready. Reboot your PC, then open Docker Desktop once (to finish setup), then rerun this script."
 }
 
 if ($ResetDb) {
@@ -108,4 +152,3 @@ Start-Process powershell -ArgumentList @(
 )
 
 Write-Info "Done. Open the UI at http://127.0.0.1:5173"
-
