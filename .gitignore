@@ -12,7 +12,11 @@ dist
 .wrangler
 dist-ssr
 *.local
+
+# Environment files (keep per-machine secrets out of Git)
 .env
+.env.*
+!.env.example
 
 # Editor directories and files
 .vscode/*
