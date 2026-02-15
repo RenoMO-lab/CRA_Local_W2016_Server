@@ -919,7 +919,7 @@ const RequestForm: React.FC = () => {
       }
       toast({
         title: t.request.error,
-        description: t.request.failedSubmit,
+        description: `${t.request.failedSubmit}${error instanceof Error && error.message ? ` (${error.message})` : ''}`,
         variant: 'destructive',
       });
     } finally {

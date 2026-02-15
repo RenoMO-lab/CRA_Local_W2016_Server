@@ -173,7 +173,18 @@ const markFullRequest = (r: CustomerRequest): StoredRequest => ({ ...(r as any),
 const fetchJson = async <T,>(input: RequestInfo, init?: RequestInit): Promise<T> => {
   const res = await fetch(input, init);
   if (!res.ok) {
-    throw new Error(`Request failed with status ${res.status}`);
+    let detail = "";
+    try {
+      const ct = String(res.headers.get("content-type") || "");
+      if (ct.includes("application/json")) {
+        const data: any = await res.json();
+        detail = String(data?.error || data?.message || "").trim();
+      } else {
+        detail = String(await res.text()).trim();
+      }
+    } catch {}
+
+    throw new Error(`Request failed with status ${res.status}${detail ? `: ${detail}` : ""}`);
   }
   return res.json() as Promise<T>;
 };

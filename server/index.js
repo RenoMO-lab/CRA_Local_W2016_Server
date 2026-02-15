@@ -60,8 +60,26 @@ app.get("*", (req, res) => {
 });
 
 app.use((err, req, res, next) => {
+  // Normalize common body parser errors so the UI gets actionable status codes.
+  // - entity.too.large => 413 Payload Too Large (often large base64 attachments)
+  // - entity.parse.failed / SyntaxError => 400 Bad Request (invalid JSON)
+  const type = err?.type;
+  const status = Number(err?.statusCode ?? err?.status ?? 500);
+
+  if (type === "entity.too.large") {
+    res.status(413).json({ error: "Payload too large" });
+    return;
+  }
+
+  if (type === "entity.parse.failed" || err instanceof SyntaxError) {
+    res.status(400).json({ error: "Invalid JSON body" });
+    return;
+  }
+
   console.error(err);
-  res.status(500).json({ error: "Internal server error" });
+  res.status(Number.isFinite(status) && status >= 400 && status < 600 ? status : 500).json({
+    error: "Internal server error",
+  });
 });
 
 const port = Number.parseInt(process.env.PORT || "3000", 10);
