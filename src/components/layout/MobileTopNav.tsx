@@ -16,6 +16,7 @@ import { useTheme } from 'next-themes';
 
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AccountDialog from '@/components/account/AccountDialog';
 import FeedbackDialog from '@/components/feedback/FeedbackDialog';
 import { useAuth } from '@/context/AuthContext';
@@ -58,8 +59,8 @@ const MobileTopNav: React.FC = () => {
 
   const languages = [
     { code: 'en', label: 'English' },
-    { code: 'fr', label: 'Fran莽ais' },
-    { code: 'zh', label: '涓枃' },
+    { code: 'fr', label: 'Français' },
+    { code: 'zh', label: '中文' },
   ];
 
   const settingsTab = (() => {
@@ -284,22 +285,19 @@ const MobileTopNav: React.FC = () => {
                 <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                   {t.common.language}
                 </div>
-                <div className="px-2 grid grid-cols-1 gap-1">
-                  {languages.map((lang) => (
-                    <button
-                      key={lang.code}
-                      type="button"
-                      onClick={() => setLanguage(lang.code as any)}
-                      className={cn(
-                        'w-full flex items-center justify-between rounded-md border border-border px-3 py-2 text-sm transition-colors',
-                        language === lang.code
-                          ? 'bg-primary/10 text-primary border-primary/30'
-                          : 'hover:bg-accent',
-                      )}
-                    >
-                      <span className="font-medium">{lang.label}</span>
-                    </button>
-                  ))}
+                <div className="px-2">
+                  <Select value={language} onValueChange={(value) => setLanguage(value as any)}>
+                    <SelectTrigger className="w-full bg-background/40">
+                      <SelectValue placeholder={t.common.language} />
+                    </SelectTrigger>
+                    <SelectContent className="bg-card border border-border">
+                      {languages.map((lang) => (
+                        <SelectItem key={lang.code} value={lang.code}>
+                          {lang.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>
