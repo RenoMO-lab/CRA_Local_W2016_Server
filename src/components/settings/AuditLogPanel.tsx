@@ -3,8 +3,10 @@ import { format } from 'date-fns';
 import { Eye, RefreshCw, Search, XCircle } from 'lucide-react';
 
 import { useLanguage } from '@/context/LanguageContext';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -61,6 +63,7 @@ const formatTs = (ts: string) => {
 const AuditLogPanel: React.FC = () => {
   const { t } = useLanguage();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
 
   const [draft, setDraft] = useState({
     from: '',
@@ -163,6 +166,45 @@ const AuditLogPanel: React.FC = () => {
     setSelected(row);
     setDetailsOpen(true);
   };
+
+  const closeDetails = () => setDetailsOpen(false);
+
+  const detailsBody = (
+    <div className="mt-4 space-y-3">
+      {selected ? (
+        <>
+          <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm space-y-1">
+            <div><span className="text-muted-foreground">{t.common.date}:</span> {formatTs(selected.ts)}</div>
+            <div><span className="text-muted-foreground">{t.common.email}:</span> {selected.actorEmail ?? '-'}</div>
+            <div><span className="text-muted-foreground">{t.common.role}:</span> {selected.actorRole ?? '-'}</div>
+            <div><span className="text-muted-foreground">{t.settings.auditLogAction}:</span> {selected.action}</div>
+            <div><span className="text-muted-foreground">{t.settings.auditLogTarget}:</span> {selected.targetType ?? '-'} {selected.targetId ?? ''}</div>
+            <div><span className="text-muted-foreground">{t.settings.auditLogResult}:</span> {selected.result}</div>
+            {selected.errorMessage ? (
+              <div className="text-destructive"><span className="text-muted-foreground">{t.common.error}:</span> {selected.errorMessage}</div>
+            ) : null}
+            <div><span className="text-muted-foreground">IP:</span> {selected.ip ?? '-'}</div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t.settings.auditLogMetadata}</Label>
+            <pre className="rounded-lg border border-border bg-background p-3 text-xs overflow-auto scrollbar-thin whitespace-pre-wrap break-words">
+              {JSON.stringify(selected.metadata ?? {}, null, 2)}
+            </pre>
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t.settings.auditLogUserAgent}</Label>
+            <pre className="rounded-lg border border-border bg-background p-3 text-xs overflow-auto scrollbar-thin whitespace-pre-wrap break-words">
+              {selected.userAgent ?? '-'}
+            </pre>
+          </div>
+        </>
+      ) : (
+        <div className="text-sm text-muted-foreground">-</div>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -300,7 +342,19 @@ const AuditLogPanel: React.FC = () => {
           <TableBody>
             {rows.length ? (
               rows.map((r) => (
-                <TableRow key={r.id}>
+                <TableRow
+                  key={r.id}
+                  className="cursor-pointer hover:bg-muted/20"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDetails(r)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      openDetails(r);
+                    }
+                  }}
+                >
                   <TableCell className="text-xs text-muted-foreground tabular-nums">{formatTs(r.ts)}</TableCell>
                   <TableCell className="text-sm text-foreground">{r.actorEmail ?? '-'}</TableCell>
                   <TableCell className="text-sm text-foreground">{r.actorRole ?? '-'}</TableCell>
@@ -314,7 +368,15 @@ const AuditLogPanel: React.FC = () => {
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground font-mono">{r.ip ?? '-'}</TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="sm" onClick={() => openDetails(r)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDetails(r);
+                      }}
+                      title={t.settings.auditLogDetails}
+                    >
                       <Eye size={16} />
                     </Button>
                   </TableCell>
@@ -331,47 +393,30 @@ const AuditLogPanel: React.FC = () => {
         </Table>
       </div>
 
-      <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto scrollbar-thin">
-          <SheetHeader>
-            <SheetTitle>{t.settings.auditLogDetails}</SheetTitle>
-          </SheetHeader>
-          <div className="mt-4 space-y-3">
-            {selected ? (
-              <>
-                <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm space-y-1">
-                  <div><span className="text-muted-foreground">{t.common.date}:</span> {formatTs(selected.ts)}</div>
-                  <div><span className="text-muted-foreground">{t.common.email}:</span> {selected.actorEmail ?? '-'}</div>
-                  <div><span className="text-muted-foreground">{t.common.role}:</span> {selected.actorRole ?? '-'}</div>
-                  <div><span className="text-muted-foreground">{t.settings.auditLogAction}:</span> {selected.action}</div>
-                  <div><span className="text-muted-foreground">{t.settings.auditLogTarget}:</span> {selected.targetType ?? '-'} {selected.targetId ?? ''}</div>
-                  <div><span className="text-muted-foreground">{t.settings.auditLogResult}:</span> {selected.result}</div>
-                  {selected.errorMessage ? (
-                    <div className="text-destructive"><span className="text-muted-foreground">{t.common.error}:</span> {selected.errorMessage}</div>
-                  ) : null}
-                  <div><span className="text-muted-foreground">IP:</span> {selected.ip ?? '-'}</div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>{t.settings.auditLogMetadata}</Label>
-                  <pre className="rounded-lg border border-border bg-background p-3 text-xs overflow-auto scrollbar-thin whitespace-pre-wrap break-words">
-                    {JSON.stringify(selected.metadata ?? {}, null, 2)}
-                  </pre>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>{t.settings.auditLogUserAgent}</Label>
-                  <pre className="rounded-lg border border-border bg-background p-3 text-xs overflow-auto scrollbar-thin whitespace-pre-wrap break-words">
-                    {selected.userAgent ?? '-'}
-                  </pre>
-                </div>
-              </>
-            ) : (
-              <div className="text-sm text-muted-foreground">-</div>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
+      {!isMobile ? (
+        <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
+          <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto scrollbar-thin">
+            <SheetHeader>
+              <SheetTitle>{t.settings.auditLogDetails}</SheetTitle>
+            </SheetHeader>
+            {detailsBody}
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+          <DialogContent className="bg-card max-h-[90vh] overflow-y-auto scrollbar-thin">
+            <DialogHeader>
+              <DialogTitle>{t.settings.auditLogDetails}</DialogTitle>
+            </DialogHeader>
+            {detailsBody}
+            <DialogFooter>
+              <Button variant="outline" onClick={closeDetails}>
+                {t.common.close}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 };
