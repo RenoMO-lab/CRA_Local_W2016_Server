@@ -30,7 +30,7 @@ const RoleChip = ({ role, label }: { role: M365RoleKey; label: string }) => {
     admin: 'bg-destructive',
   };
   return (
-    <span className="inline-flex w-[120px] items-center justify-center gap-2 rounded-full border border-border bg-muted/20 px-3 py-1 text-xs font-semibold text-foreground/90">
+    <span className="inline-flex w-[110px] items-center justify-center gap-2 rounded-full border border-border bg-muted/20 px-2.5 py-0.5 text-[11px] font-semibold text-foreground/90">
       <span className={cn('h-2 w-2 rounded-full ring-1 ring-border/60', dot[role])} />
       <span className="truncate">{label}</span>
     </span>
@@ -410,22 +410,25 @@ export default function M365NotificationsTab(props: any) {
                 </div>
 
                 <div className="rounded-lg border border-border bg-background/60 overflow-hidden">
-                  <Table>
+                  <Table containerClassName="max-h-[60vh]">
                     <TableHeader>
-                      <TableRow className="bg-muted/50 hover:bg-muted/50">
-                        <TableHead className="font-semibold sticky left-0 z-20 bg-muted w-[240px] min-w-[240px]">
+                      <TableRow className="bg-muted hover:bg-muted">
+                        <TableHead className="font-semibold sticky top-0 left-0 z-30 bg-muted w-[220px] min-w-[220px] h-10 px-3">
                           {t.settings.m365FlowStatus}
                         </TableHead>
                         {roles.map((role) => {
                           const allOn = isColumnAllOn(role);
                           return (
-                            <TableHead key={role} className="font-semibold w-[150px] min-w-[150px] text-center">
+                            <TableHead
+                              key={role}
+                              className="font-semibold sticky top-0 z-20 bg-muted w-[130px] min-w-[130px] text-center h-10 px-2"
+                            >
                               <div className="flex flex-col items-center justify-center gap-2 py-1">
                                 <RoleChip role={role} label={roleLabel(role)} />
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  className="h-8 w-8"
+                                  className="h-7 w-7"
                                   onClick={() => toggleFlowColumn(role)}
                                   title={allOn ? t.settings.m365ClearAll : t.settings.m365SelectAll}
                                   aria-label={allOn ? t.settings.m365ClearAll : t.settings.m365SelectAll}
@@ -443,13 +446,13 @@ export default function M365NotificationsTab(props: any) {
                         const allOn = isRowAllOn(status);
                         return (
                           <TableRow key={status}>
-                            <TableCell className="font-medium sticky left-0 z-10 bg-background w-[240px] min-w-[240px]">
+                            <TableCell className="font-medium sticky left-0 z-10 bg-background w-[220px] min-w-[220px] py-2 px-3">
                               <div className="flex items-center justify-between gap-3">
                                 <span>{getStatusLabel(status)}</span>
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  className="h-8 w-8"
+                                  className="h-7 w-7"
                                   onClick={() => toggleFlowRow(status)}
                                   title={allOn ? t.settings.m365ClearAll : t.settings.m365SelectAll}
                                   aria-label={allOn ? t.settings.m365ClearAll : t.settings.m365SelectAll}
@@ -459,7 +462,7 @@ export default function M365NotificationsTab(props: any) {
                               </div>
                             </TableCell>
                             {roles.map((role) => (
-                              <TableCell key={role} className="w-[150px] min-w-[150px]">
+                              <TableCell key={role} className="w-[130px] min-w-[130px] py-2 px-2">
                                 <div className="flex items-center justify-center">
                                   <Checkbox checked={getFlowValue(status, role)} onCheckedChange={(c) => updateFlowValue(status, role, Boolean(c))} />
                                 </div>
