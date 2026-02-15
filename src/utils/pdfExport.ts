@@ -346,20 +346,22 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
 
     // Logo.
     if (cachedLogo) {
-      const maxH = 12;
-      const maxW = 46;
+      // Make the logo clearly visible in the header band.
+      const maxH = 16;
+      const maxW = 70;
       const scale = Math.min(maxW / cachedLogo.width, maxH / cachedLogo.height);
       const w = cachedLogo.width * scale;
       const h = cachedLogo.height * scale;
-      pdf.addImage(cachedLogo.dataUrl, "PNG", margin, 3.2, w, h);
+      // Vertically center within the header band.
+      const yLogo = Math.max(2.2, (pageHeaderHeight - h) / 2);
+      pdf.addImage(cachedLogo.dataUrl, "PNG", margin, yLogo, w, h);
     }
 
-    // Request ID + status on the right.
+    // Status on the right (request id is already shown in the report body).
     pdf.setFontSize(9);
     setFont("bold");
     const [tr, tg, tb] = rgb(COLORS.title);
     pdf.setTextColor(tr, tg, tb);
-    pdf.text(String(request.id), pageWidth - margin, 6.8, { align: "right" });
     const badgeY = 9.2;
     const badgeH = 6.6;
     drawStatusBadge(String(statusLabel), pageWidth - margin, badgeY);
