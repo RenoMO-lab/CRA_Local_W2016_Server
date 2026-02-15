@@ -358,14 +358,17 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     const [tr, tg, tb] = rgb(COLORS.title);
     pdf.setTextColor(tr, tg, tb);
     pdf.text(String(request.id), pageWidth - margin, 6.8, { align: "right" });
-    drawStatusBadge(String(statusLabel), pageWidth - margin, 9.2);
+    const badgeY = 9.2;
+    const badgeH = 6.6;
+    drawStatusBadge(String(statusLabel), pageWidth - margin, badgeY);
 
     if (isFirstPage) {
       pdf.setFontSize(9);
       setFont("normal");
       const [mr, mg, mb] = rgb(COLORS.muted);
       pdf.setTextColor(mr, mg, mb);
-      pdf.text(`${t.pdf.generatedLabel}: ${formatDate(new Date(), "MMMM d, yyyy HH:mm")}`, pageWidth - margin, 15.2, {
+      // Keep the generated timestamp below the status badge to avoid overlap.
+      pdf.text(`${t.pdf.generatedLabel}: ${formatDate(new Date(), "MMMM d, yyyy HH:mm")}`, pageWidth - margin, badgeY + badgeH + 2.2, {
         align: "right",
       });
     }
@@ -394,14 +397,16 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     const headerH = 9;
     ensureSpace(headerH + 14);
     const topY = y;
+    // Inset header fills so they don't "leak" outside the rounded card corner.
+    const headerInset = 0.4;
 
     // Header fill + accent strip.
     const [fr, fg, fb] = rgb(COLORS.headerFill);
     pdf.setFillColor(fr, fg, fb);
-    pdf.rect(x, topY, w, headerH, "F");
+    pdf.rect(x + headerInset, topY + headerInset, w - headerInset * 2, headerH - headerInset, "F");
     const [ar, ag, ab] = rgb(MONROC_RED);
     pdf.setFillColor(ar, ag, ab);
-    pdf.rect(x, topY, 3, headerH, "F");
+    pdf.rect(x + headerInset, topY + headerInset, 3 - headerInset, headerH - headerInset, "F");
 
     // Header title.
     pdf.setFontSize(11);
@@ -631,7 +636,6 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     { label: t.request.clientContact, value: request.clientContact },
     { label: t.table.createdBy, value: request.createdByName },
     { label: t.pdf.createdAtLabel, value: formatDate(new Date(request.createdAt), "MMMM d, yyyy") },
-    { label: t.pdf.lastUpdatedLabel, value: formatDate(new Date(request.updatedAt), "MMMM d, yyyy") },
   ];
   if (summaryFields.some((f) => hasDisplayValueLocal(f.value))) {
     const summaryCard = startCard(`${t.pdf.requestLabel}: ${request.id}`);
