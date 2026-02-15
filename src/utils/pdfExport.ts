@@ -373,8 +373,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       img.src = src;
     });
 
-  const drawAppendixAttachmentHeader = (label: string, index: number, filename: string, extra?: string) => {
-    const title = `${String(t.pdf.appendixTitle ?? "Appendix")} ${label}.${index} - ${filename}`;
+  const drawAppendixAttachmentHeader = (title: string, extra?: string) => {
     pdf.setFontSize(12);
     setFont("bold");
     const [tr, tg, tb] = rgb(COLORS.title);
@@ -1369,28 +1368,47 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     };
 
     for (const section of appendixSections) {
-      drawAppendixSectionHeader(section.label, section.title);
-      drawTable({
-        headers: section.headers,
-        rows: section.rows,
-        colWidths: section.colWidths,
-        onPageBreak: () => {
-          addPage();
-          drawAppendixSectionHeader(section.label, section.title);
-        },
-      });
-      y += 6;
-
-      // Preview the attachment contents (images/PDFs) after the index table.
       const atts = Array.isArray(section.attachments) ? section.attachments : [];
+      if (!atts.length) continue;
+
+      // Avoid wasting a mostly-empty "index" page for small attachment groups.
+      // Show an index table only when there are many attachments.
+      const showIndexTable = atts.length >= 4;
+
+      if (showIndexTable) {
+        drawAppendixSectionHeader(section.label, section.title);
+        drawTable({
+          headers: section.headers,
+          rows: section.rows,
+          colWidths: section.colWidths,
+          onPageBreak: () => {
+            addPage();
+            drawAppendixSectionHeader(section.label, section.title);
+          },
+        });
+        y += 6;
+      }
+
+      // Preview the attachment contents (images/PDFs).
       for (let i = 0; i < atts.length; i++) {
         const att = atts[i];
         // Start each attachment preview on its own page to keep the appendix readable.
         addPage();
-        drawAppendixSectionHeader(section.label, section.title);
+        // Show the section header once if there are multiple items or if we're showing the index table.
+        const hasMultiple = atts.length > 1;
+        if ((hasMultiple || showIndexTable) && i === 0) {
+          drawAppendixSectionHeader(section.label, section.title);
+        }
 
         const extra = `${formatAttachmentType(att.type)} - ${formatDate(new Date(att.uploadedAt ?? new Date()), "MMM d, yyyy HH:mm")}`;
-        drawAppendixAttachmentHeader(section.label, i + 1, String(att.filename || "-"), extra);
+        const filename = String(att.filename || "-");
+        const itemLabel = `${section.label}.${i + 1}`;
+        // Reduce redundancy: if the section header is already visible, don't repeat "Appendix" on the item line.
+        const itemTitle =
+          (atts.length > 1 || showIndexTable) && i === 0
+            ? `${itemLabel} - ${filename}`
+            : `${String(t.pdf.appendixTitle ?? "Appendix")} ${itemLabel} - ${filename}`;
+        drawAppendixAttachmentHeader(itemTitle, extra);
 
         const preview = await attachmentToPreview(att);
         if (preview.kind === "image" && preview.dataUrls?.length) {
@@ -1401,13 +1419,14 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
           for (let p = 0; p < preview.dataUrls.length; p++) {
             if (p > 0) {
               addPage();
-              drawAppendixSectionHeader(section.label, section.title);
-              drawAppendixAttachmentHeader(
-                section.label,
-                i + 1,
-                String(att.filename || "-"),
-                `${extra} - PDF ${p + 1}/${preview.dataUrls.length}`,
-              );
+              if ((atts.length > 1 || showIndexTable) && i === 0) {
+                drawAppendixSectionHeader(section.label, section.title);
+              }
+              const pageTitle =
+                (atts.length > 1 || showIndexTable) && i === 0
+                  ? `${itemLabel} - ${filename} (PDF ${p + 1}/${preview.dataUrls.length})`
+                  : `${String(t.pdf.appendixTitle ?? "Appendix")} ${itemLabel} - ${filename} (PDF ${p + 1}/${preview.dataUrls.length})`;
+              drawAppendixAttachmentHeader(pageTitle, extra);
             }
             await drawImageFit(preview.dataUrls[p]);
           }
