@@ -56,6 +56,9 @@ export const translations = {
       showing: 'Showing',
       of: 'of',
       loadMore: 'Load more',
+      copy: 'Copy',
+      copied: 'Copied',
+      openLink: 'Open link',
     },
 
     // Auth
@@ -635,6 +638,14 @@ export const translations = {
       m365ToEmail: 'To email',
       m365SendTest: 'Send',
       m365TestEmailHint: 'Connect the mailbox first to send a test email.',
+      m365UnsavedChanges: 'Unsaved changes',
+      m365AllChangesSaved: 'All changes saved',
+      m365JumpTo: 'Jump to',
+      m365TemplateLanguage: 'Template language',
+      m365OpenVerification: 'Open verification page',
+      m365CopyCode: 'Copy code',
+      m365SelectAll: 'Select all',
+      m365ClearAll: 'Clear all',
     },
 
     // Feedback
@@ -1028,6 +1039,9 @@ export const translations = {
       showing: 'Affichage',
       of: 'sur',
       loadMore: 'Charger plus',
+      copy: 'Copier',
+      copied: 'Copié',
+      openLink: 'Ouvrir le lien',
     },
 
     // Auth
@@ -1607,6 +1621,14 @@ export const translations = {
       m365ToEmail: 'E-mail destinataire',
       m365SendTest: 'Envoyer',
       m365TestEmailHint: 'Connectez la boîte avant d’envoyer un e-mail de test.',
+      m365UnsavedChanges: 'Modifications non enregistrées',
+      m365AllChangesSaved: 'Tout est enregistré',
+      m365JumpTo: 'Aller à',
+      m365TemplateLanguage: 'Langue du modèle',
+      m365OpenVerification: 'Ouvrir la page de vérification',
+      m365CopyCode: 'Copier le code',
+      m365SelectAll: 'Tout sélectionner',
+      m365ClearAll: 'Tout désélectionner',
     },
 
     // Feedback
@@ -2000,6 +2022,9 @@ export const translations = {
       showing: '显示',
       of: '/',
       loadMore: '加载更多',
+      copy: '复制',
+      copied: '已复制',
+      openLink: '打开链接',
     },
 
     // Auth
@@ -2579,6 +2604,14 @@ export const translations = {
       m365ToEmail: '收件邮箱',
       m365SendTest: '发送',
       m365TestEmailHint: '请先连接邮箱，再发送测试邮件。',
+      m365UnsavedChanges: '未保存的更改',
+      m365AllChangesSaved: '更改已保存',
+      m365JumpTo: '跳转到',
+      m365TemplateLanguage: '模板语言',
+      m365OpenVerification: '打开验证页面',
+      m365CopyCode: '复制代码',
+      m365SelectAll: '全选',
+      m365ClearAll: '全不选',
     },
 
     // Feedback

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useAdminSettings, ListItem, UserItem, ListCategory } from '@/context/AdminSettingsContext';
 import { useLanguage } from '@/context/LanguageContext';
@@ -54,6 +54,7 @@ import { ROLE_CONFIG, UserRole } from '@/types';
 import { cn } from '@/lib/utils';
 import ListManager from '@/components/settings/ListManager';
 import AuditLogPanel from '@/components/settings/AuditLogPanel';
+import M365NotificationsTab from '@/components/settings/M365NotificationsTab';
 import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -74,6 +75,67 @@ type M365EmailTemplate = {
 };
 
 type M365Templates = Record<M365ActionKey, M365EmailTemplate>;
+
+type NotificationLang = 'en' | 'fr' | 'zh';
+
+const M365_TEMPLATE_LANGS: NotificationLang[] = ['en', 'fr', 'zh'];
+
+const DEFAULT_TEMPLATES_BY_LANG: Record<NotificationLang, M365Templates> = {
+  en: {
+    request_created: {
+      subject: '[CRA] Request {{requestId}} submitted',
+      title: 'New Request Submitted',
+      intro: 'A new CRA request has been submitted.',
+      primaryButtonText: 'Open request',
+      secondaryButtonText: 'Open dashboard',
+      footerText: 'You received this email because you are subscribed to CRA request notifications.',
+    },
+    request_status_changed: {
+      subject: '[CRA] Request {{requestId}} status changed to {{status}}',
+      title: 'Request Update',
+      intro: 'A CRA request status has been updated.',
+      primaryButtonText: 'Open request',
+      secondaryButtonText: 'Open dashboard',
+      footerText: 'You received this email because you are subscribed to CRA request notifications.',
+    },
+  },
+  fr: {
+    request_created: {
+      subject: '[CRA] Demande {{requestId}} soumise',
+      title: 'Nouvelle demande soumise',
+      intro: 'Une nouvelle demande CRA a ete soumise.',
+      primaryButtonText: 'Ouvrir la demande',
+      secondaryButtonText: 'Ouvrir le tableau de bord',
+      footerText: 'Vous recevez cet e-mail car vous etes abonne aux notifications des demandes CRA.',
+    },
+    request_status_changed: {
+      subject: '[CRA] Demande {{requestId}} : statut modifie en {{status}}',
+      title: 'Mise a jour de la demande',
+      intro: "Le statut d'une demande CRA a ete mis a jour.",
+      primaryButtonText: 'Ouvrir la demande',
+      secondaryButtonText: 'Ouvrir le tableau de bord',
+      footerText: 'Vous recevez cet e-mail car vous etes abonne aux notifications des demandes CRA.',
+    },
+  },
+  zh: {
+    request_created: {
+      subject: '[CRA] 请求 {{requestId}} 已提交',
+      title: '新请求已提交',
+      intro: '已提交一条新的 CRA 请求。',
+      primaryButtonText: '打开请求',
+      secondaryButtonText: '打开仪表板',
+      footerText: '您收到此邮件是因为您订阅了 CRA 请求通知。',
+    },
+    request_status_changed: {
+      subject: '[CRA] 请求 {{requestId}} 状态已变更为 {{status}}',
+      title: '请求更新',
+      intro: 'CRA 请求状态已更新。',
+      primaryButtonText: '打开请求',
+      secondaryButtonText: '打开仪表板',
+      footerText: '您收到此邮件是因为您订阅了 CRA 请求通知。',
+    },
+  },
+};
 
 const FLOW_STATUS_KEYS = [
   'draft',
@@ -106,25 +168,6 @@ const DEFAULT_FLOW_MAP: M365FlowMap = {
   gm_rejected: { sales: true, admin: true },
   closed: { sales: true },
   edited: { admin: true },
-};
-
-const DEFAULT_TEMPLATES: M365Templates = {
-  request_created: {
-    subject: '[CRA] Request {{requestId}} submitted',
-    title: 'New Request Submitted',
-    intro: 'A new CRA request has been submitted.',
-    primaryButtonText: 'Open request',
-    secondaryButtonText: 'Open dashboard',
-    footerText: 'You received this email because you are subscribed to CRA request notifications.',
-  },
-  request_status_changed: {
-    subject: '[CRA] Request {{requestId}} status changed to {{status}}',
-    title: 'Request Update',
-    intro: 'A CRA request status has been updated.',
-    primaryButtonText: 'Open request',
-    secondaryButtonText: 'Open dashboard',
-    footerText: 'You received this email because you are subscribed to CRA request notifications.',
-  },
 };
 
 interface FeedbackItem {
@@ -544,11 +587,15 @@ const Settings: React.FC = () => {
   const [m365TestEmail, setM365TestEmail] = useState('');
   const [m365LastPollStatus, setM365LastPollStatus] = useState<string | null>(null);
   const [m365SelectedAction, setM365SelectedAction] = useState<M365ActionKey>('request_created');
+  const [m365TemplateLang, setM365TemplateLang] = useState<NotificationLang>(() =>
+    (language === 'fr' || language === 'zh') ? (language as NotificationLang) : 'en'
+  );
   const [m365PreviewStatus, setM365PreviewStatus] = useState<string>('submitted');
   const [m365PreviewRequestId, setM365PreviewRequestId] = useState<string>('');
   const [m365PreviewSubject, setM365PreviewSubject] = useState<string>('');
   const [m365PreviewHtml, setM365PreviewHtml] = useState<string>('');
   const [isM365PreviewLoading, setIsM365PreviewLoading] = useState(false);
+  const [m365BaselineSettingsJson, setM365BaselineSettingsJson] = useState<string>('');
   const [exportFormat, setExportFormat] = useState<'csv' | 'xlsx'>('csv');
   const severityLabels: Record<string, string> = {
     low: t.feedback.severityLow,
@@ -733,6 +780,87 @@ const Settings: React.FC = () => {
     if (elapsed < minMs) await sleepMs(minMs - elapsed);
   };
 
+  const stableStringify = (value: any) => {
+    const seen = new WeakSet<object>();
+    const normalize = (v: any): any => {
+      if (v && typeof v === 'object') {
+        if (seen.has(v as object)) return null;
+        seen.add(v as object);
+        if (Array.isArray(v)) return v.map(normalize);
+        const out: Record<string, any> = {};
+        for (const k of Object.keys(v).sort()) {
+          out[k] = normalize(v[k]);
+        }
+        return out;
+      }
+      return v;
+    };
+    try {
+      return JSON.stringify(normalize(value));
+    } catch {
+      return '';
+    }
+  };
+
+  const isI18nTemplateShape = (raw: any): raw is Record<string, any> => {
+    if (!raw || typeof raw !== 'object') return false;
+    return M365_TEMPLATE_LANGS.some((lang) => raw?.[lang] && typeof raw?.[lang] === 'object');
+  };
+
+  const getTemplateForUi = (
+    rawTemplates: any,
+    lang: NotificationLang,
+    action: M365ActionKey
+  ): M365EmailTemplate => {
+    const defaults = DEFAULT_TEMPLATES_BY_LANG[lang]?.[action] ?? DEFAULT_TEMPLATES_BY_LANG.en[action];
+    if (!rawTemplates || typeof rawTemplates !== 'object') return { ...defaults };
+
+    if (isI18nTemplateShape(rawTemplates)) {
+      const bucket = rawTemplates?.[lang] && typeof rawTemplates?.[lang] === 'object' ? rawTemplates[lang] : null;
+      const override = bucket?.[action] && typeof bucket?.[action] === 'object' ? bucket[action] : null;
+      return { ...defaults, ...(override ?? {}) };
+    }
+
+    const override = rawTemplates?.[action] && typeof rawTemplates?.[action] === 'object' ? rawTemplates[action] : null;
+    return { ...defaults, ...(override ?? {}) };
+  };
+
+  const ensureI18nTemplates = (rawTemplates: any): Record<NotificationLang, Record<string, any>> => {
+    if (isI18nTemplateShape(rawTemplates)) {
+      const next: any = { ...(rawTemplates ?? {}) };
+      for (const lang of M365_TEMPLATE_LANGS) {
+        if (!next[lang] || typeof next[lang] !== 'object') next[lang] = {};
+      }
+      return next as Record<NotificationLang, Record<string, any>>;
+    }
+
+    const legacy = rawTemplates && typeof rawTemplates === 'object' ? rawTemplates : {};
+    return {
+      en: { ...legacy },
+      fr: { ...legacy },
+      zh: { ...legacy },
+    };
+  };
+
+  const parseEmailListUi = (raw: string) => {
+    const text = String(raw ?? '');
+    const parts = text
+      .split(/[\s,;]+/g)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const p of parts) {
+      const key = p.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(p);
+    }
+    return out;
+  };
+
+  const isValidEmailUi = (value: string) => /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(value ?? '').trim());
+
   const getFlowValue = (status: string, role: M365RoleKey) => {
     const map = (m365Info?.settings?.flowMap ?? DEFAULT_FLOW_MAP) as M365FlowMap;
     return Boolean(map?.[status]?.[role]);
@@ -751,6 +879,42 @@ const Settings: React.FC = () => {
         deviceCode: prev?.deviceCode ?? null,
       };
     });
+  };
+
+  const setFlowValuesBulk = (nextFlowMap: M365FlowMap) => {
+    setM365Info((prev) => {
+      const settings = prev?.settings ?? defaultM365Settings;
+      return {
+        settings: { ...settings, flowMap: nextFlowMap },
+        connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
+        deviceCode: prev?.deviceCode ?? null,
+      };
+    });
+  };
+
+  const toggleFlowColumn = (role: M365RoleKey) => {
+    const settings = m365Info?.settings ?? defaultM365Settings;
+    const current = (settings.flowMap ?? DEFAULT_FLOW_MAP) as M365FlowMap;
+    const allOn = FLOW_STATUS_KEYS.every((status) => Boolean(current?.[status]?.[role]));
+    const next: M365FlowMap = { ...current };
+    for (const status of FLOW_STATUS_KEYS) {
+      const entry = { ...(next[status] ?? {}) };
+      entry[role] = !allOn;
+      next[status] = entry;
+    }
+    setFlowValuesBulk(next);
+  };
+
+  const toggleFlowRow = (status: string) => {
+    const settings = m365Info?.settings ?? defaultM365Settings;
+    const current = (settings.flowMap ?? DEFAULT_FLOW_MAP) as M365FlowMap;
+    const roles: M365RoleKey[] = ['sales', 'design', 'costing', 'admin'];
+    const allOn = roles.every((role) => Boolean(current?.[status]?.[role]));
+    const next: M365FlowMap = { ...current };
+    const entry = { ...(next[status] ?? {}) };
+    for (const role of roles) entry[role] = !allOn;
+    next[status] = entry;
+    setFlowValuesBulk(next);
   };
 
   const defaultM365Settings: M365Settings = {
@@ -777,16 +941,18 @@ const Settings: React.FC = () => {
       const res = await fetch('/api/admin/m365');
       if (!res.ok) throw new Error(`Failed to load M365 settings: ${res.status}`);
       const data = await res.json();
+      const nextSettings: M365Settings = {
+        ...defaultM365Settings,
+        ...(data?.settings ?? {}),
+        flowMap: data?.settings?.flowMap ?? DEFAULT_FLOW_MAP,
+        templates: data?.settings?.templates ?? null,
+      };
       setM365Info({
-        settings: {
-          ...defaultM365Settings,
-          ...(data?.settings ?? {}),
-          flowMap: data?.settings?.flowMap || DEFAULT_FLOW_MAP,
-          templates: data?.settings?.templates || DEFAULT_TEMPLATES,
-        },
+        settings: nextSettings,
         connection: data?.connection ?? { hasRefreshToken: false, expiresAt: null },
         deviceCode: data?.deviceCode ?? null,
       });
+      setM365BaselineSettingsJson(stableStringify(nextSettings));
     } catch (error) {
       console.error('Failed to load M365 settings:', error);
       setM365Info(null);
@@ -815,6 +981,7 @@ const Settings: React.FC = () => {
         connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
         deviceCode: prev?.deviceCode ?? null,
       }));
+      setM365BaselineSettingsJson(stableStringify(data?.settings ?? payload));
       toast({ title: t.settings.saveChanges, description: t.settings.saveChanges });
     } catch (error) {
       console.error('Failed to save M365 settings:', error);
@@ -826,19 +993,15 @@ const Settings: React.FC = () => {
     }
   };
 
-  const updateTemplateField = (action: M365ActionKey, field: keyof M365EmailTemplate, value: string) => {
+  const updateTemplateField = (lang: NotificationLang, action: M365ActionKey, field: keyof M365EmailTemplate, value: string) => {
     setM365Info((prev) => {
       const settings = prev?.settings ?? defaultM365Settings;
-      const templates = ((settings.templates as any) || DEFAULT_TEMPLATES) as M365Templates;
-      const nextTemplates: M365Templates = {
-        ...DEFAULT_TEMPLATES,
-        ...templates,
-        [action]: {
-          ...(DEFAULT_TEMPLATES[action] || {}),
-          ...(templates[action] || {}),
-          [field]: value,
-        },
-      };
+      const raw = settings.templates;
+      const nextTemplates = ensureI18nTemplates(raw);
+      const bucket = { ...(nextTemplates[lang] ?? {}) };
+      const current = getTemplateForUi(nextTemplates, lang, action);
+      bucket[action] = { ...current, [field]: value };
+      nextTemplates[lang] = bucket;
       return {
         settings: { ...settings, templates: nextTemplates },
         connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
@@ -857,7 +1020,7 @@ const Settings: React.FC = () => {
           eventType: m365SelectedAction,
           status: m365PreviewStatus,
           requestId: m365PreviewRequestId,
-          lang: language,
+          lang: m365TemplateLang,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -1013,6 +1176,18 @@ const Settings: React.FC = () => {
     } finally {
       await ensureMinSpinnerMs(startedAt);
       setIsDeployLoading(false);
+    }
+  };
+
+  const copyText = async (text: string) => {
+    const raw = String(text ?? '');
+    if (!raw.trim()) return;
+    try {
+      await navigator.clipboard.writeText(raw);
+      toast({ title: t.common.copied, description: raw.length > 24 ? `${raw.slice(0, 24)}...` : raw });
+    } catch (e) {
+      console.error('Failed to copy:', e);
+      toast({ title: t.request.error, description: 'Copy failed', variant: 'destructive' });
     }
   };
 
@@ -2874,475 +3049,48 @@ const Settings: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="m365" className="space-y-6">
-          <div className="bg-card rounded-lg border border-border overflow-visible">
-            <div className="sticky top-0 z-10 bg-card/90 backdrop-blur border-b border-border px-4 md:px-6 py-4">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div className="space-y-1">
-                <h3 className="text-lg font-semibold text-foreground">{t.settings.m365Title}</h3>
-                <p className="text-sm text-muted-foreground">{t.settings.m365Description}</p>
-              </div>
-                <div className="grid w-full gap-3 md:w-[280px]">
-                  <Button size="lg" className="w-full" onClick={saveM365Settings} disabled={hasM365Error || isM365Loading}>
-                    {t.settings.saveChanges}
-                  </Button>
-                  <Button size="lg" className="w-full" variant="outline" onClick={loadM365Info} disabled={isM365Loading}>
-                    <span className={cn("mr-2 inline-flex", isM365Loading ? "animate-spin" : "")}>
-                      <RefreshCw size={16} />
-                    </span>
-                    {isM365Loading ? t.common.loading : t.feedback.refresh}
-                  </Button>
-                </div>
-            </div>
-            </div>
-
-            <div className="p-4 md:p-6">
-              {hasM365Error ? (
-                <p className="text-sm text-destructive">{t.settings.m365LoadError}</p>
-              ) : (
-                <div className="space-y-6">
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  <div className="lg:col-span-4 space-y-4">
-                    <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-3">
-                      <div className="space-y-0.5">
-                        <div className="text-sm font-medium text-foreground">{t.settings.m365Enabled}</div>
-                        <div className="text-xs text-muted-foreground">{t.settings.m365EnabledDesc}</div>
-                      </div>
-                      <Switch
-                        checked={(m365Info?.settings ?? defaultM365Settings).enabled}
-                        onCheckedChange={(checked) =>
-                          setM365Info((prev) => ({
-                            settings: { ...(prev?.settings ?? defaultM365Settings), enabled: checked },
-                            connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
-                            deviceCode: prev?.deviceCode ?? null,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 p-3">
-                      <div className="space-y-0.5">
-                        <div className="text-sm font-medium text-foreground">{t.settings.m365TestMode}</div>
-                        <div className="text-xs text-muted-foreground">{t.settings.m365TestModeDesc}</div>
-                      </div>
-                      <Switch
-                        checked={(m365Info?.settings ?? defaultM365Settings).testMode}
-                        onCheckedChange={(checked) =>
-                          setM365Info((prev) => ({
-                            settings: { ...(prev?.settings ?? defaultM365Settings), testMode: checked },
-                            connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
-                            deviceCode: prev?.deviceCode ?? null,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="m365-test-recipient">{t.settings.m365TestRecipient}</Label>
-                      <Input
-                        id="m365-test-recipient"
-                        value={(m365Info?.settings ?? defaultM365Settings).testEmail}
-                        onChange={(e) =>
-                          setM365Info((prev) => ({
-                            settings: { ...(prev?.settings ?? defaultM365Settings), testEmail: e.target.value },
-                            connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
-                            deviceCode: prev?.deviceCode ?? null,
-                          }))
-                        }
-                        placeholder="r.molinier@qdmonroc.onmicrosoft.com"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="m365-tenant">{t.settings.m365TenantId}</Label>
-                        <Input
-                          id="m365-tenant"
-                          value={(m365Info?.settings ?? defaultM365Settings).tenantId}
-                          onChange={(e) =>
-                            setM365Info((prev) => ({
-                              settings: { ...(prev?.settings ?? defaultM365Settings), tenantId: e.target.value },
-                              connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
-                              deviceCode: prev?.deviceCode ?? null,
-                            }))
-                          }
-                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="m365-client">{t.settings.m365ClientId}</Label>
-                        <Input
-                          id="m365-client"
-                          value={(m365Info?.settings ?? defaultM365Settings).clientId}
-                          onChange={(e) =>
-                            setM365Info((prev) => ({
-                              settings: { ...(prev?.settings ?? defaultM365Settings), clientId: e.target.value },
-                              connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
-                              deviceCode: prev?.deviceCode ?? null,
-                            }))
-                          }
-                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="m365-sender">{t.settings.m365SenderUpn}</Label>
-                      <Input
-                        id="m365-sender"
-                        value={(m365Info?.settings ?? defaultM365Settings).senderUpn}
-                        onChange={(e) =>
-                          setM365Info((prev) => ({
-                            settings: { ...(prev?.settings ?? defaultM365Settings), senderUpn: e.target.value },
-                            connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
-                            deviceCode: prev?.deviceCode ?? null,
-                          }))
-                        }
-                        placeholder="no-reply@company.com"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="m365-baseurl">{t.settings.m365AppBaseUrl}</Label>
-                      <Input
-                        id="m365-baseurl"
-                        value={(m365Info?.settings ?? defaultM365Settings).appBaseUrl}
-                        onChange={(e) =>
-                          setM365Info((prev) => ({
-                            settings: { ...(prev?.settings ?? defaultM365Settings), appBaseUrl: e.target.value },
-                            connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
-                            deviceCode: prev?.deviceCode ?? null,
-                          }))
-                        }
-                        placeholder="http://intranet-server:3000"
-                      />
-                    </div>
-
-                  </div>
-
-                  <div className="lg:col-span-8 space-y-4">
-                    <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-4">
-                      <div className="text-sm font-semibold text-foreground">{t.settings.m365RecipientsTitle}</div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="m365-rec-sales">{t.settings.m365RecipientsSales}</Label>
-                          <Textarea
-                            id="m365-rec-sales"
-                            className="min-h-[96px]"
-                            value={(m365Info?.settings ?? defaultM365Settings).recipientsSales}
-                            onChange={(e) =>
-                              setM365Info((prev) => ({
-                                settings: { ...(prev?.settings ?? defaultM365Settings), recipientsSales: e.target.value },
-                                connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
-                                deviceCode: prev?.deviceCode ?? null,
-                              }))
-                            }
-                            placeholder="sales1@company.com, sales2@company.com"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="m365-rec-design">{t.settings.m365RecipientsDesign}</Label>
-                          <Textarea
-                            id="m365-rec-design"
-                            className="min-h-[96px]"
-                            value={(m365Info?.settings ?? defaultM365Settings).recipientsDesign}
-                            onChange={(e) =>
-                              setM365Info((prev) => ({
-                                settings: { ...(prev?.settings ?? defaultM365Settings), recipientsDesign: e.target.value },
-                                connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
-                                deviceCode: prev?.deviceCode ?? null,
-                              }))
-                            }
-                            placeholder="design1@company.com; design2@company.com"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="m365-rec-costing">{t.settings.m365RecipientsCosting}</Label>
-                          <Textarea
-                            id="m365-rec-costing"
-                            className="min-h-[96px]"
-                            value={(m365Info?.settings ?? defaultM365Settings).recipientsCosting}
-                            onChange={(e) =>
-                              setM365Info((prev) => ({
-                                settings: { ...(prev?.settings ?? defaultM365Settings), recipientsCosting: e.target.value },
-                                connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
-                                deviceCode: prev?.deviceCode ?? null,
-                              }))
-                            }
-                            placeholder="costing@company.com"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="m365-rec-admin">{t.settings.m365RecipientsAdmin}</Label>
-                          <Textarea
-                            id="m365-rec-admin"
-                            className="min-h-[96px]"
-                            value={(m365Info?.settings ?? defaultM365Settings).recipientsAdmin}
-                            onChange={(e) =>
-                              setM365Info((prev) => ({
-                                settings: { ...(prev?.settings ?? defaultM365Settings), recipientsAdmin: e.target.value },
-                                connection: prev?.connection ?? { hasRefreshToken: false, expiresAt: null },
-                                deviceCode: prev?.deviceCode ?? null,
-                              }))
-                            }
-                            placeholder="admin@company.com"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-4">
-                  <div className="space-y-1">
-                    <div className="text-sm font-semibold text-foreground">{t.settings.m365FlowTitle}</div>
-                    <div className="text-xs text-muted-foreground">{t.settings.m365FlowDesc}</div>
-                  </div>
-                  <div className="overflow-auto scrollbar-thin">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-muted/50 hover:bg-muted/50">
-                          <TableHead className="font-semibold">{t.settings.m365FlowStatus}</TableHead>
-                          <TableHead className="font-semibold">{t.settings.m365FlowSales}</TableHead>
-                          <TableHead className="font-semibold">{t.settings.m365FlowDesign}</TableHead>
-                          <TableHead className="font-semibold">{t.settings.m365FlowCosting}</TableHead>
-                          <TableHead className="font-semibold">{t.settings.m365FlowAdmin}</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {FLOW_STATUS_KEYS.map((status) => (
-                          <TableRow key={status}>
-                            <TableCell className="font-medium">{getStatusLabel(status)}</TableCell>
-                            <TableCell>
-                              <Checkbox
-                                checked={getFlowValue(status, 'sales')}
-                                onCheckedChange={(checked) => updateFlowValue(status, 'sales', Boolean(checked))}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Checkbox
-                                checked={getFlowValue(status, 'design')}
-                                onCheckedChange={(checked) => updateFlowValue(status, 'design', Boolean(checked))}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Checkbox
-                                checked={getFlowValue(status, 'costing')}
-                                onCheckedChange={(checked) => updateFlowValue(status, 'costing', Boolean(checked))}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <Checkbox
-                                checked={getFlowValue(status, 'admin')}
-                                onCheckedChange={(checked) => updateFlowValue(status, 'admin', Boolean(checked))}
-                              />
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-
-                <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-4">
-                  <div className="space-y-1">
-                    <div className="text-sm font-semibold text-foreground">{t.settings.m365TemplatesTitle}</div>
-                    <div className="text-xs text-muted-foreground">{t.settings.m365TemplatesDesc}</div>
-                  </div>
-
-                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>{t.settings.m365TemplateAction}</Label>
-                          <Select value={m365SelectedAction} onValueChange={(v) => setM365SelectedAction(v as M365ActionKey)}>
-                            <SelectTrigger>
-                              <SelectValue placeholder={t.settings.m365TemplateAction} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="request_created">{t.settings.m365ActionCreated}</SelectItem>
-                              <SelectItem value="request_status_changed">{t.settings.m365ActionStatusChanged}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>{t.settings.m365TemplatePreviewStatus}</Label>
-                          <Select value={m365PreviewStatus} onValueChange={(v) => setM365PreviewStatus(v)}>
-                            <SelectTrigger>
-                              <SelectValue placeholder={t.settings.m365TemplatePreviewStatus} />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {FLOW_STATUS_KEYS.map((s) => (
-                                <SelectItem key={s} value={s}>{getStatusLabel(s)}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="m365-preview-requestid">{t.settings.m365TemplatePreviewRequestId}</Label>
-                        <Input
-                          id="m365-preview-requestid"
-                          value={m365PreviewRequestId}
-                          onChange={(e) => setM365PreviewRequestId(e.target.value)}
-                          placeholder="(optional) CRA26020704"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>{t.settings.m365TemplateSubject}</Label>
-                          <Input
-                            value={String(((m365Info?.settings?.templates as any) || DEFAULT_TEMPLATES)?.[m365SelectedAction]?.subject ?? '')}
-                            onChange={(e) => updateTemplateField(m365SelectedAction, 'subject', e.target.value)}
-                            placeholder="[CRA] Request {{requestId}} ..."
-                          />
-                          <p className="text-xs text-muted-foreground">{t.settings.m365TemplateVars}</p>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>{t.settings.m365TemplateTitle}</Label>
-                          <Input
-                            value={String(((m365Info?.settings?.templates as any) || DEFAULT_TEMPLATES)?.[m365SelectedAction]?.title ?? '')}
-                            onChange={(e) => updateTemplateField(m365SelectedAction, 'title', e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>{t.settings.m365TemplateIntro}</Label>
-                        <Textarea
-                          value={String(((m365Info?.settings?.templates as any) || DEFAULT_TEMPLATES)?.[m365SelectedAction]?.intro ?? '')}
-                          onChange={(e) => updateTemplateField(m365SelectedAction, 'intro', e.target.value)}
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>{t.settings.m365TemplatePrimary}</Label>
-                          <Input
-                            value={String(((m365Info?.settings?.templates as any) || DEFAULT_TEMPLATES)?.[m365SelectedAction]?.primaryButtonText ?? '')}
-                            onChange={(e) => updateTemplateField(m365SelectedAction, 'primaryButtonText', e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>{t.settings.m365TemplateFooter}</Label>
-                        <Textarea
-                          value={String(((m365Info?.settings?.templates as any) || DEFAULT_TEMPLATES)?.[m365SelectedAction]?.footerText ?? '')}
-                          onChange={(e) => updateTemplateField(m365SelectedAction, 'footerText', e.target.value)}
-                        />
-                      </div>
-
-                      <div className="flex flex-wrap gap-3 items-center">
-                        <Button variant="outline" onClick={previewM365Template} disabled={isM365PreviewLoading}>
-                          {isM365PreviewLoading ? t.common.loading : t.settings.m365TemplatePreview}
-                        </Button>
-                        <span className="text-xs text-muted-foreground">{t.settings.m365TemplateSaveHint}</span>
-                      </div>
-                    </div>
-
-                    <div className="rounded-lg border border-border bg-background overflow-hidden">
-                      <div className="p-3 border-b border-border">
-                        <div className="text-xs text-muted-foreground">{t.settings.m365TemplateSubjectPreview}</div>
-                        <div className="text-sm font-medium text-foreground break-words">{m365PreviewSubject || '-'}</div>
-                        {!m365PreviewHtml ? (
-                          <div className="mt-1 text-xs text-muted-foreground">{t.settings.m365TemplatePreviewEmpty}</div>
-                        ) : null}
-                      </div>
-                      <iframe
-                        title="email-preview"
-                        style={{ width: '100%', height: 520, border: '0' }}
-                        srcDoc={m365PreviewHtml || '<div></div>'}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  <div className="lg:col-span-6">
-                    <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-0.5">
-                          <div className="text-sm font-semibold text-foreground">{t.settings.m365Connect}</div>
-                          <div className="text-xs text-muted-foreground">{t.settings.m365ConnectDesc}</div>
-                        </div>
-                        <div className="text-xs text-muted-foreground text-right">
-                          <div>
-                            {t.settings.m365ConnectionStatus}:{' '}
-                            <span className={cn('font-medium', (m365Info?.connection?.hasRefreshToken ? 'text-foreground' : 'text-muted-foreground'))}>
-                              {m365Info?.connection?.hasRefreshToken ? t.settings.m365Connected : t.settings.m365NotConnected}
-                            </span>
-                          </div>
-                          {m365LastPollStatus ? <div>{t.settings.m365LastPoll}: {m365LastPollStatus}</div> : null}
-                        </div>
-                      </div>
-
-                      {m365Info?.deviceCode?.userCode ? (
-                        <div className="rounded-md border border-border bg-background p-3 text-sm space-y-2">
-                          <div className="font-medium text-foreground">{t.settings.m365DeviceCode}</div>
-                          <div className="text-xs text-muted-foreground whitespace-pre-wrap">
-                            {m365Info.deviceCode.message || t.settings.m365DeviceCodeHint}
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <div className="text-xs text-muted-foreground">{t.settings.m365VerificationUrl}</div>
-                            <div className="font-mono break-all">
-                              {m365Info.deviceCode.verificationUriComplete || m365Info.deviceCode.verificationUri || '-'}
-                            </div>
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <div className="text-xs text-muted-foreground">{t.settings.m365UserCode}</div>
-                            <div className="font-mono text-base">{m365Info.deviceCode.userCode}</div>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div className="flex flex-wrap gap-3">
-                        <Button variant="outline" onClick={startM365DeviceCode}>
-                          {t.settings.m365StartDeviceCode}
-                        </Button>
-                        <Button variant="outline" onClick={pollM365Connection}>
-                          {t.settings.m365Poll}
-                        </Button>
-                        <Button variant="outline" onClick={disconnectM365}>
-                          {t.settings.m365Disconnect}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="lg:col-span-6">
-                    <div className="rounded-lg border border-border bg-muted/10 p-4 space-y-3">
-                      <div className="text-sm font-semibold text-foreground">{t.settings.m365TestEmail}</div>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                        <div className="md:col-span-2 space-y-2">
-                          <Label htmlFor="m365-test-to">{t.settings.m365ToEmail}</Label>
-                          <Input
-                            id="m365-test-to"
-                            value={m365TestEmail}
-                            onChange={(e) => setM365TestEmail(e.target.value)}
-                            placeholder="someone@company.com"
-                          />
-                        </div>
-                        <Button
-                          onClick={sendM365TestEmail}
-                          disabled={!m365Info?.connection?.hasRefreshToken}
-                        >
-                          {t.settings.m365SendTest}
-                        </Button>
-                      </div>
-                      {!m365Info?.connection?.hasRefreshToken ? (
-                        <p className="text-xs text-muted-foreground">{t.settings.m365TestEmailHint}</p>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-          </div>
+          <M365NotificationsTab
+            t={t}
+            m365Info={m365Info}
+            setM365Info={setM365Info}
+            defaultM365Settings={defaultM365Settings}
+            hasM365Error={hasM365Error}
+            isM365Loading={isM365Loading}
+            saveM365Settings={saveM365Settings}
+            loadM365Info={loadM365Info}
+            m365BaselineSettingsJson={m365BaselineSettingsJson}
+            stableStringify={stableStringify}
+            m365LastPollStatus={m365LastPollStatus}
+            startM365DeviceCode={startM365DeviceCode}
+            pollM365Connection={pollM365Connection}
+            disconnectM365={disconnectM365}
+            parseEmailListUi={parseEmailListUi}
+            isValidEmailUi={isValidEmailUi}
+            FLOW_STATUS_KEYS={FLOW_STATUS_KEYS}
+            getStatusLabel={getStatusLabel}
+            getFlowValue={getFlowValue}
+            updateFlowValue={updateFlowValue}
+            toggleFlowColumn={toggleFlowColumn}
+            toggleFlowRow={toggleFlowRow}
+            m365TestEmail={m365TestEmail}
+            setM365TestEmail={setM365TestEmail}
+            sendM365TestEmail={sendM365TestEmail}
+            m365SelectedAction={m365SelectedAction}
+            setM365SelectedAction={setM365SelectedAction}
+            m365TemplateLang={m365TemplateLang}
+            setM365TemplateLang={setM365TemplateLang}
+            m365PreviewStatus={m365PreviewStatus}
+            setM365PreviewStatus={setM365PreviewStatus}
+            m365PreviewRequestId={m365PreviewRequestId}
+            setM365PreviewRequestId={setM365PreviewRequestId}
+            m365PreviewSubject={m365PreviewSubject}
+            m365PreviewHtml={m365PreviewHtml}
+            isM365PreviewLoading={isM365PreviewLoading}
+            previewM365Template={previewM365Template}
+            getTemplateForUi={getTemplateForUi}
+            updateTemplateField={updateTemplateField}
+            copyText={copyText}
+          />
         </TabsContent>
 
         <TabsContent value="dbmonitor" className="space-y-6">
