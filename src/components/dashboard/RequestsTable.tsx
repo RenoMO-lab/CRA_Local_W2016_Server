@@ -49,6 +49,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useLanguage } from '@/context/LanguageContext';
+import { useRequests } from '@/context/RequestContext';
 import { Language } from '@/i18n/translations';
 import { toast } from 'sonner';
 
@@ -61,6 +62,7 @@ interface RequestsTableProps {
 const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDelete }) => {
   const navigate = useNavigate();
   const { t, translateOption, language } = useLanguage();
+  const { getRequestByIdAsync } = useRequests();
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pdfLanguage, setPdfLanguage] = useState<Language>(language);
   const [pendingPdfRequest, setPendingPdfRequest] = useState<CustomerRequest | null>(null);
@@ -146,8 +148,10 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
 
   const handleDownloadPDF = async (request: CustomerRequest, lang: Language) => {
     try {
+      // Dashboard rows come from `/api/requests/summary` (lightweight). Fetch full details for PDF.
+      const fullRequest = await getRequestByIdAsync(request.id);
       const { generateRequestPDF } = await import('@/utils/pdfExport');
-      await generateRequestPDF(request, lang);
+      await generateRequestPDF(fullRequest ?? request, lang);
       toast.success(`${t.common.pdfDownloaded} ${request.id}`);
     } catch (error) {
       console.error('Failed to generate PDF:', error);
