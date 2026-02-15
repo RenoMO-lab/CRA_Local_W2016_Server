@@ -84,16 +84,16 @@ const DEFAULT_TEMPLATES_BY_LANG: Record<NotificationLang, M365Templates> = {
   en: {
     request_created: {
       subject: '[CRA] Request {{requestId}} submitted',
-      title: 'New Request Submitted',
-      intro: 'A new CRA request has been submitted.',
+      title: 'Request {{requestId}}',
+      intro: '',
       primaryButtonText: 'Open request',
       secondaryButtonText: 'Open dashboard',
       footerText: 'You received this email because you are subscribed to CRA request notifications.',
     },
     request_status_changed: {
       subject: '[CRA] Request {{requestId}} status changed to {{status}}',
-      title: 'Request Update',
-      intro: 'A CRA request status has been updated.',
+      title: 'Request {{requestId}}',
+      intro: '',
       primaryButtonText: 'Open request',
       secondaryButtonText: 'Open dashboard',
       footerText: 'You received this email because you are subscribed to CRA request notifications.',
@@ -102,16 +102,16 @@ const DEFAULT_TEMPLATES_BY_LANG: Record<NotificationLang, M365Templates> = {
   fr: {
     request_created: {
       subject: '[CRA] Demande {{requestId}} soumise',
-      title: 'Nouvelle demande soumise',
-      intro: 'Une nouvelle demande CRA a ete soumise.',
+      title: 'Demande {{requestId}}',
+      intro: '',
       primaryButtonText: 'Ouvrir la demande',
       secondaryButtonText: 'Ouvrir le tableau de bord',
       footerText: 'Vous recevez cet e-mail car vous etes abonne aux notifications des demandes CRA.',
     },
     request_status_changed: {
       subject: '[CRA] Demande {{requestId}} : statut modifie en {{status}}',
-      title: 'Mise a jour de la demande',
-      intro: "Le statut d'une demande CRA a ete mis a jour.",
+      title: 'Demande {{requestId}}',
+      intro: '',
       primaryButtonText: 'Ouvrir la demande',
       secondaryButtonText: 'Ouvrir le tableau de bord',
       footerText: 'Vous recevez cet e-mail car vous etes abonne aux notifications des demandes CRA.',
@@ -120,16 +120,16 @@ const DEFAULT_TEMPLATES_BY_LANG: Record<NotificationLang, M365Templates> = {
   zh: {
     request_created: {
       subject: '[CRA] 请求 {{requestId}} 已提交',
-      title: '新请求已提交',
-      intro: '已提交一条新的 CRA 请求。',
+      title: '请求 {{requestId}}',
+      intro: '',
       primaryButtonText: '打开请求',
       secondaryButtonText: '打开仪表板',
       footerText: '您收到此邮件是因为您订阅了 CRA 请求通知。',
     },
     request_status_changed: {
       subject: '[CRA] 请求 {{requestId}} 状态已变更为 {{status}}',
-      title: '请求更新',
-      intro: 'CRA 请求状态已更新。',
+      title: '请求 {{requestId}}',
+      intro: '',
       primaryButtonText: '打开请求',
       secondaryButtonText: '打开仪表板',
       footerText: '您收到此邮件是因为您订阅了 CRA 请求通知。',

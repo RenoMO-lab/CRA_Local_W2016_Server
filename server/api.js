@@ -293,16 +293,16 @@ const DEFAULT_EMAIL_TEMPLATES_BY_LANG = {
   en: {
     request_created: {
       subject: "[CRA] Request {{requestId}} submitted",
-      title: "New Request Submitted",
-      intro: "A new CRA request has been submitted.",
+      title: "Request {{requestId}}",
+      intro: "",
       primaryButtonText: "Open request",
       secondaryButtonText: "Open dashboard",
       footerText: "You received this email because you are subscribed to CRA request notifications.",
     },
     request_status_changed: {
       subject: "[CRA] Request {{requestId}} status changed to {{status}}",
-      title: "Request Update",
-      intro: "A CRA request status has been updated.",
+      title: "Request {{requestId}}",
+      intro: "",
       primaryButtonText: "Open request",
       secondaryButtonText: "Open dashboard",
       footerText: "You received this email because you are subscribed to CRA request notifications.",
@@ -311,16 +311,16 @@ const DEFAULT_EMAIL_TEMPLATES_BY_LANG = {
   fr: {
     request_created: {
       subject: "[CRA] Demande {{requestId}} soumise",
-      title: "Nouvelle demande soumise",
-      intro: "Une nouvelle demande CRA a ete soumise.",
+      title: "Demande {{requestId}}",
+      intro: "",
       primaryButtonText: "Ouvrir la demande",
       secondaryButtonText: "Ouvrir le tableau de bord",
       footerText: "Vous recevez cet e-mail car vous etes abonne aux notifications des demandes CRA.",
     },
     request_status_changed: {
       subject: "[CRA] Demande {{requestId}} : statut modifie en {{status}}",
-      title: "Mise a jour de la demande",
-      intro: "Le statut d'une demande CRA a ete mis a jour.",
+      title: "Demande {{requestId}}",
+      intro: "",
       primaryButtonText: "Ouvrir la demande",
       secondaryButtonText: "Ouvrir le tableau de bord",
       footerText: "Vous recevez cet e-mail car vous etes abonne aux notifications des demandes CRA.",
@@ -329,16 +329,16 @@ const DEFAULT_EMAIL_TEMPLATES_BY_LANG = {
   zh: {
     request_created: {
       subject: "[CRA] \u8bf7\u6c42 {{requestId}} \u5df2\u63d0\u4ea4",
-      title: "\u65b0\u8bf7\u6c42\u5df2\u63d0\u4ea4",
-      intro: "\u5df2\u63d0\u4ea4\u4e00\u6761\u65b0\u7684 CRA \u8bf7\u6c42\u3002",
+      title: "\u8bf7\u6c42 {{requestId}}",
+      intro: "",
       primaryButtonText: "\u6253\u5f00\u8bf7\u6c42",
       secondaryButtonText: "\u6253\u5f00\u4eea\u8868\u677f",
       footerText: "\u60a8\u6536\u5230\u6b64\u90ae\u4ef6\u662f\u56e0\u4e3a\u60a8\u8ba2\u9605\u4e86 CRA \u8bf7\u6c42\u901a\u77e5\u3002",
     },
     request_status_changed: {
       subject: "[CRA] \u8bf7\u6c42 {{requestId}} \u72b6\u6001\u5df2\u53d8\u66f4\u4e3a {{status}}",
-      title: "\u8bf7\u6c42\u66f4\u65b0",
-      intro: "CRA \u8bf7\u6c42\u72b6\u6001\u5df2\u66f4\u65b0\u3002",
+      title: "\u8bf7\u6c42 {{requestId}}",
+      intro: "",
       primaryButtonText: "\u6253\u5f00\u8bf7\u6c42",
       secondaryButtonText: "\u6253\u5f00\u4eea\u8868\u677f",
       footerText: "\u60a8\u6536\u5230\u6b64\u90ae\u4ef6\u662f\u56e0\u4e3a\u60a8\u8ba2\u9605\u4e86 CRA \u8bf7\u6c42\u901a\u77e5\u3002",
@@ -648,7 +648,10 @@ const renderStatusEmailHtml = ({ request, eventType, newStatus, previousStatus, 
   const transitionLine = showTransition
     ? `<div style="margin-top:8px; font-size:12px; color:#374151; line-height:18px;">${escapeHtml(previousStatusLabel)} &rarr; ${escapeHtml(statusLabel)}</div>`
     : "";
-  const statusLine = statusLabel ? `<div style="margin-top:10px; font-size:13px; font-weight:800; letter-spacing:0.02em; color:${accent}; text-transform:uppercase;">${escapeHtml(statusLabel)}</div>` : "";
+  const statusLine =
+    eventType === "request_status_changed" && statusLabel
+      ? `<div style="margin-top:10px; font-size:13px; font-weight:800; letter-spacing:0.02em; color:${accent}; text-transform:uppercase;">${escapeHtml(statusLabel)}</div>`
+      : "";
 
   const facts = [
     kvCell(i18n.labels.client, client),
