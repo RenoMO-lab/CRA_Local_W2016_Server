@@ -442,6 +442,10 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
               value={(request.salesWarrantyPeriod ?? "").trim() || "-"}
             />
             <FieldLine
+              label={t.panels.offerValidityPeriod}
+              value={(request.salesOfferValidityPeriod ?? "").trim() || "-"}
+            />
+            <FieldLine
               label={t.panels.salesExpectedDeliveryDate}
               value={String(request.salesExpectedDeliveryDate ?? "").trim() || "-"}
             />

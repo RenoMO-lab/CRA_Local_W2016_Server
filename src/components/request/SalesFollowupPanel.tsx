@@ -24,6 +24,7 @@ type SalesFollowupData = {
   salesVatRate?: number | null;
   salesMargin?: number | null;
   salesWarrantyPeriod?: string;
+  salesOfferValidityPeriod?: string;
   salesExpectedDeliveryDate?: string;
   salesPaymentTermCount?: number;
   salesPaymentTerms?: SalesPaymentTerm[];
@@ -106,6 +107,9 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   );
   const [salesWarrantyPeriod, setSalesWarrantyPeriod] = useState<string>(
     request.salesWarrantyPeriod || ''
+  );
+  const [salesOfferValidityPeriod, setSalesOfferValidityPeriod] = useState<string>(
+    request.salesOfferValidityPeriod || ''
   );
   const [salesExpectedDeliveryDate, setSalesExpectedDeliveryDate] = useState<string>(
     request.salesExpectedDeliveryDate || ''
@@ -348,6 +352,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
       salesVatRate: salesVatRateValue,
       salesMargin: parseOptionalNumber(salesMargin),
       salesWarrantyPeriod: salesWarrantyPeriod.trim(),
+      salesOfferValidityPeriod: salesOfferValidityPeriod.trim(),
       salesExpectedDeliveryDate: salesExpectedDeliveryDate.trim(),
       salesPaymentTermCount,
       salesPaymentTerms: paymentTerms,
@@ -450,6 +455,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
       (request.salesVatMode === 'with' && request.salesVatRate !== null) ||
       typeof request.salesMargin === 'number' ||
       (request.salesWarrantyPeriod ?? '').trim().length > 0 ||
+      (request.salesOfferValidityPeriod ?? '').trim().length > 0 ||
       (request.salesExpectedDeliveryDate ?? '').trim().length > 0 ||
       hasSalesPaymentTerms
   );
@@ -547,7 +553,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
                 )}
               </div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="salesMargin" className="text-sm font-medium">
                   {t.panels.salesMargin} (%) *
@@ -573,6 +579,19 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
                   value={salesWarrantyPeriod}
                   onChange={(e) => setSalesWarrantyPeriod(e.target.value)}
                   placeholder={t.panels.enterWarrantyPeriod}
+                  className="bg-background"
+                  disabled={readOnly}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="salesOfferValidityPeriod" className="text-sm font-medium">
+                  {t.panels.offerValidityPeriod}
+                </Label>
+                <Input
+                  id="salesOfferValidityPeriod"
+                  value={salesOfferValidityPeriod}
+                  onChange={(e) => setSalesOfferValidityPeriod(e.target.value)}
+                  placeholder={t.panels.enterOfferValidityPeriod}
                   className="bg-background"
                   disabled={readOnly}
                 />
@@ -829,6 +848,12 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
               {(request.salesWarrantyPeriod ?? '').trim().length > 0 && (
                 <p className="text-sm text-foreground">
                   <span className="text-muted-foreground">{t.panels.warrantyPeriod}:</span> {request.salesWarrantyPeriod}
+                </p>
+              )}
+              {(request.salesOfferValidityPeriod ?? '').trim().length > 0 && (
+                <p className="text-sm text-foreground">
+                  <span className="text-muted-foreground">{t.panels.offerValidityPeriod}:</span>{' '}
+                  {request.salesOfferValidityPeriod}
                 </p>
               )}
               {request.salesExpectedDeliveryDate && (

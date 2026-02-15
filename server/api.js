@@ -1382,6 +1382,8 @@ const normalizeRequestData = (data, nowIso) => {
     salesMargin: parseOptionalFiniteNumber(data.salesMargin),
     salesWarrantyPeriod:
       typeof data.salesWarrantyPeriod === "string" ? data.salesWarrantyPeriod : "",
+    salesOfferValidityPeriod:
+      typeof data.salesOfferValidityPeriod === "string" ? data.salesOfferValidityPeriod : "",
     salesExpectedDeliveryDate:
       typeof data.salesExpectedDeliveryDate === "string" ? data.salesExpectedDeliveryDate : "",
     salesPaymentTermCount,

@@ -613,6 +613,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     request.salesFinalPrice ||
     typeof request.salesMargin === 'number' ||
     (request.salesWarrantyPeriod ?? '').trim() ||
+    (request.salesOfferValidityPeriod ?? '').trim() ||
     request.salesExpectedDeliveryDate ||
     request.salesFeedbackComment ||
     salesIncotermValue ||
@@ -630,6 +631,9 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
         : null,
       (request.salesWarrantyPeriod ?? '').trim()
         ? { label: t.panels.warrantyPeriod, value: String(request.salesWarrantyPeriod).trim() }
+        : null,
+      (request.salesOfferValidityPeriod ?? '').trim()
+        ? { label: t.panels.offerValidityPeriod, value: String(request.salesOfferValidityPeriod).trim() }
         : null,
       request.salesExpectedDeliveryDate
         ? { label: t.panels.salesExpectedDeliveryDate, value: String(request.salesExpectedDeliveryDate) }
