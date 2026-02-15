@@ -2319,12 +2319,33 @@ const Settings: React.FC = () => {
                     <TableCell className="font-medium">{userItem.name}</TableCell>
                     <TableCell>{userItem.email}</TableCell>
                     <TableCell>
-                      <span className={cn(
-                        "inline-flex px-2 py-0.5 rounded text-xs font-medium",
-                        ROLE_CONFIG[userItem.role].color
-                      )}>
-                        {t.roles[userItem.role]}
-                      </span>
+                      {(() => {
+                        const roleLabel = t.roles[userItem.role] || ROLE_CONFIG[userItem.role].label;
+                        const roleDotClass: Record<UserRole, string> = {
+                          sales: 'bg-info',
+                          design: 'bg-warning',
+                          costing: 'bg-success',
+                          // Keep admin as a "danger" marker; chip remains neutral.
+                          admin: 'bg-destructive',
+                        };
+
+                        return (
+                          <span
+                            title={roleLabel}
+                            className={cn(
+                              'inline-flex items-center justify-center gap-2',
+                              // fixed size for consistent visuals across roles
+                              'h-8 w-32 px-3 rounded-full',
+                              // neutral chip style
+                              'border border-border bg-muted/25 text-foreground/90',
+                              'text-xs font-semibold tracking-wide shadow-sm'
+                            )}
+                          >
+                            <span className={cn('h-2.5 w-2.5 rounded-full ring-1 ring-border/60', roleDotClass[userItem.role])} />
+                            <span className="truncate">{roleLabel}</span>
+                          </span>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Select
