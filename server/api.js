@@ -647,9 +647,14 @@ const renderStatusEmailHtml = ({ request, eventType, newStatus, previousStatus, 
   const transitionLine = showTransition
     ? `<div style="margin-top:8px; font-size:12px; color:#374151; line-height:18px;">${escapeHtml(previousStatusLabel)} &rarr; ${escapeHtml(statusLabel)}</div>`
     : "";
+  const titleStyle =
+    eventType === "request_status_changed"
+      ? "margin-top:6px; font-size:18px; font-weight:900; color:#111827; letter-spacing:0.1px; line-height:24px;"
+      : "margin-top:6px; font-size:24px; font-weight:900; color:#111827; letter-spacing:0.2px; line-height:30px;";
+
   const statusLine =
     eventType === "request_status_changed" && statusLabel
-      ? `<div style="margin-top:10px; font-size:13px; font-weight:800; letter-spacing:0.02em; color:${accent}; text-transform:uppercase;">${escapeHtml(statusLabel)}</div>`
+      ? `<div style="margin-top:10px; font-size:22px; font-weight:900; letter-spacing:0.06em; color:${accent}; text-transform:uppercase; line-height:28px;">${escapeHtml(statusLabel)}</div>`
       : "";
 
   const facts = [
@@ -721,7 +726,7 @@ const renderStatusEmailHtml = ({ request, eventType, newStatus, previousStatus, 
                         </tr>
                         <tr>
                           <td style="padding:22px 24px 18px 24px;">
-                            <div style="margin-top:6px; font-size:24px; font-weight:900; color:#111827; letter-spacing:0.2px; line-height:30px;">${escapeHtml(titleText)}</div>
+                            <div style="${titleStyle}">${escapeHtml(titleText)}</div>
                             ${statusLine}
                             ${transitionLine}
                             ${introText ? `<div style="margin-top:10px; font-size:14px; color:#374151; line-height:20px;">${escapeHtml(introText)}</div>` : ""}
