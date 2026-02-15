@@ -2407,86 +2407,94 @@ const Settings: React.FC = () => {
 
           {/* Edit User Dialog */}
           <Dialog open={isEditUserOpen} onOpenChange={setIsEditUserOpen}>
-            <DialogContent className="bg-card">
-              <DialogHeader>
-                <DialogTitle>{t.settings.editUser}</DialogTitle>
-                <DialogDescription>
-                  {t.settings.updateUserDesc}
-                </DialogDescription>
-              </DialogHeader>
-              {editingUser && (
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-name">{t.common.name}</Label>
-                    <Input
-                      id="edit-name"
-                      value={editingUser.name}
-                      onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
-                    />
+            <DialogContent className="bg-card max-h-[90vh] overflow-hidden p-0 flex flex-col">
+              <div className="px-6 pt-6 pb-4">
+                <DialogHeader>
+                  <DialogTitle>{t.settings.editUser}</DialogTitle>
+                  <DialogDescription>
+                    {t.settings.updateUserDesc}
+                  </DialogDescription>
+                </DialogHeader>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-6 pb-4">
+                {editingUser && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-name">{t.common.name}</Label>
+                      <Input
+                        id="edit-name"
+                        value={editingUser.name}
+                        onChange={(e) => setEditingUser({ ...editingUser, name: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-email">{t.common.email}</Label>
+                      <Input
+                        id="edit-email"
+                        type="email"
+                        value={editingUser.email}
+                        onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-password">{t.settings.newPassword}</Label>
+                      <Input
+                        id="edit-password"
+                        type="password"
+                        value={editingUser.newPassword || ''}
+                        onChange={(e) => setEditingUser({ ...editingUser, newPassword: e.target.value })}
+                        placeholder={t.settings.leaveBlankKeepCurrent}
+                      />
+                      <p className="text-xs text-muted-foreground">{t.settings.leaveBlankKeepCurrent}</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-role">{t.common.role}</Label>
+                      <Select
+                        value={editingUser.role}
+                        onValueChange={(value) => setEditingUser({ ...editingUser, role: value as UserRole })}
+                      >
+                        <SelectTrigger id="edit-role">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-card border border-border">
+                          <SelectItem value="sales">{t.roles.sales}</SelectItem>
+                          <SelectItem value="design">{t.roles.design}</SelectItem>
+                          <SelectItem value="costing">{t.roles.costing}</SelectItem>
+                          <SelectItem value="admin">{t.roles.admin}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-lang">{t.common.language}</Label>
+                      <Select
+                        value={editingUser.preferredLanguage}
+                        onValueChange={(value) =>
+                          setEditingUser({ ...editingUser, preferredLanguage: value as 'en' | 'fr' | 'zh' })
+                        }
+                      >
+                        <SelectTrigger id="edit-lang">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-card border border-border">
+                          <SelectItem value="en">EN</SelectItem>
+                          <SelectItem value="fr">FR</SelectItem>
+                          <SelectItem value="zh">ZH</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-email">{t.common.email}</Label>
-                    <Input
-                      id="edit-email"
-                      type="email"
-                      value={editingUser.email}
-                      onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-password">{t.settings.newPassword}</Label>
-                    <Input
-                      id="edit-password"
-                      type="password"
-                      value={editingUser.newPassword || ''}
-                      onChange={(e) => setEditingUser({ ...editingUser, newPassword: e.target.value })}
-                      placeholder={t.settings.leaveBlankKeepCurrent}
-                    />
-                    <p className="text-xs text-muted-foreground">{t.settings.leaveBlankKeepCurrent}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-role">{t.common.role}</Label>
-                    <Select
-                      value={editingUser.role}
-                      onValueChange={(value) => setEditingUser({ ...editingUser, role: value as UserRole })}
-                    >
-                      <SelectTrigger id="edit-role">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-card border border-border">
-                        <SelectItem value="sales">{t.roles.sales}</SelectItem>
-                        <SelectItem value="design">{t.roles.design}</SelectItem>
-                        <SelectItem value="costing">{t.roles.costing}</SelectItem>
-                        <SelectItem value="admin">{t.roles.admin}</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-lang">{t.common.language}</Label>
-                    <Select
-                      value={editingUser.preferredLanguage}
-                      onValueChange={(value) =>
-                        setEditingUser({ ...editingUser, preferredLanguage: value as 'en' | 'fr' | 'zh' })
-                      }
-                    >
-                      <SelectTrigger id="edit-lang">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-card border border-border">
-                        <SelectItem value="en">EN</SelectItem>
-                        <SelectItem value="fr">FR</SelectItem>
-                        <SelectItem value="zh">ZH</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIsEditUserOpen(false)}>
-                  {t.common.cancel}
-                </Button>
-                <Button onClick={handleEditUser}>{t.settings.saveChanges}</Button>
-              </DialogFooter>
+                )}
+              </div>
+
+              <div className="border-t border-border bg-card px-6 py-4">
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsEditUserOpen(false)}>
+                    {t.common.cancel}
+                  </Button>
+                  <Button onClick={handleEditUser}>{t.settings.saveChanges}</Button>
+                </DialogFooter>
+              </div>
             </DialogContent>
           </Dialog>
 
