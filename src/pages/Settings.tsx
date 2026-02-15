@@ -475,6 +475,7 @@ const Settings: React.FC = () => {
     preferredLanguage: 'en' as 'en' | 'fr' | 'zh',
     password: '',
   });
+  const [languageUpdatingUserIds, setLanguageUpdatingUserIds] = useState<Record<string, boolean>>({});
   const [isAccessEmailOpen, setIsAccessEmailOpen] = useState(false);
   const [accessEmailUser, setAccessEmailUser] = useState<UserItem | null>(null);
   const [accessEmailAppUrl, setAccessEmailAppUrl] = useState('');
@@ -1787,6 +1788,41 @@ const Settings: React.FC = () => {
     }
   };
 
+  const handleQuickUpdateUserLanguage = async (userItem: UserItem, nextLanguage: 'en' | 'fr' | 'zh') => {
+    const userId = String(userItem?.id ?? '').trim();
+    if (!userId) return;
+    const normalized = (nextLanguage === 'fr' || nextLanguage === 'zh') ? nextLanguage : 'en';
+    if ((userItem.preferredLanguage ?? 'en') === normalized) return;
+
+    setLanguageUpdatingUserIds((prev) => ({ ...prev, [userId]: true }));
+    try {
+      await updateUser(userId, {
+        name: userItem.name,
+        email: userItem.email,
+        role: userItem.role,
+        preferredLanguage: normalized,
+        newPassword: '',
+      });
+      toast({
+        title: t.settings.userUpdated,
+        description: t.settings.userUpdatedDesc,
+      });
+    } catch (error) {
+      console.error('Failed to update user language:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? error),
+        variant: 'destructive',
+      });
+    } finally {
+      setLanguageUpdatingUserIds((prev) => {
+        const next = { ...prev };
+        delete next[userId];
+        return next;
+      });
+    }
+  };
+
   const handleDeleteUser = async (userId: string) => {
     const userToDelete = users.find(u => u.id === userId);
     
@@ -2278,7 +2314,24 @@ const Settings: React.FC = () => {
                         {t.roles[userItem.role]}
                       </span>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{String(userItem.preferredLanguage ?? 'en').toUpperCase()}</TableCell>
+                    <TableCell>
+                      <Select
+                        value={userItem.preferredLanguage ?? 'en'}
+                        onValueChange={(value) =>
+                          handleQuickUpdateUserLanguage(userItem, value as 'en' | 'fr' | 'zh')
+                        }
+                        disabled={isUsersLoading || isLegacyUserImporting || Boolean(languageUpdatingUserIds[userItem.id])}
+                      >
+                        <SelectTrigger className="h-8 w-20">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-card border border-border">
+                          <SelectItem value="en">EN</SelectItem>
+                          <SelectItem value="fr">FR</SelectItem>
+                          <SelectItem value="zh">ZH</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Button
