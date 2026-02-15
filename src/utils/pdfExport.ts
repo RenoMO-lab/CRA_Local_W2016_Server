@@ -235,7 +235,8 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   const margin = 14;
   const contentWidth = pageWidth - margin * 2;
   const bottomMargin = 16;
-  const pageHeaderHeight = 18;
+  // Needs to fit: request id + status badge + generated timestamp without overlap.
+  const pageHeaderHeight = 24;
   const ptToMm = (pt: number) => (pt * 25.4) / 72;
   const lineHeightMm = (fontSizePt: number) => ptToMm(fontSizePt) * pdf.getLineHeightFactor();
 
@@ -311,7 +312,8 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     cachedLogo = null;
   }
 
-  let y = pageHeaderHeight + 10;
+  // Keep a small gap below the header band.
+  let y = pageHeaderHeight + 8;
 
   const drawStatusBadge = (text: string, xRight: number, yTop: number) => {
     const padX = 3;
@@ -368,9 +370,14 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       const [mr, mg, mb] = rgb(COLORS.muted);
       pdf.setTextColor(mr, mg, mb);
       // Keep the generated timestamp below the status badge to avoid overlap.
-      pdf.text(`${t.pdf.generatedLabel}: ${formatDate(new Date(), "MMMM d, yyyy HH:mm")}`, pageWidth - margin, badgeY + badgeH + 2.2, {
+      pdf.text(
+        `${t.pdf.generatedLabel}: ${formatDate(new Date(), "MMMM d, yyyy HH:mm")}`,
+        pageWidth - margin,
+        badgeY + badgeH + 5.2,
+        {
         align: "right",
-      });
+        },
+      );
     }
 
     pdf.setTextColor(0, 0, 0);
@@ -380,7 +387,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   const addPage = () => {
     pdf.addPage();
     drawPageHeader(false);
-    y = pageHeaderHeight + 10;
+    y = pageHeaderHeight + 8;
   };
 
   const ensureSpace = (height: number) => {
@@ -398,7 +405,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     ensureSpace(headerH + 14);
     const topY = y;
     // Inset header fills so they don't "leak" outside the rounded card corner.
-    const headerInset = 0.4;
+    const headerInset = 0.8;
 
     // Header fill + accent strip.
     const [fr, fg, fb] = rgb(COLORS.headerFill);
@@ -406,7 +413,11 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     pdf.rect(x + headerInset, topY + headerInset, w - headerInset * 2, headerH - headerInset, "F");
     const [ar, ag, ab] = rgb(MONROC_RED);
     pdf.setFillColor(ar, ag, ab);
-    pdf.rect(x + headerInset, topY + headerInset, 3 - headerInset, headerH - headerInset, "F");
+    // Start the strip slightly lower so the rounded top-left border stays clean.
+    const stripTopPad = 1.4;
+    const stripY = topY + headerInset + stripTopPad;
+    const stripH = Math.max(0, headerH - headerInset - stripTopPad);
+    pdf.rect(x + headerInset, stripY, 3 - headerInset, stripH, "F");
 
     // Header title.
     pdf.setFontSize(11);
