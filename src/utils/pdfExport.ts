@@ -565,6 +565,24 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     y += 6;
   };
 
+  const drawNote = (text: string) => {
+    const innerX = margin + 6;
+    const innerW = contentWidth - 12;
+    const raw = String(text ?? "").trim();
+    if (!raw) return;
+    pdf.setFontSize(9);
+    setFont("normal");
+    const lines = pdf.splitTextToSize(raw, innerW) as string[];
+    const lh = lineHeightMm(9);
+    const h = Math.max(1, lines.length) * lh + 1;
+    ensureSpace(h);
+    const [mr, mg, mb] = rgb(COLORS.muted);
+    pdf.setTextColor(mr, mg, mb);
+    pdf.text(lines, innerX, y);
+    pdf.setTextColor(0, 0, 0);
+    y += h;
+  };
+
   const drawParagraph = (text: string) => {
     const innerX = margin + 6;
     const innerW = contentWidth - 12;
@@ -695,6 +713,26 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     });
     endCard();
   };
+
+  type AppendixSection = {
+    label: string;
+    title: string;
+    headers: string[];
+    rows: Array<string[]>;
+    colWidths: number[];
+  };
+  const appendixSections: AppendixSection[] = [];
+  const appendixLabelFor = (index: number) => {
+    // A..Z, then A1, A2... (should be plenty for our attachment groups)
+    if (index < 26) return String.fromCharCode(65 + index);
+    return `A${index - 25}`;
+  };
+  const registerAppendixTable = (title: string, opts: { headers: string[]; rows: Array<string[]>; colWidths: number[] }) => {
+    const label = appendixLabelFor(appendixSections.length);
+    appendixSections.push({ label, title, ...opts });
+    return label;
+  };
+  const seeAppendixText = (label: string) => String(t.pdf.seeAppendix || "See Appendix {appendix}").replace("{appendix}", label);
 
   // First page header.
   drawPageHeader(true);
@@ -850,43 +888,51 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       drawParagraph(product.productComments);
     }
 
-    endCard();
-
     if (productAttachmentRows.length) {
-      drawTableCard(`${t.request.attachments} - ${productLabel}`, {
+      const appendixLabel = registerAppendixTable(`${t.request.attachments} - ${productLabel}`, {
         headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
         rows: productAttachmentRows,
         colWidths: [90, 55, contentWidth - 12 - 90 - 55],
       });
+      drawSubheading(t.request.attachments);
+      drawNote(seeAppendixText(appendixLabel));
     }
-  }
 
-  // Design notes card.
-  if ((request.designNotes ?? "").trim()) {
-    beginCard(t.pdf.designNotesTitle);
-    drawParagraph(request.designNotes ?? "");
     endCard();
   }
 
-  // Design result card.
+  // Design notes + result card(s).
   const designAttachments = Array.isArray(request.designResultAttachments) ? request.designResultAttachments : [];
-  if ((request.designResultComments ?? "").trim()) {
+  const hasDesignNotes = (request.designNotes ?? "").trim().length > 0;
+  const hasDesignResultComments = (request.designResultComments ?? "").trim().length > 0;
+  const hasDesignAttachments = designAttachments.length > 0;
+  if (hasDesignNotes || hasDesignResultComments || hasDesignAttachments) {
     beginCard(t.panels.designResult);
-    drawSubheading(t.panels.designResultComments);
-    drawParagraph(request.designResultComments ?? "");
+
+    if (hasDesignNotes) {
+      drawSubheading(t.pdf.designNotesTitle);
+      drawParagraph(request.designNotes ?? "");
+    }
+    if (hasDesignResultComments) {
+      drawSubheading(t.panels.designResultComments);
+      drawParagraph(request.designResultComments ?? "");
+    }
+    if (hasDesignAttachments) {
+      const rows = designAttachments.map((att) => [
+        String(att.filename ?? "").trim() || "-",
+        formatAttachmentType(att.type),
+        formatBytes(estimateBase64Bytes(att.url)),
+      ]);
+      const appendixLabel = registerAppendixTable(`${t.panels.designResult} - ${t.panels.designResultUploads}`, {
+        headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
+        rows,
+        colWidths: [90, 55, contentWidth - 12 - 90 - 55],
+      });
+      drawSubheading(t.panels.designResultUploads);
+      drawNote(seeAppendixText(appendixLabel));
+    }
+
     endCard();
-  }
-  if (designAttachments.length) {
-    const rows = designAttachments.map((att) => [
-      String(att.filename ?? "").trim() || "-",
-      formatAttachmentType(att.type),
-      formatBytes(estimateBase64Bytes(att.url)),
-    ]);
-    drawTableCard(`${t.panels.designResult} - ${t.panels.designResultUploads}`, {
-      headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
-      rows,
-      colWidths: [90, 55, contentWidth - 12 - 90 - 55],
-    });
   }
 
   // Costing card.
@@ -916,20 +962,21 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       drawSubheading(t.panels.costingNotes);
       drawParagraph(request.costingNotes ?? "");
     }
+    if (costingAttachments.length) {
+      const rows = costingAttachments.map((att) => [
+        String(att.filename ?? "").trim() || "-",
+        formatAttachmentType(att.type),
+        formatBytes(estimateBase64Bytes(att.url)),
+      ]);
+      const appendixLabel = registerAppendixTable(`${t.pdf.costingInformationTitle} - ${t.panels.costingAttachments}`, {
+        headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
+        rows,
+        colWidths: [90, 55, contentWidth - 12 - 90 - 55],
+      });
+      drawSubheading(t.panels.costingAttachments);
+      drawNote(seeAppendixText(appendixLabel));
+    }
     endCard();
-  }
-
-  if (costingAttachments.length) {
-    const rows = costingAttachments.map((att) => [
-      String(att.filename ?? "").trim() || "-",
-      formatAttachmentType(att.type),
-      formatBytes(estimateBase64Bytes(att.url)),
-    ]);
-    drawTableCard(`${t.pdf.costingInformationTitle} - ${t.panels.costingAttachments}`, {
-      headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
-      rows,
-      colWidths: [90, 55, contentWidth - 12 - 90 - 55],
-    });
   }
 
   // Sales follow-up card.
@@ -961,41 +1008,47 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       drawSubheading(t.panels.salesFeedback);
       drawParagraph(request.salesFeedbackComment ?? "");
     }
+    const salesPaymentTermsRaw = Array.isArray(request.salesPaymentTerms) ? request.salesPaymentTerms : [];
+    const salesPaymentTerms = salesPaymentTermsRaw.filter((term: any) => {
+      const name = String(term?.paymentName ?? "").trim();
+      const pctOk = typeof term?.paymentPercent === "number" && Number.isFinite(term.paymentPercent);
+      const comments = String(term?.comments ?? "").trim();
+      return Boolean(name || pctOk || comments);
+    });
+    if (salesPaymentTerms.length) {
+      const rows = salesPaymentTerms.map((term: any, index: number) => [
+        String(term?.paymentNumber || index + 1),
+        String(term?.paymentName || "-"),
+        typeof term?.paymentPercent === "number" ? `${term.paymentPercent}%` : "-",
+        String(term?.comments || "-"),
+      ]);
+      drawSubheading(t.panels.paymentTerms);
+      drawTable({
+        headers: [t.panels.paymentNumber, t.panels.paymentName, t.panels.paymentPercent, t.panels.paymentComments],
+        rows,
+        colWidths: [18, 44, 22, contentWidth - 12 - 18 - 44 - 22],
+        onPageBreak: () => {
+          pageBreakActiveCard();
+        },
+      });
+    }
+
+    if (salesAttachments.length) {
+      const rows = salesAttachments.map((att) => [
+        String(att.filename ?? "").trim() || "-",
+        formatAttachmentType(att.type),
+        formatBytes(estimateBase64Bytes(att.url)),
+      ]);
+      const appendixLabel = registerAppendixTable(`${t.panels.salesFollowup} - ${t.panels.salesAttachments}`, {
+        headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
+        rows,
+        colWidths: [90, 55, contentWidth - 12 - 90 - 55],
+      });
+      drawSubheading(t.panels.salesAttachments);
+      drawNote(seeAppendixText(appendixLabel));
+    }
+
     endCard();
-  }
-
-  const salesPaymentTermsRaw = Array.isArray(request.salesPaymentTerms) ? request.salesPaymentTerms : [];
-  const salesPaymentTerms = salesPaymentTermsRaw.filter((term: any) => {
-    const name = String(term?.paymentName ?? "").trim();
-    const pctOk = typeof term?.paymentPercent === "number" && Number.isFinite(term.paymentPercent);
-    const comments = String(term?.comments ?? "").trim();
-    return Boolean(name || pctOk || comments);
-  });
-  if (salesPaymentTerms.length) {
-    const rows = salesPaymentTerms.map((term: any, index: number) => [
-      String(term?.paymentNumber || index + 1),
-      String(term?.paymentName || "-"),
-      typeof term?.paymentPercent === "number" ? `${term.paymentPercent}%` : "-",
-      String(term?.comments || "-"),
-    ]);
-    drawTableCard(`${t.panels.salesFollowup} - ${t.panels.paymentTerms}`, {
-      headers: [t.panels.paymentNumber, t.panels.paymentName, t.panels.paymentPercent, t.panels.paymentComments],
-      rows,
-      colWidths: [18, 44, 22, contentWidth - 12 - 18 - 44 - 22],
-    });
-  }
-
-  if (salesAttachments.length) {
-    const rows = salesAttachments.map((att) => [
-      String(att.filename ?? "").trim() || "-",
-      formatAttachmentType(att.type),
-      formatBytes(estimateBase64Bytes(att.url)),
-    ]);
-    drawTableCard(`${t.panels.salesFollowup} - ${t.panels.salesAttachments}`, {
-      headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
-      rows,
-      colWidths: [90, 55, contentWidth - 12 - 90 - 55],
-    });
   }
 
   // Status history card.
@@ -1098,6 +1151,50 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     pdf.setTextColor(150, 150, 150);
     const pageLabel = t.pdf.pageOfLabel.replace("{current}", String(i)).replace("{total}", String(pageCount));
     pdf.text(`${pageLabel} | ${t.pdf.reportTitle} | ${request.id}`, pageWidth / 2, pageHeight - 6, { align: "center" });
+  }
+
+  // Appendix (attachments) pages at the end.
+  if (appendixSections.length) {
+    addPage();
+    pdf.setFontSize(16);
+    setFont("bold");
+    const [tr, tg, tb] = rgb(COLORS.title);
+    pdf.setTextColor(tr, tg, tb);
+    pdf.text(String(t.pdf.appendixTitle ?? "Appendix"), margin, y);
+    setFont("normal");
+    pdf.setTextColor(0, 0, 0);
+    y += 8;
+
+    const drawAppendixSectionHeader = (label: string, title: string) => {
+      ensureSpace(10);
+      pdf.setFontSize(12);
+      setFont("bold");
+      const [mr, mg, mb] = rgb(COLORS.muted);
+      pdf.setTextColor(mr, mg, mb);
+      pdf.text(`${String(t.pdf.appendixTitle ?? "Appendix")} ${label} - ${title}`, margin, y);
+      pdf.setTextColor(0, 0, 0);
+      setFont("normal");
+      // Divider line
+      const [br, bg, bb] = rgb(COLORS.border);
+      pdf.setDrawColor(br, bg, bb);
+      pdf.setLineWidth(0.3);
+      pdf.line(margin, y + 2, pageWidth - margin, y + 2);
+      y += 7;
+    };
+
+    for (const section of appendixSections) {
+      drawAppendixSectionHeader(section.label, section.title);
+      drawTable({
+        headers: section.headers,
+        rows: section.rows,
+        colWidths: section.colWidths,
+        onPageBreak: () => {
+          addPage();
+          drawAppendixSectionHeader(section.label, section.title);
+        },
+      });
+      y += 6;
+    }
   }
 
   pdf.save(`${request.id}_report.pdf`);
