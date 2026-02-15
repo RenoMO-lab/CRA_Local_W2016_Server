@@ -347,13 +347,13 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     // Logo.
     if (cachedLogo) {
       // Make the logo clearly visible in the header band.
-      const maxH = 16;
-      const maxW = 70;
+      const maxH = 20;
+      const maxW = 92;
       const scale = Math.min(maxW / cachedLogo.width, maxH / cachedLogo.height);
       const w = cachedLogo.width * scale;
       const h = cachedLogo.height * scale;
       // Vertically center within the header band.
-      const yLogo = Math.max(2.2, (pageHeaderHeight - h) / 2);
+      const yLogo = Math.max(2.0, (pageHeaderHeight - h) / 2);
       pdf.addImage(cachedLogo.dataUrl, "PNG", margin, yLogo, w, h);
     }
 
