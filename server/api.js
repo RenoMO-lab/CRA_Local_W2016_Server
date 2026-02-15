@@ -716,6 +716,13 @@ const ACCESS_EMAIL_STRINGS_BY_LANG = {
     loginEmailLabel: "Login Email",
     temporaryPasswordLabel: "Temporary Password",
     openPlatformButton: "Open CRA Platform",
+    securityNote: "For security reasons, please change your password immediately after your first login and do not share your credentials.",
+    accountHintPrefix: "In the CRA app, open the menu next to your name and select",
+    myAccountLabel: "My account",
+    accountHintSuffix: "to change your password.",
+    provisionedByPrefix: "Provisioned by",
+    provisionedOnPrefix: "on",
+    systemAdminFallback: "System Administrator",
   },
   fr: {
     subject: "[CRA] Votre acces a la plateforme est pret",
@@ -727,6 +734,13 @@ const ACCESS_EMAIL_STRINGS_BY_LANG = {
     loginEmailLabel: "E-mail de connexion",
     temporaryPasswordLabel: "Mot de passe temporaire",
     openPlatformButton: "Ouvrir la plateforme CRA",
+    securityNote: "Pour des raisons de securite, veuillez changer votre mot de passe immediatement apres votre premiere connexion et ne partagez pas vos identifiants.",
+    accountHintPrefix: "Dans l'application CRA, ouvrez le menu a cote de votre nom et selectionnez",
+    myAccountLabel: "Mon compte",
+    accountHintSuffix: "pour changer votre mot de passe.",
+    provisionedByPrefix: "Provisionne par",
+    provisionedOnPrefix: "le",
+    systemAdminFallback: "Administrateur systeme",
   },
   zh: {
     subject: "[CRA] \u60a8\u7684\u8d26\u53f7\u5df2\u5f00\u901a",
@@ -738,6 +752,13 @@ const ACCESS_EMAIL_STRINGS_BY_LANG = {
     loginEmailLabel: "\u767b\u5f55\u90ae\u7bb1",
     temporaryPasswordLabel: "\u4e34\u65f6\u5bc6\u7801",
     openPlatformButton: "\u6253\u5f00 CRA \u5e73\u53f0",
+    securityNote: "\u51fa\u4e8e\u5b89\u5168\u539f\u56e0\uff0c\u8bf7\u5728\u9996\u6b21\u767b\u5f55\u540e\u7acb\u5373\u4fee\u6539\u5bc6\u7801\uff0c\u5e76\u4e14\u4e0d\u8981\u5206\u4eab\u60a8\u7684\u767b\u5f55\u51ed\u636e\u3002",
+    accountHintPrefix: "\u5728 CRA \u5e94\u7528\u4e2d\uff0c\u6253\u5f00\u60a8\u59d3\u540d\u65c1\u7684\u83dc\u5355\u5e76\u9009\u62e9",
+    myAccountLabel: "\u6211\u7684\u8d26\u6237",
+    accountHintSuffix: "\u6765\u4fee\u6539\u60a8\u7684\u5bc6\u7801\u3002",
+    provisionedByPrefix: "\u7531",
+    provisionedOnPrefix: "\u4e8e",
+    systemAdminFallback: "\u7cfb\u7edf\u7ba1\u7406\u5458",
   },
 };
 
@@ -817,7 +838,7 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
   const safeName = escapeHtml(name);
   const safeLogin = escapeHtml(login);
   const safePassword = escapeHtml(password);
-  const safeSender = escapeHtml(sender || "System Administrator");
+  const safeSender = escapeHtml(sender || i18n.systemAdminFallback || "System Administrator");
   const safeNowUtc = escapeHtml(nowUtc);
 
   return `
@@ -876,9 +897,9 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
                     <tr>
                       <td style="padding:14px 24px 18px 24px;">
                         <div style="padding:12px 14px; border:1px solid #E5E7EB; background:#F9FAFB; border-radius:10px; font-size:13px; color:#374151; line-height:19px;">
-                          For security reasons, please change your password immediately after your first login and do not share your credentials.
+                          ${escapeHtml(i18n.securityNote)}
                           <br/><br/>
-                          In the CRA app, open the menu next to your name and select <b>My account</b> to change your password.
+                          ${escapeHtml(i18n.accountHintPrefix)} <b>${escapeHtml(i18n.myAccountLabel)}</b> ${escapeHtml(i18n.accountHintSuffix)}
                         </div>
                       </td>
                     </tr>
@@ -896,7 +917,7 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
                           </table>
                         </center>
                         <div style="margin-top:12px; font-size:11px; color:#6B7280; line-height:16px;">
-                          Provisioned by ${safeSender}${safeNowUtc ? ` on ${safeNowUtc}` : ""}.
+                          ${escapeHtml(i18n.provisionedByPrefix)} ${safeSender}${safeNowUtc ? ` ${escapeHtml(i18n.provisionedOnPrefix)} ${safeNowUtc}` : ""}.
                         </div>
                       </td>
                     </tr>
