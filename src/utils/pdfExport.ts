@@ -193,505 +193,722 @@ const formatStudsPcdSelection = (selection: string): string => {
 });
 
 export const generateRequestPDF = async (request: CustomerRequest, languageOverride?: Language): Promise<void> => {
-  const pdf = new jsPDF('p', 'mm', 'a4');
+  const pdf = new jsPDF("p", "mm", "a4");
   const language = languageOverride ?? getPdfLanguage();
-  const useChineseFont = language === 'zh' ? await loadChineseFont(pdf) : false;
-  const setFont = (weight: 'normal' | 'bold') => {
+  const useChineseFont = language === "zh" ? await loadChineseFont(pdf) : false;
+
+  const setFont = (weight: "normal" | "bold") => {
     if (useChineseFont) {
-      pdf.setFont(CHINESE_FONT_NAME, 'normal');
+      pdf.setFont(CHINESE_FONT_NAME, "normal");
       return;
     }
-    pdf.setFont('helvetica', weight);
+    pdf.setFont("helvetica", weight);
   };
+
   const t = translations[language];
   const locale = getPdfLocale(language);
+  const formatDate = (date: Date, pattern: string) => format(date, pattern, { locale });
+
   const translateOption = (value: string) => {
     const options = t.options as Record<string, string>;
     return options?.[value] || value;
   };
+
   const translateBrakeType = (value: string | null | undefined) => {
-    if (!value) return '';
-    if (value === 'drum') return t.request.drum;
-    if (value === 'disk') return t.request.disk;
-    if (value === 'na') return t.request.na;
+    if (!value) return "";
+    if (value === "drum") return t.request.drum;
+    if (value === "disk") return t.request.disk;
+    if (value === "na") return t.request.na;
     return translateOption(value);
   };
+
   const translateResolvedOption = (value: string | null | undefined, other?: string | null) => {
     const resolved = resolveOtherValue(value, other);
-    if (!resolved) return '';
-    if (value === 'other') return resolved;
+    if (!resolved) return "";
+    if (value === "other") return resolved;
     return translateOption(resolved);
   };
-  const formatDate = (date: Date, pattern: string) => format(date, pattern, { locale });
+
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
-  const margin = 18;
+  const margin = 14;
   const contentWidth = pageWidth - margin * 2;
-  const gutter = 10;
-  const colWidth = (contentWidth - gutter) / 2;
-  const labelWidth = 48;
-  const bottomMargin = 18;
-  let y = margin;
-  const labelFontSize = 9;
-  const valueFontSize = 10;
-  const sectionTitleSize = 14;
-  const subsectionTitleSize = 11;
+  const bottomMargin = 16;
+  const pageHeaderHeight = 18;
   const ptToMm = (pt: number) => (pt * 25.4) / 72;
   const lineHeightMm = (fontSizePt: number) => ptToMm(fontSizePt) * pdf.getLineHeightFactor();
 
-  const ensureSpace = (height: number) => {
-    if (y + height > pageHeight - bottomMargin) {
-      pdf.addPage();
-      y = margin;
-    }
+  const COLORS = {
+    border: "#E5E7EB",
+    headerFill: "#F3F4F6",
+    zebra: "#F9FAFB",
+    title: "#0F172A",
+    muted: "#64748B",
+  } as const;
+
+  const statusAccent = (status: string) => {
+    const s = String(status || "").toLowerCase();
+    if (s.includes("reject") || s.includes("clarification")) return "#DC2626";
+    if (s.includes("approved") || s.includes("complete") || s.includes("confirmed")) return "#16A34A";
+    if (s.includes("pending") || s.includes("review")) return "#F59E0B";
+    if (s.includes("submitted") || s.includes("costing") || s.includes("sales")) return "#2563EB";
+    return "#6B7280";
   };
 
-  const drawSectionTitle = (title: string) => {
-    ensureSpace(14);
-    pdf.setFontSize(sectionTitleSize);
-    const redRgb = hexToRgb(MONROC_RED);
-    pdf.setTextColor(redRgb.r, redRgb.g, redRgb.b);
-    setFont('bold');
-    pdf.text(title, margin, y);
-    setFont('normal');
-    y += 9;
+  const getDisplayValueLocal = (value: string | number | null | undefined) => getDisplayValue(value);
+
+  const rgb = (hex: string) => {
+    const v = hexToRgb(hex);
+    return [v.r, v.g, v.b] as const;
   };
 
-  const drawSubsectionTitle = (title: string) => {
-    ensureSpace(10);
-    pdf.setFontSize(subsectionTitleSize);
-    const greyRgb = hexToRgb(TEXT_GREY);
-    pdf.setTextColor(greyRgb.r, greyRgb.g, greyRgb.b);
-    setFont('bold');
-    pdf.text(title, margin, y);
-    setFont('normal');
-    y += 7;
-  };
-
-  const measureInlineField = (
-    label: string,
-    value: string | number | null | undefined,
-    x: number,
-    availableWidth: number
-  ) => {
-    const displayValue = getDisplayValue(value);
-    if (!displayValue) {
+  const estimateBase64Bytes = (rawUrl: string): number | null => {
+    const url = String(rawUrl ?? "");
+    if (!url) return null;
+    let b64 = "";
+    if (url.startsWith("data:")) {
+      const comma = url.indexOf(",");
+      if (comma === -1) return null;
+      b64 = url.slice(comma + 1);
+    } else if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("/")) {
+      // Some attachments are stored as raw base64 strings.
+      b64 = url;
+    } else {
       return null;
     }
-    pdf.setFontSize(labelFontSize);
-    setFont('bold');
-    const labelTextWidth = pdf.getTextWidth(label);
-    setFont('normal');
-    const valueX = x + Math.max(labelWidth, labelTextWidth + 4);
-    const availableValueWidth = Math.max(16, availableWidth - (valueX - x));
-    pdf.setFontSize(valueFontSize);
-    const valueLines = pdf.splitTextToSize(displayValue, availableValueWidth) as string[];
-    return {
-      displayValue,
-      labelTextWidth,
-      valueX,
-      availableValueWidth,
-      valueLines,
-      lineCount: Math.max(valueLines.length, 1),
-    };
+    const cleaned = b64.replace(/[\r\n\s]/g, "");
+    if (!cleaned) return null;
+    const padding = cleaned.endsWith("==") ? 2 : cleaned.endsWith("=") ? 1 : 0;
+    return Math.max(0, Math.floor((cleaned.length * 3) / 4) - padding);
   };
 
-  const drawInlineField = (
-    label: string,
-    value: string | number | null | undefined,
-    x: number,
-    yPos: number,
-    availableWidth: number
-  ) => {
-    const measure = measureInlineField(label, value, x, availableWidth);
-    if (!measure) {
-      return 0;
-    }
-    pdf.setFontSize(labelFontSize);
-    setFont('bold');
-    const labelRgb = hexToRgb(TEXT_GREY);
-    pdf.setTextColor(labelRgb.r, labelRgb.g, labelRgb.b);
-    pdf.text(label, x, yPos);
-    pdf.text(':', x + measure.labelTextWidth + 2, yPos);
-    pdf.setFontSize(valueFontSize);
-    setFont('normal');
+  const formatBytes = (bytes: number | null) => {
+    if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return "-";
+    if (bytes < 1024) return `${bytes} B`;
+    const kb = bytes / 1024;
+    if (kb < 1024) return `${kb.toFixed(0)} KB`;
+    const mb = kb / 1024;
+    return `${mb.toFixed(1)} MB`;
+  };
+
+  const formatAttachmentType = (type: string) => {
+    const v = String(type ?? "").toLowerCase();
+    if (v === "rim_drawing") return t.request.rimDrawing;
+    if (v === "picture") return t.request.picturesLabel;
+    if (v === "spec") return "Spec";
+    return translateOption(type);
+  };
+
+  const statusLabel = t.statuses[request.status] || STATUS_CONFIG[request.status]?.label || request.status;
+  const accent = statusAccent(request.status);
+
+  let cachedLogo: { dataUrl: string; width: number; height: number } | null = null;
+  try {
+    cachedLogo = await loadImageAsBase64(LOGO_URL);
+  } catch {
+    cachedLogo = null;
+  }
+
+  let y = pageHeaderHeight + 10;
+
+  const drawStatusBadge = (text: string, xRight: number, yTop: number) => {
+    const padX = 3;
+    const padY = 2.2;
+    pdf.setFontSize(9);
+    setFont("bold");
+    const w = pdf.getTextWidth(text) + padX * 2;
+    const h = 6.6;
+    const x = xRight - w;
+    const [r, g, b] = rgb(accent);
+    pdf.setFillColor(r, g, b);
+    pdf.roundedRect(x, yTop, w, h, 2.4, 2.4, "F");
+    pdf.setTextColor(255, 255, 255);
+    pdf.text(text, x + padX, yTop + padY + 2.3);
     pdf.setTextColor(0, 0, 0);
-    pdf.text(measure.valueLines, measure.valueX, yPos);
-    return measure.lineCount;
+    setFont("normal");
   };
 
-  const drawFieldGrid = (
-    fields: { label: string; value: string | number | null | undefined }[],
-    rowGap = 1
-  ) => {
-    for (let i = 0; i < fields.length; i += 2) {
-      const left = fields[i];
-      const right = fields[i + 1];
-      const leftValue = getDisplayValue(left?.value ?? null);
-      const rightValue = getDisplayValue(right?.value ?? null);
-      const leftMeasure = left && leftValue ? measureInlineField(left.label, left.value, margin, colWidth) : null;
-      const rightMeasure = right && rightValue
-        ? measureInlineField(right.label, right.value, margin + colWidth + gutter, colWidth)
-        : null;
-      const leftLines = leftMeasure ? leftMeasure.lineCount : 0;
-      const rightLines = rightMeasure ? rightMeasure.lineCount : 0;
-      if (leftLines === 0 && rightLines === 0) {
-        continue;
-      }
-      const rowLines = Math.max(leftLines, rightLines);
-      const rowHeight = rowLines * lineHeightMm(valueFontSize) + rowGap;
-      ensureSpace(rowHeight);
-      if (left && leftValue) {
-        drawInlineField(left.label, left.value, margin, y, colWidth);
-      }
-      if (right && rightValue) {
-        drawInlineField(right.label, right.value, margin + colWidth + gutter, y, colWidth);
-      }
-      y += rowHeight;
+  const drawPageHeader = (isFirstPage: boolean) => {
+    // Top accent line.
+    const [rr, rg, rb] = rgb(MONROC_RED);
+    pdf.setDrawColor(rr, rg, rb);
+    pdf.setLineWidth(1.2);
+    pdf.line(0, 0.8, pageWidth, 0.8);
+
+    // Light header background.
+    const [fr, fg, fb] = rgb(COLORS.headerFill);
+    pdf.setFillColor(fr, fg, fb);
+    pdf.rect(0, 0, pageWidth, pageHeaderHeight, "F");
+
+    // Logo.
+    if (cachedLogo) {
+      const maxH = 12;
+      const maxW = 46;
+      const scale = Math.min(maxW / cachedLogo.width, maxH / cachedLogo.height);
+      const w = cachedLogo.width * scale;
+      const h = cachedLogo.height * scale;
+      pdf.addImage(cachedLogo.dataUrl, "PNG", margin, 3.2, w, h);
+    }
+
+    // Request ID + status on the right.
+    pdf.setFontSize(9);
+    setFont("bold");
+    const [tr, tg, tb] = rgb(COLORS.title);
+    pdf.setTextColor(tr, tg, tb);
+    pdf.text(String(request.id), pageWidth - margin, 6.8, { align: "right" });
+    drawStatusBadge(String(statusLabel), pageWidth - margin, 9.2);
+
+    if (isFirstPage) {
+      pdf.setFontSize(9);
+      setFont("normal");
+      const [mr, mg, mb] = rgb(COLORS.muted);
+      pdf.setTextColor(mr, mg, mb);
+      pdf.text(`${t.pdf.generatedLabel}: ${formatDate(new Date(), "MMMM d, yyyy HH:mm")}`, pageWidth - margin, 15.2, {
+        align: "right",
+      });
+    }
+
+    pdf.setTextColor(0, 0, 0);
+    setFont("normal");
+  };
+
+  const addPage = () => {
+    pdf.addPage();
+    drawPageHeader(false);
+    y = pageHeaderHeight + 10;
+  };
+
+  const ensureSpace = (height: number) => {
+    if (y + height > pageHeight - bottomMargin) {
+      addPage();
     }
   };
 
-  const drawFieldLine = (label: string, value: string | number | null | undefined) => {
-    const displayValue = getDisplayValue(value);
-    if (!displayValue) return;
-    const measure = measureInlineField(label, displayValue, margin, contentWidth);
-    const lineCount = measure ? measure.lineCount : 1;
-    const rowHeight = lineCount * lineHeightMm(valueFontSize) + 0.5;
-    ensureSpace(rowHeight);
-    drawInlineField(label, displayValue, margin, y, contentWidth);
-    y += rowHeight;
+  type Card = { x: number; w: number; topY: number };
+
+  const startCard = (title: string): Card => {
+    const x = margin;
+    const w = contentWidth;
+    const headerH = 9;
+    ensureSpace(headerH + 14);
+    const topY = y;
+
+    // Header fill + accent strip.
+    const [fr, fg, fb] = rgb(COLORS.headerFill);
+    pdf.setFillColor(fr, fg, fb);
+    pdf.rect(x, topY, w, headerH, "F");
+    const [ar, ag, ab] = rgb(MONROC_RED);
+    pdf.setFillColor(ar, ag, ab);
+    pdf.rect(x, topY, 3, headerH, "F");
+
+    // Header title.
+    pdf.setFontSize(11);
+    setFont("bold");
+    const [tr, tg, tb] = rgb(COLORS.title);
+    pdf.setTextColor(tr, tg, tb);
+    pdf.text(title, x + 6, topY + 6.2);
+    setFont("normal");
+    pdf.setTextColor(0, 0, 0);
+
+    y = topY + headerH + 6;
+    return { x, w, topY };
+  };
+
+  const endCard = (card: Card) => {
+    const padBottom = 4;
+    const h = y - card.topY + padBottom;
+    const [br, bg, bb] = rgb(COLORS.border);
+    pdf.setDrawColor(br, bg, bb);
+    pdf.setLineWidth(0.3);
+    pdf.roundedRect(card.x, card.topY, card.w, h, 3, 3, "S");
+    y = card.topY + h + 7;
+  };
+
+  const measureKv = (label: string, value: string, x: number, w: number, labelW: number) => {
+    pdf.setFontSize(9);
+    setFont("bold");
+    const labelTextW = pdf.getTextWidth(label);
+    setFont("normal");
+    const valueX = x + Math.max(labelW, labelTextW + 3);
+    const valueW = Math.max(20, w - (valueX - x));
+    pdf.setFontSize(10);
+    const lines = pdf.splitTextToSize(value, valueW) as string[];
+    return { labelTextW, valueX, lines, lineCount: Math.max(lines.length, 1) };
+  };
+
+  const drawKv = (label: string, rawValue: string | number | null | undefined, x: number, w: number) => {
+    const value = getDisplayValueLocal(rawValue);
+    if (!value) return 0;
+    const labelW = 44;
+    const m = measureKv(label, value, x, w, labelW);
+
+    pdf.setFontSize(9);
+    setFont("bold");
+    const [lr, lg, lb] = rgb(TEXT_GREY);
+    pdf.setTextColor(lr, lg, lb);
+    pdf.text(label, x, y);
+    pdf.text(":", x + m.labelTextW + 1.6, y);
+
+    pdf.setFontSize(10);
+    setFont("normal");
+    pdf.setTextColor(0, 0, 0);
+    pdf.text(m.lines, m.valueX, y);
+    return m.lineCount;
+  };
+
+  const drawKvGrid = (fields: { label: string; value: any }[], columns = 2) => {
+    const innerX = margin + 6;
+    const innerW = contentWidth - 12;
+    const gutter = 8;
+    const colW = columns === 1 ? innerW : (innerW - gutter) / columns;
+
+    for (let i = 0; i < fields.length; i += columns) {
+      const slice = fields.slice(i, i + columns);
+      const measures = slice.map((f) => {
+        const v = getDisplayValueLocal(f.value);
+        if (!v) return null;
+        return measureKv(f.label, v, innerX, colW, 44);
+      });
+      const lineCount = Math.max(1, ...measures.filter(Boolean).map((m: any) => m.lineCount));
+      const rowH = lineCount * lineHeightMm(10) + 1.5;
+      ensureSpace(rowH);
+
+      for (let c = 0; c < slice.length; c++) {
+        const f = slice[c];
+        const x = innerX + c * (colW + gutter);
+        drawKv(f.label, f.value, x, colW);
+      }
+      y += rowH;
+    }
+  };
+
+  const drawSubheading = (text: string) => {
+    ensureSpace(7);
+    pdf.setFontSize(10);
+    setFont("bold");
+    const [mr, mg, mb] = rgb(COLORS.muted);
+    pdf.setTextColor(mr, mg, mb);
+    pdf.text(text, margin + 6, y);
+    pdf.setTextColor(0, 0, 0);
+    setFont("normal");
+    y += 6;
   };
 
   const drawParagraph = (text: string) => {
+    const innerX = margin + 6;
+    const innerW = contentWidth - 12;
     pdf.setFontSize(10);
-    setFont('normal');
-    const lines = pdf.splitTextToSize(text, contentWidth);
-    ensureSpace(lines.length * lineHeightMm(10) + 4);
+    setFont("normal");
+    const lines = pdf.splitTextToSize(String(text ?? ""), innerW) as string[];
+    const h = Math.max(1, lines.length) * lineHeightMm(10) + 1;
+    ensureSpace(h);
     pdf.setTextColor(0, 0, 0);
-    pdf.text(lines, margin, y);
-    y += lines.length * lineHeightMm(10) + 4;
+    pdf.text(lines, innerX, y);
+    y += h;
   };
 
-  setFont('normal');
+  const drawTable = (opts: {
+    headers: string[];
+    rows: Array<string[]>;
+    colWidths: number[];
+    onPageBreak?: () => void;
+  }) => {
+    const x = margin + 6;
+    const w = contentWidth - 12;
+    const padX = 2;
+    const headerH = 8;
+    const fontSize = 9;
+    const rowPadY = 2.2;
 
-  // Header band
-  const headerHeight = 30;
-  const headerRgb = hexToRgb(LIGHT_GREY);
-  pdf.setFillColor(headerRgb.r, headerRgb.g, headerRgb.b);
-  pdf.rect(0, 0, pageWidth, headerHeight, 'F');
+    const headerFill = hexToRgb(COLORS.headerFill);
+    const zebraFill = hexToRgb(COLORS.zebra);
+    const borderRgb = hexToRgb(COLORS.border);
 
-  // Logo and generated date
-  try {
-    const logo = await loadImageAsBase64(LOGO_URL);
-    const maxLogoWidth = 132;
-    const maxLogoHeight = 30;
-    const scale = Math.min(maxLogoWidth / logo.width, maxLogoHeight / logo.height);
-    const logoWidth = logo.width * scale;
-    const logoHeight = logo.height * scale;
-    pdf.addImage(logo.dataUrl, 'PNG', margin, 4 + (maxLogoHeight - logoHeight) / 2, logoWidth, logoHeight);
-  } catch (e) {
-    console.warn('Could not load logo for PDF');
-  }
+    const drawHeader = () => {
+      ensureSpace(headerH);
+      pdf.setFillColor(headerFill.r, headerFill.g, headerFill.b);
+      pdf.rect(x, y, w, headerH, "F");
+      pdf.setDrawColor(borderRgb.r, borderRgb.g, borderRgb.b);
+      pdf.setLineWidth(0.2);
+      pdf.rect(x, y, w, headerH, "S");
 
-  pdf.setFontSize(9);
-  const midGrey = hexToRgb(MID_GREY);
-  pdf.setTextColor(midGrey.r, midGrey.g, midGrey.b);
-  pdf.text(`${t.pdf.generatedLabel}: ${formatDate(new Date(), 'MMMM d, yyyy HH:mm')}`, pageWidth - margin, 18, { align: 'right' });
+      pdf.setFontSize(fontSize);
+      setFont("bold");
+      const hdrRgb = hexToRgb(TEXT_GREY);
+      pdf.setTextColor(hdrRgb.r, hdrRgb.g, hdrRgb.b);
+      let cx = x;
+      for (let i = 0; i < opts.headers.length; i++) {
+        const cw = opts.colWidths[i] ?? 20;
+        pdf.text(String(opts.headers[i] ?? ""), cx + padX, y + 5.6);
+        cx += cw;
+      }
+      setFont("normal");
+      pdf.setTextColor(0, 0, 0);
+      y += headerH;
+    };
 
-  y = headerHeight + 10;
+    drawHeader();
 
-  // Title
+    for (let r = 0; r < opts.rows.length; r++) {
+      const row = opts.rows[r] ?? [];
+      pdf.setFontSize(fontSize);
+      setFont("normal");
+      const cellLines = row.map((cell, idx) => {
+        const cw = (opts.colWidths[idx] ?? 20) - padX * 2;
+        const text = String(cell ?? "").trim() || "-";
+        return pdf.splitTextToSize(text, Math.max(10, cw)) as string[];
+      });
+      const maxLines = Math.max(1, ...cellLines.map((lines) => lines.length));
+      const rowH = maxLines * lineHeightMm(fontSize) + rowPadY * 2;
+
+      if (y + rowH > pageHeight - bottomMargin) {
+        if (typeof opts.onPageBreak === "function") {
+          opts.onPageBreak();
+        } else {
+          addPage();
+        }
+        drawHeader();
+      }
+
+      if (r % 2 === 1) {
+        pdf.setFillColor(zebraFill.r, zebraFill.g, zebraFill.b);
+        pdf.rect(x, y, w, rowH, "F");
+      }
+      pdf.setDrawColor(borderRgb.r, borderRgb.g, borderRgb.b);
+      pdf.setLineWidth(0.2);
+      pdf.rect(x, y, w, rowH, "S");
+
+      let cx = x;
+      for (let c = 0; c < row.length; c++) {
+        const cw = opts.colWidths[c] ?? 20;
+        if (c > 0) {
+          pdf.line(cx, y, cx, y + rowH);
+        }
+        pdf.text(cellLines[c], cx + padX, y + rowPadY + 3.2);
+        cx += cw;
+      }
+
+      y += rowH;
+    }
+  };
+
+  const drawTableCard = (
+    title: string,
+    opts: { headers: string[]; rows: Array<string[]>; colWidths: number[] },
+  ) => {
+    let card = startCard(title);
+    drawTable({
+      ...opts,
+      onPageBreak: () => {
+        endCard(card);
+        addPage();
+        card = startCard(title);
+      },
+    });
+    endCard(card);
+  };
+
+  // First page header.
+  drawPageHeader(true);
+
+  // Title block.
+  ensureSpace(18);
   pdf.setFontSize(18);
-  pdf.setTextColor(0, 0, 0);
-  setFont('bold');
+  setFont("bold");
+  const [tr, tg, tb] = rgb(COLORS.title);
+  pdf.setTextColor(tr, tg, tb);
   pdf.text(t.pdf.reportTitle, margin, y);
-  setFont('normal');
-  y += 8;
-
-  // Request ID + Status (combined)
-  const statusLabel = t.statuses[request.status] || STATUS_CONFIG[request.status]?.label || request.status;
-  pdf.setFontSize(11);
+  setFont("normal");
   pdf.setTextColor(0, 0, 0);
-  setFont('bold');
-  pdf.text(`${t.pdf.requestLabel}: ${request.id} | ${statusLabel}`, margin, y);
-  setFont('normal');
-  y += 8;
+  y += 10;
 
-  // Divider line
-  const divider = hexToRgb('#E5E7EB');
-  pdf.setDrawColor(divider.r, divider.g, divider.b);
-  pdf.setLineWidth(0.3);
-  pdf.line(margin, y, pageWidth - margin, y);
-  y += 8;
-
-  // Metadata grid
-  drawFieldGrid([
-    { label: t.request.clientName, value: request.clientName },
-    { label: t.request.clientContact, value: request.clientContact },
-    { label: t.table.createdBy, value: request.createdByName },
-    { label: t.pdf.createdAtLabel, value: formatDate(new Date(request.createdAt), 'MMMM d, yyyy') },
-    { label: t.pdf.lastUpdatedLabel, value: formatDate(new Date(request.updatedAt), 'MMMM d, yyyy') },
-  ], 4);
-  y += 6;
-
-  // General Information Section
-  drawSectionTitle(t.request.generalInfo);
-  drawFieldLine(t.request.applicationVehicle, translateResolvedOption(request.applicationVehicle, request.applicationVehicleOther));
-  drawFieldLine(t.request.country, translateResolvedOption(request.country, request.countryOther));
-  if (request.country === 'China' && request.city) {
-    drawFieldLine(t.request.city, request.city);
-  }
-  // Expected Delivery Section
-  drawSectionTitle(t.request.expectedDelivery);
-  drawFieldLine(
-    t.pdf.deliverablesLabel,
-    request.expectedDeliverySelections?.length
-      ? request.expectedDeliverySelections.map(translateOption).join('; ')
-      : undefined
+  // Summary card.
+  const summaryCard = startCard(`${t.pdf.requestLabel}: ${request.id}`);
+  drawKvGrid(
+    [
+      { label: t.common.status, value: statusLabel },
+      { label: t.request.clientName, value: request.clientName },
+      { label: t.request.clientContact, value: request.clientContact },
+      { label: t.table.createdBy, value: request.createdByName },
+      { label: t.pdf.createdAtLabel, value: formatDate(new Date(request.createdAt), "MMMM d, yyyy") },
+      { label: t.pdf.lastUpdatedLabel, value: formatDate(new Date(request.updatedAt), "MMMM d, yyyy") },
+    ],
+    2,
   );
-  drawFieldLine(
-    t.request.clientExpectedDeliveryDate,
-    request.clientExpectedDeliveryDate || undefined
+  endCard(summaryCard);
+
+  // General information card.
+  const generalCard = startCard(t.request.generalInfo);
+  drawKvGrid(
+    [
+      {
+        label: t.request.applicationVehicle,
+        value: translateResolvedOption(request.applicationVehicle, request.applicationVehicleOther),
+      },
+      { label: t.request.country, value: translateResolvedOption(request.country, request.countryOther) },
+      ...(request.country === "China" && request.city ? [{ label: t.request.city, value: request.city }] : []),
+    ],
+    2,
   );
-  y += 6;
+  endCard(generalCard);
 
-  // Client Application Section
-  drawSectionTitle(t.request.clientApplication);
-  drawFieldLine(
-    t.request.workingCondition,
-    translateResolvedOption(request.workingCondition, request.workingConditionOther)
+  // Expected delivery card.
+  const deliveryCard = startCard(t.request.expectedDelivery);
+  drawKvGrid(
+    [
+      {
+        label: t.pdf.deliverablesLabel,
+        value: request.expectedDeliverySelections?.length
+          ? request.expectedDeliverySelections.map(translateOption).join("; ")
+          : "",
+      },
+      { label: t.request.clientExpectedDeliveryDate, value: request.clientExpectedDeliveryDate || "" },
+    ],
+    1,
   );
-  drawFieldLine(t.request.usageType, translateResolvedOption(request.usageType, request.usageTypeOther));
-  drawFieldLine(t.request.environment, translateResolvedOption(request.environment, request.environmentOther));
-  y += 6;
+  endCard(deliveryCard);
 
-  const products = Array.isArray(request.products) && request.products.length
-    ? request.products
-    : [buildLegacyProduct(request)];
+  // Client application card.
+  const applicationCard = startCard(t.request.clientApplication);
+  drawKvGrid(
+    [
+      {
+        label: t.request.workingCondition,
+        value: translateResolvedOption(request.workingCondition, request.workingConditionOther),
+      },
+      { label: t.request.usageType, value: translateResolvedOption(request.usageType, request.usageTypeOther) },
+      { label: t.request.environment, value: translateResolvedOption(request.environment, request.environmentOther) },
+    ],
+    1,
+  );
+  endCard(applicationCard);
 
+  const products = Array.isArray(request.products) && request.products.length ? request.products : [buildLegacyProduct(request)];
   const studsLabelMap = new Map(STANDARD_STUDS_PCD_OPTIONS.map((option) => [option.id, option.label]));
 
-  products.forEach((product, index) => {
+  // Product cards.
+  for (let index = 0; index < products.length; index++) {
+    const product = products[index];
     const productLabel = `${t.request.productLabel} ${index + 1}`;
-    const studsMode = product.studsPcdMode ?? 'standard';
-    const studsValue = studsMode === 'standard' && product.studsPcdStandardSelections?.length
-      ? product.studsPcdStandardSelections
-          .map((id) => translateOption(studsLabelMap.get(id) ?? formatStudsPcdSelection(id)))
-          .join('; ')
-      : studsMode === 'special' && product.studsPcdSpecialText
-        ? product.studsPcdSpecialText
-        : undefined;
 
-    drawSectionTitle(`${t.request.technicalInfo} - ${productLabel}`);
-    drawSubsectionTitle(t.pdf.axlePerformanceTitle);
-    drawFieldGrid(
+    const studsMode = product.studsPcdMode ?? "standard";
+    const studsValue =
+      studsMode === "standard" && product.studsPcdStandardSelections?.length
+        ? product.studsPcdStandardSelections
+            .map((id) => translateOption(studsLabelMap.get(id) ?? formatStudsPcdSelection(id)))
+            .join("; ")
+        : studsMode === "special" && product.studsPcdSpecialText
+          ? product.studsPcdSpecialText
+          : "";
+
+    const card = startCard(`${t.request.technicalInfo} · ${productLabel}`);
+
+    drawSubheading(t.pdf.axlePerformanceTitle);
+    drawKvGrid(
       [
+        { label: t.request.productType, value: getProductTypeLabel(product, translateOption) },
         { label: t.request.repeatability, value: translateOption(request.repeatability) },
         { label: t.request.quantity, value: product.quantity },
-        { label: t.request.productType, value: getProductTypeLabel(product, translateOption) },
         { label: t.pdf.loadsKgLabel, value: product.loadsKg },
         { label: t.pdf.speedsKmhLabel, value: product.speedsKmh },
       ],
-      2
+      2,
     );
-    y += 4;
 
-    drawSubsectionTitle(t.pdf.wheelsGeometryTitle);
-    const articulationValue = String(product.articulationType ?? '').toLowerCase();
-    const showWheelBase = articulationValue.includes('steering');
-    drawFieldGrid(
+    drawSubheading(t.pdf.wheelsGeometryTitle);
+    const articulationValue = String(product.articulationType ?? "").toLowerCase();
+    const showWheelBase = articulationValue.includes("steering");
+    drawKvGrid(
       [
         { label: t.request.tyreSize, value: product.tyreSize },
         { label: t.pdf.trackMmLabel, value: product.trackMm },
-        showWheelBase ? { label: t.request.wheelBase, value: product.wheelBase } : null,
-      ].filter(Boolean) as { label: string; value: string | number | null | undefined }[],
-      2
+        ...(showWheelBase ? [{ label: t.request.wheelBase, value: product.wheelBase }] : []),
+      ],
+      2,
     );
-    y += 4;
 
-    drawSubsectionTitle(t.pdf.brakingSuspensionTitle);
-    const brakeTypeRaw = String(product.brakeType ?? '').toLowerCase();
-    const isBrakeNA = brakeTypeRaw === 'na' || brakeTypeRaw === 'n/a' || brakeTypeRaw === 'n.a';
-    drawFieldGrid(
+    drawSubheading(t.pdf.brakingSuspensionTitle);
+    const brakeTypeRaw = String(product.brakeType ?? "").toLowerCase();
+    const isBrakeNA = brakeTypeRaw === "na" || brakeTypeRaw === "n/a" || brakeTypeRaw === "n.a";
+    drawKvGrid(
       [
-          { label: t.request.brakeType, value: translateBrakeType(product.brakeType) },
-          !isBrakeNA ? { label: t.request.brakeSize, value: translateOption(product.brakeSize) } : null,
-          { label: t.request.brakePowerType, value: translateOption(product.brakePowerType) },
-          { label: t.request.brakeCertificate, value: translateOption(product.brakeCertificate) },
-          { label: t.request.suspension, value: translateOption(product.suspension) },
-        ].filter(Boolean) as { label: string; value: string | number | null | undefined }[],
-        2
-      );
-    y += 4;
+        { label: t.request.brakeType, value: translateBrakeType(product.brakeType) },
+        ...(!isBrakeNA ? [{ label: t.request.brakeSize, value: translateOption(product.brakeSize) }] : []),
+        { label: t.request.brakePowerType, value: translateOption(product.brakePowerType) },
+        { label: t.request.brakeCertificate, value: translateOption(product.brakeCertificate) },
+        { label: t.request.suspension, value: translateOption(product.suspension) },
+      ],
+      2,
+    );
 
-    drawSubsectionTitle(t.pdf.finishInterfaceTitle);
-    drawFieldGrid(
+    drawSubheading(t.pdf.finishInterfaceTitle);
+    drawKvGrid(
       [
-          { label: t.request.finish, value: product.finish },
-          { label: t.request.studsPcd, value: studsValue },
-          { label: t.request.mainBodySectionType, value: translateOption(product.mainBodySectionType) },
-          { label: t.request.clientSealingRequest, value: translateOption(product.clientSealingRequest) },
-          { label: t.request.cupLogo, value: translateOption(product.cupLogo) },
-        ],
-        2
-      );
-    y += 5;
+        { label: t.request.finish, value: product.finish },
+        { label: t.request.studsPcd, value: studsValue },
+        { label: t.request.mainBodySectionType, value: translateOption(product.mainBodySectionType) },
+        { label: t.request.clientSealingRequest, value: translateOption(product.clientSealingRequest) },
+        { label: t.request.cupLogo, value: translateOption(product.cupLogo) },
+      ],
+      2,
+    );
+
+    const productAttachments = Array.isArray(product.attachments) ? product.attachments : [];
+    const productAttachmentRows = productAttachments.map((att) => [
+      String(att.filename ?? "").trim() || "-",
+      formatAttachmentType(att.type),
+      formatBytes(estimateBase64Bytes(att.url)),
+    ]);
 
     if (product.productComments) {
-      drawSectionTitle(`${t.request.productComments} - ${productLabel}`);
+      drawSubheading(t.request.productComments);
       drawParagraph(product.productComments);
     }
-  });
 
-  // Design Notes
-  if (request.designNotes) {
-    drawSectionTitle(t.pdf.designNotesTitle);
-    drawParagraph(request.designNotes);
-  }
+    endCard(card);
 
-  // Design Result
-  const designAttachments = Array.isArray(request.designResultAttachments)
-    ? request.designResultAttachments
-    : [];
-  const designAttachmentNames = designAttachments.map((file) => file.filename).filter(Boolean);
-  if (request.designResultComments || designAttachmentNames.length) {
-    drawSectionTitle(t.panels.designResult);
-    if (request.designResultComments) {
-      drawSubsectionTitle(t.panels.designResultComments);
-      drawParagraph(request.designResultComments);
-    }
-    if (designAttachmentNames.length) {
-      drawSubsectionTitle(t.panels.designResultUploads);
-      drawParagraph(designAttachmentNames.join('; '));
-    }
-  }
-
-  // Costing Information
-  const costingAttachments = Array.isArray(request.costingAttachments)
-    ? request.costingAttachments
-    : [];
-  const costingAttachmentNames = costingAttachments.map((file) => file.filename).filter(Boolean);
-  const incotermValue = request.incoterm === 'other' ? request.incotermOther : request.incoterm;
-  if (
-    request.sellingPrice ||
-    request.costingNotes ||
-    request.deliveryLeadtime ||
-    incotermValue ||
-    request.vatMode ||
-    costingAttachmentNames.length
-  ) {
-    drawSectionTitle(t.pdf.costingInformationTitle);
-    const sellingCurrency = request.sellingCurrency ?? 'EUR';
-    drawFieldGrid([
-      request.sellingPrice ? { label: t.panels.sellingPrice, value: `${sellingCurrency} ${request.sellingPrice.toFixed(2)}` } : null,
-      request.calculatedMargin ? { label: t.panels.margin, value: `${request.calculatedMargin.toFixed(1)}%` } : null,
-      request.deliveryLeadtime ? { label: t.panels.deliveryLeadtime, value: request.deliveryLeadtime } : null,
-      incotermValue ? { label: t.panels.incoterm, value: incotermValue } : null,
-      request.vatMode ? {
-        label: t.panels.vatMode,
-        value: request.vatMode === 'with'
-          ? `${t.panels.withVat}${request.vatRate !== null ? ` (${request.vatRate}%)` : ''}`
-          : t.panels.withoutVat,
-      } : null,
-    ].filter(Boolean) as { label: string; value: string | number | null | undefined }[]);
-    if (request.costingNotes) {
-      drawParagraph(request.costingNotes);
-    }
-    if (costingAttachmentNames.length) {
-      drawSubsectionTitle(t.panels.costingAttachments);
-      drawParagraph(costingAttachmentNames.join('; '));
-    }
-  }
-
-  // Sales Follow-up
-  const salesAttachments = Array.isArray(request.salesAttachments)
-    ? request.salesAttachments
-    : [];
-  const salesAttachmentNames = salesAttachments.map((file) => file.filename).filter(Boolean);
-  const salesIncotermValue = request.salesIncoterm === 'other' ? request.salesIncotermOther : request.salesIncoterm;
-  const hasSalesData =
-    request.salesFinalPrice ||
-    typeof request.salesMargin === 'number' ||
-    (request.salesWarrantyPeriod ?? '').trim() ||
-    (request.salesOfferValidityPeriod ?? '').trim() ||
-    request.salesExpectedDeliveryDate ||
-    request.salesFeedbackComment ||
-    salesIncotermValue ||
-    salesAttachmentNames.length ||
-    (request.salesVatMode === 'with' && request.salesVatRate !== null) ||
-    (Array.isArray(request.salesPaymentTerms) && request.salesPaymentTerms.length > 0);
-
-  if (hasSalesData) {
-    drawSectionTitle(t.panels.salesFollowup);
-    const salesCurrency = request.salesCurrency ?? 'EUR';
-    drawFieldGrid([
-      request.salesFinalPrice ? { label: t.panels.salesFinalPrice, value: `${salesCurrency} ${request.salesFinalPrice.toFixed(2)}` } : null,
-      typeof request.salesMargin === 'number'
-        ? { label: t.panels.salesMargin, value: `${request.salesMargin.toFixed(2)}%` }
-        : null,
-      (request.salesWarrantyPeriod ?? '').trim()
-        ? { label: t.panels.warrantyPeriod, value: String(request.salesWarrantyPeriod).trim() }
-        : null,
-      (request.salesOfferValidityPeriod ?? '').trim()
-        ? { label: t.panels.offerValidityPeriod, value: String(request.salesOfferValidityPeriod).trim() }
-        : null,
-      request.salesExpectedDeliveryDate
-        ? { label: t.panels.salesExpectedDeliveryDate, value: String(request.salesExpectedDeliveryDate) }
-        : null,
-      salesIncotermValue ? { label: t.panels.incoterm, value: salesIncotermValue } : null,
-      request.salesVatMode ? {
-        label: t.panels.vatMode,
-        value: request.salesVatMode === 'with'
-          ? `${t.panels.withVat}${request.salesVatRate !== null ? ` (${request.salesVatRate}%)` : ''}`
-          : t.panels.withoutVat,
-      } : null,
-    ].filter(Boolean) as { label: string; value: string | number | null | undefined }[]);
-    const salesPaymentTerms = Array.isArray(request.salesPaymentTerms)
-      ? request.salesPaymentTerms
-      : [];
-    if (salesPaymentTerms.length) {
-      drawSubsectionTitle(t.panels.paymentTerms);
-      const lines = salesPaymentTerms.map((term: any, index: number) => {
-        const num = term?.paymentNumber || index + 1;
-        const name = term?.paymentName || '-';
-        const percent = typeof term?.paymentPercent === 'number' ? `${term.paymentPercent}%` : '-';
-        const comments = term?.comments || '-';
-        return `#${num} ${name} | ${percent} | ${comments}`;
+    if (productAttachmentRows.length) {
+      drawTableCard(`${t.request.attachments} · ${productLabel}`, {
+        headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
+        rows: productAttachmentRows,
+        colWidths: [90, 55, contentWidth - 12 - 90 - 55],
       });
-      drawParagraph(lines.join('\n'));
-    }
-    if (request.salesFeedbackComment) {
-      drawSubsectionTitle(t.panels.salesFeedback);
-      drawParagraph(request.salesFeedbackComment);
-    }
-    if (salesAttachmentNames.length) {
-      drawSubsectionTitle(t.panels.salesAttachments);
-      drawParagraph(salesAttachmentNames.join('; '));
     }
   }
 
-  // Status History Section
-  if (request.history && request.history.length > 0) {
-    drawSectionTitle(t.pdf.statusHistoryTitle);
-    const statusCol = 30;
-    const dateCol = 40;
-    const byCol = 30;
-    const commentCol = contentWidth - statusCol - dateCol - byCol;
-    const headerFill = hexToRgb(LIGHT_GREY);
-    ensureSpace(8);
-    pdf.setFillColor(headerFill.r, headerFill.g, headerFill.b);
-    pdf.rect(margin, y - 4, contentWidth, 8, 'F');
-    pdf.setFontSize(9);
-    setFont('bold');
-    const tableHeaderRgb = hexToRgb(TEXT_GREY);
-    pdf.setTextColor(tableHeaderRgb.r, tableHeaderRgb.g, tableHeaderRgb.b);
-    pdf.text(t.common.status, margin + 2, y);
-    pdf.text(t.common.date, margin + statusCol + 2, y);
-    pdf.text(t.pdf.byLabel, margin + statusCol + dateCol + 2, y);
-    pdf.text(t.pdf.commentLabel, margin + statusCol + dateCol + byCol + 2, y);
-    setFont('normal');
-    y += 7;
+  // Design notes card.
+  if ((request.designNotes ?? "").trim()) {
+    const card = startCard(t.pdf.designNotesTitle);
+    drawParagraph(request.designNotes ?? "");
+    endCard(card);
+  }
 
+  // Design result card.
+  const designAttachments = Array.isArray(request.designResultAttachments) ? request.designResultAttachments : [];
+  if ((request.designResultComments ?? "").trim()) {
+    const card = startCard(t.panels.designResult);
+    drawSubheading(t.panels.designResultComments);
+    drawParagraph(request.designResultComments ?? "");
+    endCard(card);
+  }
+  if (designAttachments.length) {
+    const rows = designAttachments.map((att) => [
+      String(att.filename ?? "").trim() || "-",
+      formatAttachmentType(att.type),
+      formatBytes(estimateBase64Bytes(att.url)),
+    ]);
+    drawTableCard(`${t.panels.designResult} · ${t.panels.designResultUploads}`, {
+      headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
+      rows,
+      colWidths: [90, 55, contentWidth - 12 - 90 - 55],
+    });
+  }
+
+  // Costing card.
+  const costingAttachments = Array.isArray(request.costingAttachments) ? request.costingAttachments : [];
+  const incotermValue = request.incoterm === "other" ? request.incotermOther : request.incoterm;
+  const sellingCurrency = request.sellingCurrency ?? "EUR";
+  const costingFields = [
+    request.sellingPrice ? { label: t.panels.sellingPrice, value: `${sellingCurrency} ${request.sellingPrice.toFixed(2)}` } : null,
+    request.calculatedMargin ? { label: t.panels.margin, value: `${request.calculatedMargin.toFixed(1)}%` } : null,
+    request.deliveryLeadtime ? { label: t.panels.deliveryLeadtime, value: request.deliveryLeadtime } : null,
+    incotermValue ? { label: t.panels.incoterm, value: incotermValue } : null,
+    request.vatMode
+      ? {
+          label: t.panels.vatMode,
+          value:
+            request.vatMode === "with"
+              ? `${t.panels.withVat}${request.vatRate !== null ? ` (${request.vatRate}%)` : ""}`
+              : t.panels.withoutVat,
+        }
+      : null,
+  ].filter(Boolean) as any[];
+
+  if (costingFields.length || (request.costingNotes ?? "").trim()) {
+    const card = startCard(t.pdf.costingInformationTitle);
+    if (costingFields.length) drawKvGrid(costingFields, 2);
+    if ((request.costingNotes ?? "").trim()) {
+      drawSubheading(t.panels.costingNotes);
+      drawParagraph(request.costingNotes ?? "");
+    }
+    endCard(card);
+  }
+
+  if (costingAttachments.length) {
+    const rows = costingAttachments.map((att) => [
+      String(att.filename ?? "").trim() || "-",
+      formatAttachmentType(att.type),
+      formatBytes(estimateBase64Bytes(att.url)),
+    ]);
+    drawTableCard(`${t.pdf.costingInformationTitle} · ${t.panels.costingAttachments}`, {
+      headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
+      rows,
+      colWidths: [90, 55, contentWidth - 12 - 90 - 55],
+    });
+  }
+
+  // Sales follow-up card.
+  const salesAttachments = Array.isArray(request.salesAttachments) ? request.salesAttachments : [];
+  const salesIncotermValue = request.salesIncoterm === "other" ? request.salesIncotermOther : request.salesIncoterm;
+  const salesCurrency = request.salesCurrency ?? "EUR";
+  const salesFields = [
+    request.salesFinalPrice ? { label: t.panels.salesFinalPrice, value: `${salesCurrency} ${request.salesFinalPrice.toFixed(2)}` } : null,
+    typeof request.salesMargin === "number" ? { label: t.panels.salesMargin, value: `${request.salesMargin.toFixed(2)}%` } : null,
+    (request.salesWarrantyPeriod ?? "").trim() ? { label: t.panels.warrantyPeriod, value: String(request.salesWarrantyPeriod).trim() } : null,
+    (request.salesOfferValidityPeriod ?? "").trim() ? { label: t.panels.offerValidityPeriod, value: String(request.salesOfferValidityPeriod).trim() } : null,
+    request.salesExpectedDeliveryDate ? { label: t.panels.salesExpectedDeliveryDate, value: String(request.salesExpectedDeliveryDate) } : null,
+    salesIncotermValue ? { label: t.panels.incoterm, value: salesIncotermValue } : null,
+    request.salesVatMode
+      ? {
+          label: t.panels.vatMode,
+          value:
+            request.salesVatMode === "with"
+              ? `${t.panels.withVat}${request.salesVatRate !== null ? ` (${request.salesVatRate}%)` : ""}`
+              : t.panels.withoutVat,
+        }
+      : null,
+  ].filter(Boolean) as any[];
+
+  if (salesFields.length || (request.salesFeedbackComment ?? "").trim()) {
+    const card = startCard(t.panels.salesFollowup);
+    if (salesFields.length) drawKvGrid(salesFields, 2);
+    if ((request.salesFeedbackComment ?? "").trim()) {
+      drawSubheading(t.panels.salesFeedback);
+      drawParagraph(request.salesFeedbackComment ?? "");
+    }
+    endCard(card);
+  }
+
+  const salesPaymentTerms = Array.isArray(request.salesPaymentTerms) ? request.salesPaymentTerms : [];
+  if (salesPaymentTerms.length) {
+    const rows = salesPaymentTerms.map((term: any, index: number) => [
+      String(term?.paymentNumber || index + 1),
+      String(term?.paymentName || "-"),
+      typeof term?.paymentPercent === "number" ? `${term.paymentPercent}%` : "-",
+      String(term?.comments || "-"),
+    ]);
+    drawTableCard(`${t.panels.salesFollowup} · ${t.panels.paymentTerms}`, {
+      headers: [t.panels.paymentNumber, t.panels.paymentName, t.panels.paymentPercent, t.panels.paymentComments],
+      rows,
+      colWidths: [18, 44, 22, contentWidth - 12 - 18 - 44 - 22],
+    });
+  }
+
+  if (salesAttachments.length) {
+    const rows = salesAttachments.map((att) => [
+      String(att.filename ?? "").trim() || "-",
+      formatAttachmentType(att.type),
+      formatBytes(estimateBase64Bytes(att.url)),
+    ]);
+    drawTableCard(`${t.panels.salesFollowup} · ${t.panels.salesAttachments}`, {
+      headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
+      rows,
+      colWidths: [90, 55, contentWidth - 12 - 90 - 55],
+    });
+  }
+
+  // Status history card.
+  if (Array.isArray(request.history) && request.history.length) {
     const filteredHistory = request.history.filter((entry, index, arr) => {
       if (index === 0) return true;
       const prev = arr[index - 1];
@@ -701,42 +918,98 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       return !(sameStatus && sameUser && noComment);
     });
 
-    for (const entry of filteredHistory) {
-      const statusLabel = t.statuses[entry.status as keyof typeof t.statuses] || STATUS_CONFIG[entry.status]?.label || entry.status;
-      const timestamp = formatDate(new Date(entry.timestamp), 'MMM d, yyyy HH:mm');
-      const commentText = entry.comment ? entry.comment : t.pdf.notProvided;
-      pdf.setFontSize(9);
-      setFont('normal');
-      const commentLines = pdf.splitTextToSize(commentText, commentCol - 4) as string[];
-      const rowLines = Math.max(1, commentLines.length);
-      const rowHeight = rowLines * lineHeightMm(9) + 2;
-      ensureSpace(rowHeight);
+    let card: Card | null = startCard(t.pdf.statusHistoryTitle);
+    const headers = [t.common.status, t.common.date, t.pdf.byLabel, t.pdf.commentLabel];
+    const colWidths = [28, 34, 30, contentWidth - 12 - 28 - 34 - 30];
+
+    const x = margin + 6;
+    const w = contentWidth - 12;
+    const headerH = 8;
+    const padX = 2;
+    const fontSize = 9;
+    const rowPadY = 2.2;
+    const headerFill = hexToRgb(COLORS.headerFill);
+    const zebraFill = hexToRgb(COLORS.zebra);
+    const borderRgb = hexToRgb(COLORS.border);
+    const hdrRgb = hexToRgb(TEXT_GREY);
+
+    const drawHistoryHeader = () => {
+      ensureSpace(headerH);
+      pdf.setFillColor(headerFill.r, headerFill.g, headerFill.b);
+      pdf.rect(x, y, w, headerH, "F");
+      pdf.setDrawColor(borderRgb.r, borderRgb.g, borderRgb.b);
+      pdf.setLineWidth(0.2);
+      pdf.rect(x, y, w, headerH, "S");
+      pdf.setFontSize(fontSize);
+      setFont("bold");
+      pdf.setTextColor(hdrRgb.r, hdrRgb.g, hdrRgb.b);
+      let cx = x;
+      for (let i = 0; i < headers.length; i++) {
+        const cw = colWidths[i];
+        pdf.text(headers[i], cx + padX, y + 5.6);
+        cx += cw;
+      }
+      setFont("normal");
       pdf.setTextColor(0, 0, 0);
-      pdf.text(statusLabel, margin + 2, y);
-      pdf.text(timestamp, margin + statusCol + 2, y);
-      pdf.text(entry.userName || t.pdf.notProvided, margin + statusCol + dateCol + 2, y);
-      pdf.text(commentLines, margin + statusCol + dateCol + byCol + 2, y);
-      y += rowHeight;
+      y += headerH;
+    };
+
+    drawHistoryHeader();
+
+    for (let i = 0; i < filteredHistory.length; i++) {
+      const entry: any = filteredHistory[i];
+      const st = t.statuses[entry.status as keyof typeof t.statuses] || STATUS_CONFIG[entry.status]?.label || entry.status;
+      const ts = formatDate(new Date(entry.timestamp), "MMM d, yyyy HH:mm");
+      const by = String(entry.userName || t.pdf.notProvided);
+      const comment = String(entry.comment || t.pdf.notProvided);
+
+      pdf.setFontSize(fontSize);
+      setFont("normal");
+      const cells = [st, ts, by, comment];
+      const cellLines = cells.map((cell, idx) => {
+        const cw = colWidths[idx] - padX * 2;
+        return pdf.splitTextToSize(String(cell ?? ""), Math.max(10, cw)) as string[];
+      });
+      const maxLines = Math.max(1, ...cellLines.map((lines) => lines.length));
+      const rowH = maxLines * lineHeightMm(fontSize) + rowPadY * 2;
+
+      if (y + rowH > pageHeight - bottomMargin) {
+        if (card) endCard(card);
+        addPage();
+        card = startCard(t.pdf.statusHistoryTitle);
+        drawHistoryHeader();
+      }
+
+      if (i % 2 === 1) {
+        pdf.setFillColor(zebraFill.r, zebraFill.g, zebraFill.b);
+        pdf.rect(x, y, w, rowH, "F");
+      }
+      pdf.setDrawColor(borderRgb.r, borderRgb.g, borderRgb.b);
+      pdf.setLineWidth(0.2);
+      pdf.rect(x, y, w, rowH, "S");
+
+      let cx = x;
+      for (let c = 0; c < cells.length; c++) {
+        const cw = colWidths[c];
+        if (c > 0) pdf.line(cx, y, cx, y + rowH);
+        pdf.text(cellLines[c], cx + padX, y + rowPadY + 3.2);
+        cx += cw;
+      }
+      y += rowH;
     }
+
+    if (card) endCard(card);
   }
 
-  // Footer
+  // Footer (page numbers).
   const pageCount = pdf.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     pdf.setPage(i);
     pdf.setFontSize(8);
     pdf.setTextColor(150, 150, 150);
-    const pageLabel = t.pdf.pageOfLabel
-      .replace('{current}', String(i))
-      .replace('{total}', String(pageCount));
-    pdf.text(
-      `${pageLabel} | ${t.pdf.reportTitle} | ${request.id}`,
-      pageWidth / 2,
-      290,
-      { align: 'center' }
-    );
+    const pageLabel = t.pdf.pageOfLabel.replace("{current}", String(i)).replace("{total}", String(pageCount));
+    pdf.text(`${pageLabel} | ${t.pdf.reportTitle} | ${request.id}`, pageWidth / 2, pageHeight - 6, { align: "center" });
   }
 
-  // Save the PDF
   pdf.save(`${request.id}_report.pdf`);
 };
