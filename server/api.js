@@ -3503,10 +3503,25 @@ export const apiRouter = (() => {
 
       const listParams = [...params, pageSize, offset];
       const listRes = await pool.query(
-        `SELECT id, ts, actor_user_id, actor_email, actor_role, action, target_type, target_id, ip, user_agent, result, error_message, metadata
-           FROM audit_log
+        `SELECT
+            l.id,
+            l.ts,
+            l.actor_user_id,
+            l.actor_email,
+            u.name AS actor_name,
+            l.actor_role,
+            l.action,
+            l.target_type,
+            l.target_id,
+            l.ip,
+            l.user_agent,
+            l.result,
+            l.error_message,
+            l.metadata
+           FROM audit_log l
+           LEFT JOIN app_users u ON u.id = l.actor_user_id
            ${whereSql}
-          ORDER BY ts DESC
+          ORDER BY l.ts DESC
           LIMIT $${params.length + 1}
          OFFSET $${params.length + 2}`,
         listParams
@@ -3521,6 +3536,7 @@ export const apiRouter = (() => {
           ts: r.ts,
           actorUserId: r.actor_user_id,
           actorEmail: r.actor_email,
+          actorName: r.actor_name ?? null,
           actorRole: r.actor_role,
           action: r.action,
           targetType: r.target_type,

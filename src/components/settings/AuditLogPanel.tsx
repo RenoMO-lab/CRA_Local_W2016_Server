@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { format } from 'date-fns';
-import { Eye, RefreshCw, Search, XCircle } from 'lucide-react';
+import { RefreshCw, Search, XCircle } from 'lucide-react';
 
 import { useLanguage } from '@/context/LanguageContext';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -19,6 +19,7 @@ type AuditLogRow = {
   id: string;
   ts: string;
   actorUserId: string | null;
+  actorName: string | null;
   actorEmail: string | null;
   actorRole: string | null;
   action: string;
@@ -175,6 +176,7 @@ const AuditLogPanel: React.FC = () => {
         <>
           <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm space-y-1">
             <div><span className="text-muted-foreground">{t.common.date}:</span> {formatTs(selected.ts)}</div>
+            <div><span className="text-muted-foreground">{t.common.name}:</span> {selected.actorName ?? '-'}</div>
             <div><span className="text-muted-foreground">{t.common.email}:</span> {selected.actorEmail ?? '-'}</div>
             <div><span className="text-muted-foreground">{t.common.role}:</span> {selected.actorRole ?? '-'}</div>
             <div><span className="text-muted-foreground">{t.settings.auditLogAction}:</span> {selected.action}</div>
@@ -330,13 +332,10 @@ const AuditLogPanel: React.FC = () => {
           <TableHeader>
             <TableRow>
               <TableHead className="w-[170px]">{t.common.date}</TableHead>
-              <TableHead>{t.common.email}</TableHead>
+              <TableHead>{t.common.name}</TableHead>
               <TableHead className="w-[110px]">{t.common.role}</TableHead>
               <TableHead>{t.settings.auditLogAction}</TableHead>
-              <TableHead>{t.settings.auditLogTarget}</TableHead>
               <TableHead className="w-[90px]">{t.settings.auditLogResult}</TableHead>
-              <TableHead className="w-[140px]">IP</TableHead>
-              <TableHead className="w-[70px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -356,35 +355,17 @@ const AuditLogPanel: React.FC = () => {
                   }}
                 >
                   <TableCell className="text-xs text-muted-foreground tabular-nums">{formatTs(r.ts)}</TableCell>
-                  <TableCell className="text-sm text-foreground">{r.actorEmail ?? '-'}</TableCell>
+                  <TableCell className="text-sm text-foreground">{r.actorName ?? (r.actorUserId ? '-' : 'System')}</TableCell>
                   <TableCell className="text-sm text-foreground">{r.actorRole ?? '-'}</TableCell>
                   <TableCell className="text-sm text-foreground">{r.action}</TableCell>
-                  <TableCell className="text-sm text-foreground">
-                    {r.targetType ? `${r.targetType}: ` : ''}
-                    <span className="font-mono text-xs">{r.targetId ?? '-'}</span>
-                  </TableCell>
                   <TableCell className={cn('text-sm font-semibold', r.result === 'error' ? 'text-destructive' : 'text-success')}>
                     {r.result}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground font-mono">{r.ip ?? '-'}</TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openDetails(r);
-                      }}
-                      title={t.settings.auditLogDetails}
-                    >
-                      <Eye size={16} />
-                    </Button>
                   </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={8} className="text-sm text-muted-foreground py-10 text-center">
+                <TableCell colSpan={5} className="text-sm text-muted-foreground py-10 text-center">
                   {loading ? t.common.loading : t.settings.auditLogEmpty}
                 </TableCell>
               </TableRow>
