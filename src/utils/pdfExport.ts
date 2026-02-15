@@ -1,5 +1,5 @@
 import jsPDF from 'jspdf';
-import { CustomerRequest, RequestProduct, STATUS_CONFIG, AXLE_LOCATIONS, ARTICULATION_TYPES, CONFIGURATION_TYPES, STANDARD_STUDS_PCD_OPTIONS } from '@/types';
+import { Attachment, CustomerRequest, RequestProduct, STATUS_CONFIG, AXLE_LOCATIONS, ARTICULATION_TYPES, CONFIGURATION_TYPES, STANDARD_STUDS_PCD_OPTIONS } from '@/types';
 import { format } from 'date-fns';
 import { enUS, fr, zhCN } from 'date-fns/locale';
 import { translations, Language } from '@/i18n/translations';
@@ -302,6 +302,191 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     return translateOption(type);
   };
 
+  const decodeBase64ToBytes = (b64: string): Uint8Array => {
+    const cleaned = String(b64 ?? "").replace(/[\r\n\s]/g, "");
+    const bin = atob(cleaned);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  };
+
+  const sniffMimeFromBytes = (bytes: Uint8Array): string | null => {
+    if (!bytes || bytes.length < 4) return null;
+    // %PDF
+    if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) return "application/pdf";
+    // PNG
+    if (
+      bytes.length >= 8 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47 &&
+      bytes[4] === 0x0d &&
+      bytes[5] === 0x0a &&
+      bytes[6] === 0x1a &&
+      bytes[7] === 0x0a
+    ) {
+      return "image/png";
+    }
+    // JPEG
+    if (bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
+    return null;
+  };
+
+  const sniffMimeFromBase64 = (b64: string): string | null => {
+    const cleaned = String(b64 ?? "").replace(/[\r\n\s]/g, "");
+    if (!cleaned) return null;
+    const prefixLen = Math.min(cleaned.length, 2048);
+    const sliceLen = prefixLen - (prefixLen % 4);
+    const sample = cleaned.slice(0, Math.max(4, sliceLen));
+    try {
+      const sampleBytes = decodeBase64ToBytes(sample);
+      return sniffMimeFromBytes(sampleBytes);
+    } catch {
+      return null;
+    }
+  };
+
+  const parseDataUrl = (url: string) => {
+    const raw = String(url ?? "");
+    if (!raw.startsWith("data:")) return null;
+    const comma = raw.indexOf(",");
+    if (comma === -1) return null;
+    const header = raw.slice(0, comma);
+    const body = raw.slice(comma + 1);
+    const mimeMatch = header.match(/^data:([^;]+)(;base64)?$/i);
+    const mime = mimeMatch?.[1] ? String(mimeMatch[1]).toLowerCase() : "";
+    const isBase64 = header.toLowerCase().includes(";base64");
+    return { mime, isBase64, body };
+  };
+
+  const isProbablyRawBase64 = (url: string) => {
+    const u = String(url ?? "");
+    return u && !u.startsWith("data:") && !u.startsWith("http://") && !u.startsWith("https://") && !u.startsWith("/");
+  };
+
+  const loadImageDimensions = (src: string): Promise<{ width: number; height: number }> =>
+    new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve({ width: img.width, height: img.height });
+      img.onerror = reject;
+      img.src = src;
+    });
+
+  const drawAppendixAttachmentHeader = (label: string, index: number, filename: string, extra?: string) => {
+    const title = `${String(t.pdf.appendixTitle ?? "Appendix")} ${label}.${index} - ${filename}`;
+    pdf.setFontSize(12);
+    setFont("bold");
+    const [tr, tg, tb] = rgb(COLORS.title);
+    pdf.setTextColor(tr, tg, tb);
+    pdf.text(title, margin, y);
+    setFont("normal");
+    pdf.setTextColor(0, 0, 0);
+    y += 6;
+    if (extra) {
+      pdf.setFontSize(9);
+      const [mr, mg, mb] = rgb(COLORS.muted);
+      pdf.setTextColor(mr, mg, mb);
+      pdf.text(extra, margin, y);
+      pdf.setTextColor(0, 0, 0);
+      y += 6;
+    }
+  };
+
+  const drawImageFit = async (dataUrl: string) => {
+    const dims = await loadImageDimensions(dataUrl);
+    const availW = pageWidth - margin * 2;
+    const availH = pageHeight - bottomMargin - y;
+    const scale = Math.min(availW / dims.width, availH / dims.height);
+    const wMm = dims.width * scale;
+    const hMm = dims.height * scale;
+    const x = margin + (availW - wMm) / 2;
+    const format = dataUrl.toLowerCase().startsWith("data:image/jpeg") ? "JPEG" : "PNG";
+    pdf.addImage(dataUrl, format as any, x, y, wMm, hMm);
+    y += hMm + 6;
+  };
+
+  const renderPdfBytesToImages = async (bytes: Uint8Array, maxPages: number): Promise<string[]> => {
+    // Dynamic import to avoid loading PDF.js unless needed.
+    const pdfjs: any = await import("pdfjs-dist");
+    try {
+      // Vite-friendly worker URL
+      pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+    } catch {}
+
+    const loadingTask = pdfjs.getDocument({ data: bytes });
+    const doc = await loadingTask.promise;
+    const pageCount = Math.min(doc.numPages || 0, maxPages);
+    const out: string[] = [];
+
+    for (let p = 1; p <= pageCount; p++) {
+      const page = await doc.getPage(p);
+      const viewport = page.getViewport({ scale: 1.6 });
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("No canvas context");
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      out.push(canvas.toDataURL("image/jpeg", 0.92));
+    }
+    return out;
+  };
+
+  const attachmentToPreview = async (att: Attachment): Promise<{ kind: "image" | "pdf" | "none"; dataUrls?: string[]; note?: string }> => {
+    const url = String(att?.url ?? "");
+    if (!url) return { kind: "none" };
+
+    // data URL
+    const parsed = parseDataUrl(url);
+    if (parsed) {
+      const mime = parsed.mime || "";
+      if (mime.startsWith("image/")) {
+        return { kind: "image", dataUrls: [url] };
+      }
+      if (mime === "application/pdf") {
+        if (!parsed.isBase64) return { kind: "none", note: "PDF preview not available (not base64)." };
+        const bytes = decodeBase64ToBytes(parsed.body);
+        const imgs = await renderPdfBytesToImages(bytes, 10);
+        return { kind: "pdf", dataUrls: imgs };
+      }
+    }
+
+    // raw base64 (stored without data: prefix)
+    if (isProbablyRawBase64(url)) {
+      const mime = sniffMimeFromBase64(url);
+      if (mime === "image/png" || mime === "image/jpeg") {
+        return { kind: "image", dataUrls: [`data:${mime};base64,${url}`] };
+      }
+      if (mime === "application/pdf") {
+        const bytes = decodeBase64ToBytes(url);
+        const imgs = await renderPdfBytesToImages(bytes, 10);
+        return { kind: "pdf", dataUrls: imgs };
+      }
+      return { kind: "none", note: "Preview not available for this file type." };
+    }
+
+    // remote/relative URL
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return { kind: "none", note: `Failed to fetch attachment (${res.status}).` };
+      const ab = await res.arrayBuffer();
+      const bytes = new Uint8Array(ab);
+      const mime = String(res.headers.get("content-type") || "").toLowerCase() || sniffMimeFromBytes(bytes) || "";
+      if (mime.startsWith("image/")) {
+        const b64 = await arrayBufferToBase64(ab);
+        return { kind: "image", dataUrls: [`data:${mime};base64,${b64}`] };
+      }
+      if (mime.includes("pdf") || mime === "application/pdf") {
+        const imgs = await renderPdfBytesToImages(bytes, 10);
+        return { kind: "pdf", dataUrls: imgs };
+      }
+      return { kind: "none", note: "Preview not available for this file type." };
+    } catch (e) {
+      return { kind: "none", note: "Failed to load attachment for preview." };
+    }
+  };
+
   const statusLabel = t.statuses[request.status] || STATUS_CONFIG[request.status]?.label || request.status;
   const accent = statusAccent(request.status);
 
@@ -435,12 +620,13 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     pdf.text(title, x + 6, topY + (variant === "continued" ? 5.1 : 6.2));
 
     if (variant === "continued") {
-      // Smaller continuation indicator (less repetitive).
+      // Smaller continuation indicator (less repetitive), right-aligned to avoid overlap.
+      const continuedText = `(${String(t.pdf.continuedLabel ?? "Continued")})`;
       pdf.setFontSize(8);
       setFont("normal");
       const [mr, mg, mb] = rgb(COLORS.muted);
       pdf.setTextColor(mr, mg, mb);
-      pdf.text(`(${t.pdf.continuedLabel})`, x + 6 + pdf.getTextWidth(title) + 2, topY + 5.0);
+      pdf.text(continuedText, x + w - 6, topY + 5.0, { align: "right" });
       pdf.setTextColor(tr, tg, tb);
     }
 
@@ -720,6 +906,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     headers: string[];
     rows: Array<string[]>;
     colWidths: number[];
+    attachments: Attachment[];
   };
   const appendixSections: AppendixSection[] = [];
   const appendixLabelFor = (index: number) => {
@@ -727,9 +914,12 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     if (index < 26) return String.fromCharCode(65 + index);
     return `A${index - 25}`;
   };
-  const registerAppendixTable = (title: string, opts: { headers: string[]; rows: Array<string[]>; colWidths: number[] }) => {
+  const registerAppendixTable = (
+    title: string,
+    opts: { headers: string[]; rows: Array<string[]>; colWidths: number[]; attachments: Attachment[] },
+  ) => {
     const label = appendixLabelFor(appendixSections.length);
-    appendixSections.push({ label, title, ...opts });
+    appendixSections.push({ label, title, ...opts, attachments: opts.attachments ?? [] });
     return label;
   };
   const seeAppendixText = (label: string) => String(t.pdf.seeAppendix || "See Appendix {appendix}").replace("{appendix}", label);
@@ -893,6 +1083,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
         headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
         rows: productAttachmentRows,
         colWidths: [90, 55, contentWidth - 12 - 90 - 55],
+        attachments: productAttachments,
       });
       drawSubheading(t.request.attachments);
       drawNote(seeAppendixText(appendixLabel));
@@ -927,6 +1118,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
         headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
         rows,
         colWidths: [90, 55, contentWidth - 12 - 90 - 55],
+        attachments: designAttachments,
       });
       drawSubheading(t.panels.designResultUploads);
       drawNote(seeAppendixText(appendixLabel));
@@ -972,6 +1164,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
         headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
         rows,
         colWidths: [90, 55, contentWidth - 12 - 90 - 55],
+        attachments: costingAttachments,
       });
       drawSubheading(t.panels.costingAttachments);
       drawNote(seeAppendixText(appendixLabel));
@@ -1031,6 +1224,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
           pageBreakActiveCard();
         },
       });
+      y += 4;
     }
 
     if (salesAttachments.length) {
@@ -1043,6 +1237,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
         headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
         rows,
         colWidths: [90, 55, contentWidth - 12 - 90 - 55],
+        attachments: salesAttachments,
       });
       drawSubheading(t.panels.salesAttachments);
       drawNote(seeAppendixText(appendixLabel));
@@ -1144,15 +1339,6 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   }
 
   // Footer (page numbers).
-  const pageCount = pdf.getNumberOfPages();
-  for (let i = 1; i <= pageCount; i++) {
-    pdf.setPage(i);
-    pdf.setFontSize(8);
-    pdf.setTextColor(150, 150, 150);
-    const pageLabel = t.pdf.pageOfLabel.replace("{current}", String(i)).replace("{total}", String(pageCount));
-    pdf.text(`${pageLabel} | ${t.pdf.reportTitle} | ${request.id}`, pageWidth / 2, pageHeight - 6, { align: "center" });
-  }
-
   // Appendix (attachments) pages at the end.
   if (appendixSections.length) {
     addPage();
@@ -1194,7 +1380,59 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
         },
       });
       y += 6;
+
+      // Preview the attachment contents (images/PDFs) after the index table.
+      const atts = Array.isArray(section.attachments) ? section.attachments : [];
+      for (let i = 0; i < atts.length; i++) {
+        const att = atts[i];
+        // Start each attachment preview on its own page to keep the appendix readable.
+        addPage();
+        drawAppendixSectionHeader(section.label, section.title);
+
+        const extra = `${formatAttachmentType(att.type)} - ${formatDate(new Date(att.uploadedAt ?? new Date()), "MMM d, yyyy HH:mm")}`;
+        drawAppendixAttachmentHeader(section.label, i + 1, String(att.filename || "-"), extra);
+
+        const preview = await attachmentToPreview(att);
+        if (preview.kind === "image" && preview.dataUrls?.length) {
+          await drawImageFit(preview.dataUrls[0]);
+          continue;
+        }
+        if (preview.kind === "pdf" && preview.dataUrls?.length) {
+          for (let p = 0; p < preview.dataUrls.length; p++) {
+            if (p > 0) {
+              addPage();
+              drawAppendixSectionHeader(section.label, section.title);
+              drawAppendixAttachmentHeader(
+                section.label,
+                i + 1,
+                String(att.filename || "-"),
+                `${extra} - PDF ${p + 1}/${preview.dataUrls.length}`,
+              );
+            }
+            await drawImageFit(preview.dataUrls[p]);
+          }
+          continue;
+        }
+
+        pdf.setFontSize(10);
+        setFont("normal");
+        const [mr, mg, mb] = rgb(COLORS.muted);
+        pdf.setTextColor(mr, mg, mb);
+        pdf.text(String(preview.note || "Preview not available."), margin, y);
+        pdf.setTextColor(0, 0, 0);
+        y += 8;
+      }
     }
+  }
+
+  // Footer (page numbers) - must run after appendix pages are added.
+  const pageCount = pdf.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    pdf.setPage(i);
+    pdf.setFontSize(8);
+    pdf.setTextColor(150, 150, 150);
+    const pageLabel = t.pdf.pageOfLabel.replace("{current}", String(i)).replace("{total}", String(pageCount));
+    pdf.text(`${pageLabel} | ${t.pdf.reportTitle} | ${request.id}`, pageWidth / 2, pageHeight - 6, { align: "center" });
   }
 
   pdf.save(`${request.id}_report.pdf`);
