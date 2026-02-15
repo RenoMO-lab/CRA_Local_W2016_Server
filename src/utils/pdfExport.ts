@@ -111,7 +111,8 @@ const getProductTypeLabel = (
     }
   }
   
-  return parts.length > 0 ? parts.join(' / ') : '-';
+  // Empty string means "omit the field" in the PDF (more compact than printing "-").
+  return parts.length > 0 ? parts.join(' / ') : '';
 };
 
 const loadImageAsBase64 = (url: string): Promise<{ dataUrl: string; width: number; height: number }> => {
@@ -256,6 +257,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   };
 
   const getDisplayValueLocal = (value: string | number | null | undefined) => getDisplayValue(value);
+  const hasDisplayValueLocal = (value: string | number | null | undefined) => getDisplayValueLocal(value) !== null;
 
   const rgb = (hex: string) => {
     const v = hexToRgb(hex);
@@ -457,19 +459,19 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   };
 
   const drawKvGrid = (fields: { label: string; value: any }[], columns = 2) => {
+    // Drop empty values up-front so the grid doesn't create blank rows/columns.
+    const visible = fields.filter((f) => hasDisplayValueLocal(f.value));
+    if (!visible.length) return;
+
     const innerX = margin + 6;
     const innerW = contentWidth - 12;
     const gutter = 8;
     const colW = columns === 1 ? innerW : (innerW - gutter) / columns;
 
-    for (let i = 0; i < fields.length; i += columns) {
-      const slice = fields.slice(i, i + columns);
-      const measures = slice.map((f) => {
-        const v = getDisplayValueLocal(f.value);
-        if (!v) return null;
-        return measureKv(f.label, v, innerX, colW, 44);
-      });
-      const lineCount = Math.max(1, ...measures.filter(Boolean).map((m: any) => m.lineCount));
+    for (let i = 0; i < visible.length; i += columns) {
+      const slice = visible.slice(i, i + columns);
+      const measures = slice.map((f) => measureKv(f.label, String(getDisplayValueLocal(f.value) ?? ""), innerX, colW, 44));
+      const lineCount = Math.max(1, ...measures.map((m: any) => m.lineCount));
       const rowH = lineCount * lineHeightMm(10) + 1.5;
       ensureSpace(rowH);
 
@@ -623,65 +625,63 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   y += 10;
 
   // Summary card.
-  const summaryCard = startCard(`${t.pdf.requestLabel}: ${request.id}`);
-  drawKvGrid(
-    [
-      { label: t.common.status, value: statusLabel },
-      { label: t.request.clientName, value: request.clientName },
-      { label: t.request.clientContact, value: request.clientContact },
-      { label: t.table.createdBy, value: request.createdByName },
-      { label: t.pdf.createdAtLabel, value: formatDate(new Date(request.createdAt), "MMMM d, yyyy") },
-      { label: t.pdf.lastUpdatedLabel, value: formatDate(new Date(request.updatedAt), "MMMM d, yyyy") },
-    ],
-    2,
-  );
-  endCard(summaryCard);
+  const summaryFields = [
+    { label: t.common.status, value: statusLabel },
+    { label: t.request.clientName, value: request.clientName },
+    { label: t.request.clientContact, value: request.clientContact },
+    { label: t.table.createdBy, value: request.createdByName },
+    { label: t.pdf.createdAtLabel, value: formatDate(new Date(request.createdAt), "MMMM d, yyyy") },
+    { label: t.pdf.lastUpdatedLabel, value: formatDate(new Date(request.updatedAt), "MMMM d, yyyy") },
+  ];
+  if (summaryFields.some((f) => hasDisplayValueLocal(f.value))) {
+    const summaryCard = startCard(`${t.pdf.requestLabel}: ${request.id}`);
+    drawKvGrid(summaryFields, 2);
+    endCard(summaryCard);
+  }
 
   // General information card.
-  const generalCard = startCard(t.request.generalInfo);
-  drawKvGrid(
-    [
-      {
-        label: t.request.applicationVehicle,
-        value: translateResolvedOption(request.applicationVehicle, request.applicationVehicleOther),
-      },
-      { label: t.request.country, value: translateResolvedOption(request.country, request.countryOther) },
-      ...(request.country === "China" && request.city ? [{ label: t.request.city, value: request.city }] : []),
-    ],
-    2,
-  );
-  endCard(generalCard);
+  const generalFields = [
+    {
+      label: t.request.applicationVehicle,
+      value: translateResolvedOption(request.applicationVehicle, request.applicationVehicleOther),
+    },
+    { label: t.request.country, value: translateResolvedOption(request.country, request.countryOther) },
+    ...(request.country === "China" && request.city ? [{ label: t.request.city, value: request.city }] : []),
+  ];
+  if (generalFields.some((f) => hasDisplayValueLocal(f.value))) {
+    const generalCard = startCard(t.request.generalInfo);
+    drawKvGrid(generalFields, 2);
+    endCard(generalCard);
+  }
 
   // Expected delivery card.
-  const deliveryCard = startCard(t.request.expectedDelivery);
-  drawKvGrid(
-    [
-      {
-        label: t.pdf.deliverablesLabel,
-        value: request.expectedDeliverySelections?.length
-          ? request.expectedDeliverySelections.map(translateOption).join("; ")
-          : "",
-      },
-      { label: t.request.clientExpectedDeliveryDate, value: request.clientExpectedDeliveryDate || "" },
-    ],
-    1,
-  );
-  endCard(deliveryCard);
+  const deliveryFields = [
+    {
+      label: t.pdf.deliverablesLabel,
+      value: request.expectedDeliverySelections?.length ? request.expectedDeliverySelections.map(translateOption).join("; ") : "",
+    },
+    { label: t.request.clientExpectedDeliveryDate, value: request.clientExpectedDeliveryDate || "" },
+  ];
+  if (deliveryFields.some((f) => hasDisplayValueLocal(f.value))) {
+    const deliveryCard = startCard(t.request.expectedDelivery);
+    drawKvGrid(deliveryFields, 1);
+    endCard(deliveryCard);
+  }
 
   // Client application card.
-  const applicationCard = startCard(t.request.clientApplication);
-  drawKvGrid(
-    [
-      {
-        label: t.request.workingCondition,
-        value: translateResolvedOption(request.workingCondition, request.workingConditionOther),
-      },
-      { label: t.request.usageType, value: translateResolvedOption(request.usageType, request.usageTypeOther) },
-      { label: t.request.environment, value: translateResolvedOption(request.environment, request.environmentOther) },
-    ],
-    1,
-  );
-  endCard(applicationCard);
+  const applicationFields = [
+    {
+      label: t.request.workingCondition,
+      value: translateResolvedOption(request.workingCondition, request.workingConditionOther),
+    },
+    { label: t.request.usageType, value: translateResolvedOption(request.usageType, request.usageTypeOther) },
+    { label: t.request.environment, value: translateResolvedOption(request.environment, request.environmentOther) },
+  ];
+  if (applicationFields.some((f) => hasDisplayValueLocal(f.value))) {
+    const applicationCard = startCard(t.request.clientApplication);
+    drawKvGrid(applicationFields, 1);
+    endCard(applicationCard);
+  }
 
   const products = Array.isArray(request.products) && request.products.length ? request.products : [buildLegacyProduct(request)];
   const studsLabelMap = new Map(STANDARD_STUDS_PCD_OPTIONS.map((option) => [option.id, option.label]));
@@ -701,57 +701,57 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
           ? product.studsPcdSpecialText
           : "";
 
-    const card = startCard(`${t.request.technicalInfo} · ${productLabel}`);
+    const card = startCard(`${t.request.technicalInfo} - ${productLabel}`);
 
-    drawSubheading(t.pdf.axlePerformanceTitle);
-    drawKvGrid(
-      [
-        { label: t.request.productType, value: getProductTypeLabel(product, translateOption) },
-        { label: t.request.repeatability, value: translateOption(request.repeatability) },
-        { label: t.request.quantity, value: product.quantity },
-        { label: t.pdf.loadsKgLabel, value: product.loadsKg },
-        { label: t.pdf.speedsKmhLabel, value: product.speedsKmh },
-      ],
-      2,
-    );
+    const axleFields = [
+      { label: t.request.productType, value: getProductTypeLabel(product, translateOption) },
+      { label: t.request.repeatability, value: translateOption(request.repeatability) },
+      { label: t.request.quantity, value: product.quantity },
+      { label: t.pdf.loadsKgLabel, value: product.loadsKg },
+      { label: t.pdf.speedsKmhLabel, value: product.speedsKmh },
+    ];
+    if (axleFields.some((f) => hasDisplayValueLocal(f.value))) {
+      drawSubheading(t.pdf.axlePerformanceTitle);
+      drawKvGrid(axleFields, 2);
+    }
 
-    drawSubheading(t.pdf.wheelsGeometryTitle);
     const articulationValue = String(product.articulationType ?? "").toLowerCase();
     const showWheelBase = articulationValue.includes("steering");
-    drawKvGrid(
-      [
-        { label: t.request.tyreSize, value: product.tyreSize },
-        { label: t.pdf.trackMmLabel, value: product.trackMm },
-        ...(showWheelBase ? [{ label: t.request.wheelBase, value: product.wheelBase }] : []),
-      ],
-      2,
-    );
+    const wheelsFields = [
+      { label: t.request.tyreSize, value: product.tyreSize },
+      { label: t.pdf.trackMmLabel, value: product.trackMm },
+      ...(showWheelBase ? [{ label: t.request.wheelBase, value: product.wheelBase }] : []),
+    ];
+    if (wheelsFields.some((f) => hasDisplayValueLocal(f.value))) {
+      drawSubheading(t.pdf.wheelsGeometryTitle);
+      drawKvGrid(wheelsFields, 2);
+    }
 
-    drawSubheading(t.pdf.brakingSuspensionTitle);
     const brakeTypeRaw = String(product.brakeType ?? "").toLowerCase();
     const isBrakeNA = brakeTypeRaw === "na" || brakeTypeRaw === "n/a" || brakeTypeRaw === "n.a";
-    drawKvGrid(
-      [
-        { label: t.request.brakeType, value: translateBrakeType(product.brakeType) },
-        ...(!isBrakeNA ? [{ label: t.request.brakeSize, value: translateOption(product.brakeSize) }] : []),
-        { label: t.request.brakePowerType, value: translateOption(product.brakePowerType) },
-        { label: t.request.brakeCertificate, value: translateOption(product.brakeCertificate) },
-        { label: t.request.suspension, value: translateOption(product.suspension) },
-      ],
-      2,
-    );
+    const brakingFields = [
+      { label: t.request.brakeType, value: translateBrakeType(product.brakeType) },
+      ...(!isBrakeNA ? [{ label: t.request.brakeSize, value: translateOption(product.brakeSize) }] : []),
+      { label: t.request.brakePowerType, value: translateOption(product.brakePowerType) },
+      { label: t.request.brakeCertificate, value: translateOption(product.brakeCertificate) },
+      { label: t.request.suspension, value: translateOption(product.suspension) },
+    ];
+    if (brakingFields.some((f) => hasDisplayValueLocal(f.value))) {
+      drawSubheading(t.pdf.brakingSuspensionTitle);
+      drawKvGrid(brakingFields, 2);
+    }
 
-    drawSubheading(t.pdf.finishInterfaceTitle);
-    drawKvGrid(
-      [
-        { label: t.request.finish, value: product.finish },
-        { label: t.request.studsPcd, value: studsValue },
-        { label: t.request.mainBodySectionType, value: translateOption(product.mainBodySectionType) },
-        { label: t.request.clientSealingRequest, value: translateOption(product.clientSealingRequest) },
-        { label: t.request.cupLogo, value: translateOption(product.cupLogo) },
-      ],
-      2,
-    );
+    const finishFields = [
+      { label: t.request.finish, value: product.finish },
+      { label: t.request.studsPcd, value: studsValue },
+      { label: t.request.mainBodySectionType, value: translateOption(product.mainBodySectionType) },
+      { label: t.request.clientSealingRequest, value: translateOption(product.clientSealingRequest) },
+      { label: t.request.cupLogo, value: translateOption(product.cupLogo) },
+    ];
+    if (finishFields.some((f) => hasDisplayValueLocal(f.value))) {
+      drawSubheading(t.pdf.finishInterfaceTitle);
+      drawKvGrid(finishFields, 2);
+    }
 
     const productAttachments = Array.isArray(product.attachments) ? product.attachments : [];
     const productAttachmentRows = productAttachments.map((att) => [
@@ -768,7 +768,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     endCard(card);
 
     if (productAttachmentRows.length) {
-      drawTableCard(`${t.request.attachments} · ${productLabel}`, {
+      drawTableCard(`${t.request.attachments} - ${productLabel}`, {
         headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
         rows: productAttachmentRows,
         colWidths: [90, 55, contentWidth - 12 - 90 - 55],
@@ -797,7 +797,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       formatAttachmentType(att.type),
       formatBytes(estimateBase64Bytes(att.url)),
     ]);
-    drawTableCard(`${t.panels.designResult} · ${t.panels.designResultUploads}`, {
+    drawTableCard(`${t.panels.designResult} - ${t.panels.designResultUploads}`, {
       headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
       rows,
       colWidths: [90, 55, contentWidth - 12 - 90 - 55],
@@ -840,7 +840,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       formatAttachmentType(att.type),
       formatBytes(estimateBase64Bytes(att.url)),
     ]);
-    drawTableCard(`${t.pdf.costingInformationTitle} · ${t.panels.costingAttachments}`, {
+    drawTableCard(`${t.pdf.costingInformationTitle} - ${t.panels.costingAttachments}`, {
       headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
       rows,
       colWidths: [90, 55, contentWidth - 12 - 90 - 55],
@@ -879,7 +879,13 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     endCard(card);
   }
 
-  const salesPaymentTerms = Array.isArray(request.salesPaymentTerms) ? request.salesPaymentTerms : [];
+  const salesPaymentTermsRaw = Array.isArray(request.salesPaymentTerms) ? request.salesPaymentTerms : [];
+  const salesPaymentTerms = salesPaymentTermsRaw.filter((term: any) => {
+    const name = String(term?.paymentName ?? "").trim();
+    const pctOk = typeof term?.paymentPercent === "number" && Number.isFinite(term.paymentPercent);
+    const comments = String(term?.comments ?? "").trim();
+    return Boolean(name || pctOk || comments);
+  });
   if (salesPaymentTerms.length) {
     const rows = salesPaymentTerms.map((term: any, index: number) => [
       String(term?.paymentNumber || index + 1),
@@ -887,7 +893,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       typeof term?.paymentPercent === "number" ? `${term.paymentPercent}%` : "-",
       String(term?.comments || "-"),
     ]);
-    drawTableCard(`${t.panels.salesFollowup} · ${t.panels.paymentTerms}`, {
+    drawTableCard(`${t.panels.salesFollowup} - ${t.panels.paymentTerms}`, {
       headers: [t.panels.paymentNumber, t.panels.paymentName, t.panels.paymentPercent, t.panels.paymentComments],
       rows,
       colWidths: [18, 44, 22, contentWidth - 12 - 18 - 44 - 22],
@@ -900,7 +906,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       formatAttachmentType(att.type),
       formatBytes(estimateBase64Bytes(att.url)),
     ]);
-    drawTableCard(`${t.panels.salesFollowup} · ${t.panels.salesAttachments}`, {
+    drawTableCard(`${t.panels.salesFollowup} - ${t.panels.salesAttachments}`, {
       headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
       rows,
       colWidths: [90, 55, contentWidth - 12 - 90 - 55],
