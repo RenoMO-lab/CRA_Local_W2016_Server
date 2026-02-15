@@ -17,6 +17,7 @@ interface UserItem {
   name: string;
   email: string;
   role: 'sales' | 'design' | 'costing' | 'admin';
+  preferredLanguage: 'en' | 'fr' | 'zh';
   createdAt?: string | null;
 }
 
@@ -24,6 +25,7 @@ interface UserCreateInput {
   name: string;
   email: string;
   role: UserItem['role'];
+  preferredLanguage: UserItem['preferredLanguage'];
   password: string;
 }
 
@@ -31,6 +33,7 @@ interface UserUpdateInput {
   name: string;
   email: string;
   role: UserItem['role'];
+  preferredLanguage: UserItem['preferredLanguage'];
   newPassword?: string;
 }
 
@@ -216,6 +219,12 @@ const normalizeRole = (value: unknown): UserItem['role'] | null => {
     return role;
   }
   return null;
+};
+
+const normalizePreferredLanguage = (value: unknown): UserItem['preferredLanguage'] => {
+  const lang = String(value ?? '').trim().toLowerCase();
+  if (lang === 'fr' || lang === 'zh') return lang;
+  return 'en';
 };
 
 const mergeDefaultList = (list: ListItem[] | undefined, defaults: ListItem[]) => {
@@ -411,11 +420,13 @@ export const AdminSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const mapUser = (raw: any): UserItem => {
     const role = normalizeRole(raw?.role) || 'sales';
+    const preferredLanguage = normalizePreferredLanguage(raw?.preferredLanguage ?? raw?.preferred_language);
     return {
       id: String(raw?.id ?? ''),
       name: String(raw?.name ?? ''),
       email: String(raw?.email ?? ''),
       role,
+      preferredLanguage,
       createdAt: raw?.createdAt ? String(raw.createdAt) : null,
     };
   };
@@ -438,9 +449,10 @@ export const AdminSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
       name: normalizeName(input.name),
       email: normalizeEmail(input.email),
       role: normalizeRole(input.role),
+      preferredLanguage: normalizePreferredLanguage(input.preferredLanguage),
       password: String(input.password ?? ''),
     };
-    if (!payload.name || !payload.email || !payload.role || !payload.password.trim()) {
+    if (!payload.name || !payload.email || !payload.role || !payload.preferredLanguage || !payload.password.trim()) {
       throw new Error('Invalid user payload');
     }
 
@@ -461,9 +473,10 @@ export const AdminSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
       name: normalizeName(input.name),
       email: normalizeEmail(input.email),
       role: normalizeRole(input.role),
+      preferredLanguage: normalizePreferredLanguage(input.preferredLanguage),
       newPassword: String(input.newPassword ?? ''),
     };
-    if (!payload.name || !payload.email || !payload.role) {
+    if (!payload.name || !payload.email || !payload.role || !payload.preferredLanguage) {
       throw new Error('Invalid user payload');
     }
 

@@ -29,6 +29,7 @@ const LEGACY_SEED_USERS = [
 ];
 
 const VALID_ROLES = new Set(["sales", "design", "costing", "admin"]);
+const VALID_LANGUAGES = new Set(["en", "fr", "zh"]);
 
 let bootstrapDone = false;
 let bootstrapPromise = null;
@@ -38,6 +39,10 @@ const normalizeName = (value) => String(value ?? "").trim();
 const normalizeRole = (value) => {
   const role = String(value ?? "").trim().toLowerCase();
   return VALID_ROLES.has(role) ? role : null;
+};
+const normalizePreferredLanguage = (value) => {
+  const lang = String(value ?? "").trim().toLowerCase();
+  return VALID_LANGUAGES.has(lang) ? lang : null;
 };
 
 const parseCookies = (headerValue) => {
@@ -60,6 +65,7 @@ const serializeUser = (row) => ({
   name: String(row?.name ?? ""),
   email: String(row?.email ?? ""),
   role: String(row?.role ?? ""),
+  preferredLanguage: normalizePreferredLanguage(row?.preferred_language) ?? "en",
   createdAt: row?.created_at ?? null,
 });
 
@@ -189,13 +195,26 @@ export const ensureBootstrapAuthData = async (pool) => {
 export const findUserForLogin = async (pool, email) => {
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
-  const { rows } = await pool.query(
-    `SELECT id, name, email, role, password_hash, is_active, created_at
-       FROM app_users
-      WHERE lower(email) = $1
-      LIMIT 1`,
-    [normalized]
-  );
+  let rows = [];
+  try {
+    ({ rows } = await pool.query(
+      `SELECT id, name, email, role, preferred_language, password_hash, is_active, created_at
+         FROM app_users
+        WHERE lower(email) = $1
+        LIMIT 1`,
+      [normalized]
+    ));
+  } catch (error) {
+    // Backward-compat: older DBs may not have preferred_language yet.
+    if (String(error?.code ?? "") !== "42703") throw error;
+    ({ rows } = await pool.query(
+      `SELECT id, name, email, role, password_hash, is_active, created_at
+         FROM app_users
+        WHERE lower(email) = $1
+        LIMIT 1`,
+      [normalized]
+    ));
+  }
   const row = rows?.[0] ?? null;
   if (!row || row.is_active === false) return null;
   return row;
@@ -234,15 +253,30 @@ export const getAuthFromSessionToken = async (pool, token) => {
   if (!raw) return null;
   const tokenHash = hashSessionToken(raw);
 
-  const { rows } = await pool.query(
-    `SELECT s.id AS session_id, s.expires_at, s.revoked_at,
-            u.id, u.name, u.email, u.role, u.created_at, u.is_active
-       FROM auth_sessions s
-       JOIN app_users u ON u.id = s.user_id
-      WHERE s.session_hash = $1
-      LIMIT 1`,
-    [tokenHash]
-  );
+  let rows = [];
+  try {
+    ({ rows } = await pool.query(
+      `SELECT s.id AS session_id, s.expires_at, s.revoked_at,
+              u.id, u.name, u.email, u.role, u.preferred_language, u.created_at, u.is_active
+         FROM auth_sessions s
+         JOIN app_users u ON u.id = s.user_id
+        WHERE s.session_hash = $1
+        LIMIT 1`,
+      [tokenHash]
+    ));
+  } catch (error) {
+    // Backward-compat: older DBs may not have preferred_language yet.
+    if (String(error?.code ?? "") !== "42703") throw error;
+    ({ rows } = await pool.query(
+      `SELECT s.id AS session_id, s.expires_at, s.revoked_at,
+              u.id, u.name, u.email, u.role, u.created_at, u.is_active
+         FROM auth_sessions s
+         JOIN app_users u ON u.id = s.user_id
+        WHERE s.session_hash = $1
+        LIMIT 1`,
+      [tokenHash]
+    ));
+  }
   const row = rows?.[0] ?? null;
   if (!row) return null;
   if (row.revoked_at) return null;
@@ -260,12 +294,20 @@ export const getAuthFromSessionToken = async (pool, token) => {
 
 export const mapUserRow = (row) => serializeUser(row);
 
-export const validateUserPayload = ({ name, email, role, password, requirePassword = true }) => {
+export const validateUserPayload = ({
+  name,
+  email,
+  role,
+  password,
+  preferredLanguage,
+  requirePassword = true,
+}) => {
   const normalized = {
     name: normalizeName(name),
     email: normalizeEmail(email),
     role: normalizeRole(role),
     password: String(password ?? ""),
+    preferredLanguage: normalizePreferredLanguage(preferredLanguage) ?? "en",
   };
 
   if (!normalized.name) return { ok: false, error: "Missing name" };
@@ -280,6 +322,7 @@ export const validateUserPayload = ({ name, email, role, password, requirePasswo
       email: normalized.email,
       role: normalized.role,
       password: normalized.password.trim(),
+      preferredLanguage: normalized.preferredLanguage,
     },
   };
 };

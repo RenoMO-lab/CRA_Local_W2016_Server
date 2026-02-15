@@ -217,6 +217,56 @@ const resolveRecipientsForStatus = (settings, status) => {
   }
 };
 
+const groupRecipientsByPreferredLanguage = async (pool, emails) => {
+  const list = Array.isArray(emails) ? emails : [];
+  const deduped = [];
+  const seen = new Set();
+  for (const raw of list) {
+    const email = String(raw ?? "").trim();
+    if (!email) continue;
+    const key = email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(email);
+  }
+  if (!deduped.length) return [];
+
+  const preferredByEmailLower = new Map();
+  try {
+    const lowers = deduped.map((e) => e.toLowerCase());
+    const { rows } = await pool.query(
+      `
+      SELECT lower(email) AS email_lower, preferred_language
+        FROM app_users
+       WHERE is_active = true
+         AND lower(email) = ANY($1::text[])
+      `,
+      [lowers]
+    );
+    for (const row of rows ?? []) {
+      const key = String(row?.email_lower ?? "").trim().toLowerCase();
+      if (!key) continue;
+      preferredByEmailLower.set(key, normalizeNotificationLanguage(row?.preferred_language) ?? "en");
+    }
+  } catch (e) {
+    // Best-effort: fall back to English for all recipients.
+    console.error("Failed to resolve recipient languages:", e);
+    return [["en", deduped]];
+  }
+
+  const byLang = { en: [], fr: [], zh: [] };
+  for (const email of deduped) {
+    const lang = preferredByEmailLower.get(email.toLowerCase()) ?? "en";
+    (byLang[lang] ?? byLang.en).push(email);
+  }
+
+  const out = [];
+  for (const lang of ["en", "fr", "zh"]) {
+    if (byLang[lang].length) out.push([lang, byLang[lang]]);
+  }
+  return out;
+};
+
 const statusBadgeStyles = (status) => {
   // Outlook dark mode can heavily transform background/text colors.
   // Using a single accent color (instead of a pill) is much more stable.
@@ -233,30 +283,89 @@ const statusBadgeStyles = (status) => {
   return { accent: "#64748B" }; // slate
 };
 
-const DEFAULT_EMAIL_TEMPLATES = {
-  request_created: {
-    subject: "[CRA] Request {{requestId}} submitted",
-    title: "New Request Submitted",
-    intro: "A new CRA request has been submitted.",
-    primaryButtonText: "Open request",
-    secondaryButtonText: "Open dashboard",
-    footerText: "You received this email because you are subscribed to CRA request notifications.",
+const VALID_NOTIFICATION_LANGUAGES = new Set(["en", "fr", "zh"]);
+const normalizeNotificationLanguage = (value) => {
+  const lang = String(value ?? "").trim().toLowerCase();
+  return VALID_NOTIFICATION_LANGUAGES.has(lang) ? lang : null;
+};
+
+const DEFAULT_EMAIL_TEMPLATES_BY_LANG = {
+  en: {
+    request_created: {
+      subject: "[CRA] Request {{requestId}} submitted",
+      title: "New Request Submitted",
+      intro: "A new CRA request has been submitted.",
+      primaryButtonText: "Open request",
+      secondaryButtonText: "Open dashboard",
+      footerText: "You received this email because you are subscribed to CRA request notifications.",
+    },
+    request_status_changed: {
+      subject: "[CRA] Request {{requestId}} status changed to {{status}}",
+      title: "Request Update",
+      intro: "A CRA request status has been updated.",
+      primaryButtonText: "Open request",
+      secondaryButtonText: "Open dashboard",
+      footerText: "You received this email because you are subscribed to CRA request notifications.",
+    },
   },
-  request_status_changed: {
-    subject: "[CRA] Request {{requestId}} status changed to {{status}}",
-    title: "Request Update",
-    intro: "A CRA request status has been updated.",
-    primaryButtonText: "Open request",
-    secondaryButtonText: "Open dashboard",
-    footerText: "You received this email because you are subscribed to CRA request notifications.",
+  fr: {
+    request_created: {
+      subject: "[CRA] Demande {{requestId}} soumise",
+      title: "Nouvelle demande soumise",
+      intro: "Une nouvelle demande CRA a ete soumise.",
+      primaryButtonText: "Ouvrir la demande",
+      secondaryButtonText: "Ouvrir le tableau de bord",
+      footerText: "Vous recevez cet e-mail car vous etes abonne aux notifications des demandes CRA.",
+    },
+    request_status_changed: {
+      subject: "[CRA] Demande {{requestId}} : statut modifie en {{status}}",
+      title: "Mise a jour de la demande",
+      intro: "Le statut d'une demande CRA a ete mis a jour.",
+      primaryButtonText: "Ouvrir la demande",
+      secondaryButtonText: "Ouvrir le tableau de bord",
+      footerText: "Vous recevez cet e-mail car vous etes abonne aux notifications des demandes CRA.",
+    },
+  },
+  zh: {
+    request_created: {
+      subject: "[CRA] \u8bf7\u6c42 {{requestId}} \u5df2\u63d0\u4ea4",
+      title: "\u65b0\u8bf7\u6c42\u5df2\u63d0\u4ea4",
+      intro: "\u5df2\u63d0\u4ea4\u4e00\u6761\u65b0\u7684 CRA \u8bf7\u6c42\u3002",
+      primaryButtonText: "\u6253\u5f00\u8bf7\u6c42",
+      secondaryButtonText: "\u6253\u5f00\u4eea\u8868\u677f",
+      footerText: "\u60a8\u6536\u5230\u6b64\u90ae\u4ef6\u662f\u56e0\u4e3a\u60a8\u8ba2\u9605\u4e86 CRA \u8bf7\u6c42\u901a\u77e5\u3002",
+    },
+    request_status_changed: {
+      subject: "[CRA] \u8bf7\u6c42 {{requestId}} \u72b6\u6001\u5df2\u53d8\u66f4\u4e3a {{status}}",
+      title: "\u8bf7\u6c42\u66f4\u65b0",
+      intro: "CRA \u8bf7\u6c42\u72b6\u6001\u5df2\u66f4\u65b0\u3002",
+      primaryButtonText: "\u6253\u5f00\u8bf7\u6c42",
+      secondaryButtonText: "\u6253\u5f00\u4eea\u8868\u677f",
+      footerText: "\u60a8\u6536\u5230\u6b64\u90ae\u4ef6\u662f\u56e0\u4e3a\u60a8\u8ba2\u9605\u4e86 CRA \u8bf7\u6c42\u901a\u77e5\u3002",
+    },
   },
 };
 
-const getTemplateForEvent = (settings, eventType) => {
+const getDefaultTemplateForEvent = (eventType, lang) => {
+  const resolvedLang = normalizeNotificationLanguage(lang) ?? "en";
+  const byLang = DEFAULT_EMAIL_TEMPLATES_BY_LANG[resolvedLang] ?? DEFAULT_EMAIL_TEMPLATES_BY_LANG.en;
+  return byLang[eventType] ?? byLang.request_status_changed ?? DEFAULT_EMAIL_TEMPLATES_BY_LANG.en.request_status_changed;
+};
+
+// Supports legacy template overrides:
+// - Old shape: { request_created: { ... }, request_status_changed: { ... } }
+// - New shape: { en: { request_created: { ... } }, fr: { ... }, zh: { ... } }
+const getTemplateForEvent = (settings, eventType, lang = "en") => {
+  const resolvedLang = normalizeNotificationLanguage(lang) ?? "en";
   const raw = settings?.templates && typeof settings.templates === "object" ? settings.templates : null;
+
+  const langBucket = raw?.[resolvedLang] && typeof raw?.[resolvedLang] === "object" ? raw[resolvedLang] : null;
+  const isI18nShape = Boolean(langBucket);
+
+  const override = isI18nShape ? langBucket?.[eventType] : raw?.[eventType];
   const merged = {
-    ...(DEFAULT_EMAIL_TEMPLATES[eventType] ?? DEFAULT_EMAIL_TEMPLATES.request_status_changed),
-    ...(raw?.[eventType] ?? {}),
+    ...getDefaultTemplateForEvent(eventType, resolvedLang),
+    ...(override && typeof override === "object" ? override : {}),
   };
   return merged;
 };
@@ -275,7 +384,113 @@ const formatIsoUtc = (iso) => {
   return `${d.toISOString().replace("T", " ").slice(0, 19)} UTC`;
 };
 
-const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, dashboardLink, logoUrl, logoCid, template, introOverride }) => {
+const EMAIL_STRINGS_BY_LANG = {
+  en: {
+    notificationLabel: "CRA Notification",
+    statusUpdatedLabel: "Status Updated",
+    metaRequestPrefix: "Request",
+    metaByPrefix: "By",
+    linkFallbackPrefix: "If the button doesn't work, use this link:",
+    footerFallback: "You received this email because you are subscribed to CRA request notifications.",
+    labels: {
+      client: "Client",
+      country: "Country",
+      applicationVehicle: "Application Vehicle",
+      expectedQty: "Expected Qty",
+      expectedDeliveryDate: "Expected Delivery Date",
+      comment: "Comment",
+    },
+    statusLabels: {
+      draft: "Draft",
+      submitted: "Submitted",
+      edited: "Edited",
+      design_result: "Design Result",
+      under_review: "Under Review",
+      clarification_needed: "Clarification Needed",
+      feasibility_confirmed: "Feasibility Confirmed",
+      in_costing: "In Costing",
+      costing_complete: "Costing Complete",
+      sales_followup: "Sales Follow-up",
+      gm_approval_pending: "GM Approval Pending",
+      gm_approved: "Approved",
+      gm_rejected: "Rejected by GM",
+      closed: "Closed",
+    },
+  },
+  fr: {
+    notificationLabel: "Notification CRA",
+    statusUpdatedLabel: "Statut mis a jour",
+    metaRequestPrefix: "Demande",
+    metaByPrefix: "Par",
+    linkFallbackPrefix: "Si le bouton ne fonctionne pas, utilisez ce lien :",
+    footerFallback: "Vous recevez cet e-mail car vous etes abonne aux notifications des demandes CRA.",
+    labels: {
+      client: "Client",
+      country: "Pays",
+      applicationVehicle: "Vehicule d'application",
+      expectedQty: "Quantite prevue",
+      expectedDeliveryDate: "Date de livraison prevue",
+      comment: "Commentaire",
+    },
+    statusLabels: {
+      draft: "Brouillon",
+      submitted: "Soumis",
+      edited: "Modifie",
+      design_result: "Resultat design",
+      under_review: "En cours de revue",
+      clarification_needed: "Clarification requise",
+      feasibility_confirmed: "Faisabilite confirmee",
+      in_costing: "En chiffrage",
+      costing_complete: "Chiffrage termine",
+      sales_followup: "Suivi commercial",
+      gm_approval_pending: "Approbation DG en attente",
+      gm_approved: "Approuve",
+      gm_rejected: "Rejete par DG",
+      closed: "Cloture",
+    },
+  },
+  zh: {
+    notificationLabel: "CRA \u901a\u77e5",
+    statusUpdatedLabel: "\u72b6\u6001\u66f4\u65b0",
+    metaRequestPrefix: "\u8bf7\u6c42",
+    metaByPrefix: "\u64cd\u4f5c\u4eba",
+    linkFallbackPrefix: "\u5982\u679c\u6309\u94ae\u65e0\u6cd5\u6253\u5f00\uff0c\u8bf7\u4f7f\u7528\u6b64\u94fe\u63a5\uff1a",
+    footerFallback: "\u60a8\u6536\u5230\u6b64\u90ae\u4ef6\u662f\u56e0\u4e3a\u60a8\u8ba2\u9605\u4e86 CRA \u8bf7\u6c42\u901a\u77e5\u3002",
+    labels: {
+      client: "\u5ba2\u6237",
+      country: "\u56fd\u5bb6",
+      applicationVehicle: "\u5e94\u7528\u8f66\u8f86",
+      expectedQty: "\u9884\u8ba1\u6570\u91cf",
+      expectedDeliveryDate: "\u9884\u8ba1\u4ea4\u4ed8\u65e5\u671f",
+      comment: "\u5907\u6ce8",
+    },
+    statusLabels: {
+      draft: "\u8349\u7a3f",
+      submitted: "\u5df2\u63d0\u4ea4",
+      edited: "\u5df2\u7f16\u8f91",
+      design_result: "\u8bbe\u8ba1\u7ed3\u679c",
+      under_review: "\u5ba1\u6838\u4e2d",
+      clarification_needed: "\u9700\u8981\u6f84\u6e05",
+      feasibility_confirmed: "\u53ef\u884c\u6027\u5df2\u786e\u8ba4",
+      in_costing: "\u6210\u672c\u6838\u7b97\u4e2d",
+      costing_complete: "\u6210\u672c\u6838\u7b97\u5b8c\u6210",
+      sales_followup: "\u9500\u552e\u8ddf\u8fdb",
+      gm_approval_pending: "\u603b\u7ecf\u7406\u5ba1\u6279\u4e2d",
+      gm_approved: "\u5df2\u6279\u51c6",
+      gm_rejected: "\u603b\u7ecf\u7406\u5df2\u62d2\u7edd",
+      closed: "\u5df2\u5173\u95ed",
+    },
+  },
+};
+
+const getEmailStrings = (lang) => {
+  const resolvedLang = normalizeNotificationLanguage(lang) ?? "en";
+  return EMAIL_STRINGS_BY_LANG[resolvedLang] ?? EMAIL_STRINGS_BY_LANG.en;
+};
+
+const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, dashboardLink, logoUrl, logoCid, template, introOverride, lang }) => {
+  const resolvedLang = normalizeNotificationLanguage(lang) ?? "en";
+  const i18n = getEmailStrings(resolvedLang);
   const safeComment = String(comment ?? "").trim();
   const client = String(request?.clientName ?? "").trim();
   const country = String(request?.country ?? "").trim();
@@ -286,7 +501,7 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
   const rid = String(request?.id ?? "").trim();
   const actor = String(actorName ?? "").trim();
   const status = String(newStatus ?? "").trim();
-  const statusLabel = humanizeStatus(status) || status || "Updated";
+  const statusLabel = i18n.statusLabels?.[status] || humanizeStatus(status) || status || i18n.statusUpdatedLabel;
   const updatedAt = formatIsoUtc(request?.updatedAt ?? request?.createdAt);
   const titleText = String(template?.title ?? "Request Update").trim() || "Request Update";
   const introText = String(introOverride ?? template?.intro ?? "").trim();
@@ -341,17 +556,17 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
 
   const accent = badge.accent;
   const metaParts = [];
-  if (rid) metaParts.push(`Request ${escapeHtml(rid)}`);
+  if (rid) metaParts.push(`${escapeHtml(i18n.metaRequestPrefix)} ${escapeHtml(rid)}`);
   if (updatedAt) metaParts.push(escapeHtml(updatedAt));
-  if (actor) metaParts.push(`By ${escapeHtml(actor)}`);
+  if (actor) metaParts.push(`${escapeHtml(i18n.metaByPrefix)} ${escapeHtml(actor)}`);
   const metaLine = metaParts.join(" | ");
 
   const facts = [
-    kvCell("Client", client),
-    kvCell("Country", country),
-    kvCell("Application Vehicle", appVehicle),
-    kvCell("Expected Qty", qtyText),
-    kvCell("Expected Delivery Date", expectedDeliveryDate),
+    kvCell(i18n.labels.client, client),
+    kvCell(i18n.labels.country, country),
+    kvCell(i18n.labels.applicationVehicle, appVehicle),
+    kvCell(i18n.labels.expectedQty, qtyText),
+    kvCell(i18n.labels.expectedDeliveryDate, expectedDeliveryDate),
   ].filter(Boolean);
 
   const factsRows = [];
@@ -365,7 +580,7 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
     ? `
       <tr>
         <td style="padding:14px 0 0 0;">
-          <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Comment</div>
+          <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">${escapeHtml(i18n.labels.comment)}</div>
           <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:8px; border-collapse:separate;">
             <tr>
               <td width="4" bgcolor="${accent}" style="background:${accent}; border-radius:4px 0 0 4px; font-size:0; line-height:0;">&nbsp;</td>
@@ -379,7 +594,7 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
 
   return `
   <!doctype html>
-  <html lang="en">
+  <html lang="${escapeHtml(resolvedLang)}">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -397,7 +612,7 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
                   <tr>
                     <td align="left" style="vertical-align:middle;">${logoImg}</td>
                     <td align="right" style="vertical-align:middle;">
-                      <div style="font-family: Arial, sans-serif; font-size:12px; color:#6B7280;">CRA Notification</div>
+                      <div style="font-family: Arial, sans-serif; font-size:12px; color:#6B7280;">${escapeHtml(i18n.notificationLabel)}</div>
                     </td>
                   </tr>
                 </table>
@@ -415,7 +630,7 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
                         </tr>
                         <tr>
                           <td style="padding:22px 24px 18px 24px;">
-                            <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Status Updated</div>
+                            <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">${escapeHtml(i18n.statusUpdatedLabel)}</div>
                             <div style="margin-top:6px; font-size:24px; font-weight:900; color:#111827; letter-spacing:0.2px; line-height:30px;">${escapeHtml(statusLabel)}</div>
                             ${introText ? `<div style="margin-top:10px; font-size:14px; color:#374151; line-height:20px;">${escapeHtml(introText)}</div>` : ""}
                             ${metaLine ? `<div style="margin-top:10px; font-size:12px; color:#6B7280; line-height:18px;">${metaLine}</div>` : ""}
@@ -453,7 +668,7 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
                               </tr>
                             </table>
 
-                            ${openRequestHref ? `<div style="margin-top:14px; font-size:11px; color:#6B7280; line-height:16px;">If the button doesn't work, use this link: <a href="${openRequestHref}" style="color:#2563EB; text-decoration:underline; word-break:break-all;">${openRequestHref}</a></div>` : ""}
+                            ${openRequestHref ? `<div style="margin-top:14px; font-size:11px; color:#6B7280; line-height:16px;">${escapeHtml(i18n.linkFallbackPrefix)} <a href="${openRequestHref}" style="color:#2563EB; text-decoration:underline; word-break:break-all;">${openRequestHref}</a></div>` : ""}
                           </td>
                         </tr>
                       </table>
@@ -465,7 +680,7 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
 
             <tr>
               <td style="padding:14px 6px 0 6px; text-align:center; font-family: Arial, sans-serif; font-size:11px; color:#6B7280;">
-                ${escapeHtml(footerText || "You received this email because you are subscribed to CRA request notifications.")}
+                ${escapeHtml(footerText || i18n.footerFallback)}
               </td>
             </tr>
           </table>
@@ -477,7 +692,48 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
   `.trim();
 };
 
-const ACCESS_EMAIL_SUBJECT = "[CRA] Your platform access is ready";
+const ACCESS_EMAIL_STRINGS_BY_LANG = {
+  en: {
+    subject: "[CRA] Your platform access is ready",
+    topLabel: "Access Notification",
+    title: "Your CRA account is ready",
+    dear: "Dear",
+    intro: "Your access to the CRA platform has been configured. Please use the credentials below to sign in.",
+    platformLinkLabel: "Platform Link",
+    loginEmailLabel: "Login Email",
+    temporaryPasswordLabel: "Temporary Password",
+    openPlatformButton: "Open CRA Platform",
+  },
+  fr: {
+    subject: "[CRA] Votre acces a la plateforme est pret",
+    topLabel: "Notification d'acces",
+    title: "Votre compte CRA est pret",
+    dear: "Bonjour",
+    intro: "Votre acces a la plateforme CRA a ete configure. Veuillez utiliser les identifiants ci-dessous pour vous connecter.",
+    platformLinkLabel: "Lien de la plateforme",
+    loginEmailLabel: "E-mail de connexion",
+    temporaryPasswordLabel: "Mot de passe temporaire",
+    openPlatformButton: "Ouvrir la plateforme CRA",
+  },
+  zh: {
+    subject: "[CRA] \u60a8\u7684\u8d26\u53f7\u5df2\u5f00\u901a",
+    topLabel: "\u8bbf\u95ee\u901a\u77e5",
+    title: "\u60a8\u7684 CRA \u8d26\u53f7\u5df2\u51c6\u5907\u5c31\u7eea",
+    dear: "\u60a8\u597d",
+    intro: "\u60a8\u7684 CRA \u5e73\u53f0\u8bbf\u95ee\u6743\u9650\u5df2\u914d\u7f6e\u5b8c\u6210\u3002\u8bf7\u4f7f\u7528\u4ee5\u4e0b\u4fe1\u606f\u767b\u5f55\u3002",
+    platformLinkLabel: "\u5e73\u53f0\u94fe\u63a5",
+    loginEmailLabel: "\u767b\u5f55\u90ae\u7bb1",
+    temporaryPasswordLabel: "\u4e34\u65f6\u5bc6\u7801",
+    openPlatformButton: "\u6253\u5f00 CRA \u5e73\u53f0",
+  },
+};
+
+const getAccessEmailStrings = (lang) => {
+  const resolvedLang = normalizeNotificationLanguage(lang) ?? "en";
+  return ACCESS_EMAIL_STRINGS_BY_LANG[resolvedLang] ?? ACCESS_EMAIL_STRINGS_BY_LANG.en;
+};
+
+const getAccessEmailSubject = (lang) => getAccessEmailStrings(lang).subject;
 const ACCESS_EMAIL_LOGO_FILE = "monroc-logo.png";
 const ACCESS_EMAIL_LOGO_CID = "monroc-logo";
 let accessEmailLogoBase64 = null;
@@ -531,7 +787,9 @@ const generateTemporaryPassword = (length = 12) => {
   return chars.join("");
 };
 
-const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPassword, appUrl, senderUpn, logoSrc }) => {
+const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPassword, appUrl, senderUpn, logoSrc, lang }) => {
+  const resolvedLang = normalizeNotificationLanguage(lang) ?? "en";
+  const i18n = getAccessEmailStrings(resolvedLang);
   const name = String(userName ?? "").trim() || "User";
   const login = String(loginEmail ?? "").trim();
   const password = String(temporaryPassword ?? "").trim();
@@ -551,7 +809,7 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
 
   return `
   <!doctype html>
-  <html lang="en">
+  <html lang="${escapeHtml(resolvedLang)}">
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -574,11 +832,11 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
                         ${safeLogoSrc ? `<div style="margin:0 0 14px 0;">
                           <img src="${safeLogoSrc}" alt="MONROC" width="180" style="display:block; width:180px; max-width:100%; height:auto;" />
                         </div>` : ""}
-                        <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">Access Notification</div>
-                        <div style="margin-top:6px; font-size:24px; font-weight:900; color:#111827; line-height:30px;">Your CRA account is ready</div>
+                        <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">${escapeHtml(i18n.topLabel)}</div>
+                        <div style="margin-top:6px; font-size:24px; font-weight:900; color:#111827; line-height:30px;">${escapeHtml(i18n.title)}</div>
                         <div style="margin-top:10px; font-size:14px; color:#374151; line-height:20px;">
-                          Dear ${safeName},<br/><br/>
-                          Your access to the CRA platform has been configured. Please use the credentials below to sign in.
+                          ${escapeHtml(i18n.dear)} ${safeName},<br/><br/>
+                          ${escapeHtml(i18n.intro)}
                         </div>
                       </td>
                     </tr>
@@ -586,17 +844,17 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
                       <td style="padding:8px 24px 0 24px;">
                         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
                           <tr>
-                            <td style="width:170px; padding:10px 0; font-size:12px; color:#6B7280; text-transform:uppercase;">Platform Link</td>
+                            <td style="width:170px; padding:10px 0; font-size:12px; color:#6B7280; text-transform:uppercase;">${escapeHtml(i18n.platformLinkLabel)}</td>
                             <td style="padding:10px 0; font-size:14px; font-weight:700;">
                               <a href="${safeLink}" style="color:#2563EB; text-decoration:underline; word-break:break-all;">${safeLink}</a>
                             </td>
                           </tr>
                           <tr>
-                            <td style="width:170px; padding:10px 0; font-size:12px; color:#6B7280; text-transform:uppercase;">Login</td>
+                            <td style="width:170px; padding:10px 0; font-size:12px; color:#6B7280; text-transform:uppercase;">${escapeHtml(i18n.loginEmailLabel)}</td>
                             <td style="padding:10px 0; font-size:14px; font-weight:700; color:#111827;">${safeLogin}</td>
                           </tr>
                           <tr>
-                            <td style="width:170px; padding:10px 0; font-size:12px; color:#6B7280; text-transform:uppercase;">Temporary Password</td>
+                            <td style="width:170px; padding:10px 0; font-size:12px; color:#6B7280; text-transform:uppercase;">${escapeHtml(i18n.temporaryPasswordLabel)}</td>
                             <td style="padding:10px 0; font-size:14px; font-weight:700; color:#111827;">${safePassword}</td>
                           </tr>
                         </table>
@@ -618,7 +876,7 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
                             <tr>
                               <td align="center" valign="middle" bgcolor="#D71920" style="background:#D71920; border-radius:12px; mso-padding-alt:15px 18px;">
                                 <a href="${safeLink}" style="display:block; font-family:Arial, sans-serif; font-size:15px; font-weight:800; color:#FFFFFF; text-decoration:none; padding:15px 18px; line-height:20px; border-radius:12px; text-align:center;">
-                                  <span style="color:#FFFFFF; text-decoration:none;">Open CRA Platform</span>
+                                  <span style="color:#FFFFFF; text-decoration:none;">${escapeHtml(i18n.openPlatformButton)}</span>
                                 </a>
                               </td>
                             </tr>
@@ -2538,12 +2796,24 @@ export const apiRouter = (() => {
       const pool = await getPool();
       await ensureBootstrapAuthData(pool);
 
-      const { rows } = await pool.query(
-        `SELECT id, name, email, role, created_at
-           FROM app_users
-          WHERE is_active = true
-          ORDER BY lower(email)`
-      );
+      let rows = [];
+      try {
+        ({ rows } = await pool.query(
+          `SELECT id, name, email, role, preferred_language, created_at
+             FROM app_users
+            WHERE is_active = true
+            ORDER BY lower(email)`
+        ));
+      } catch (error) {
+        // Backward-compat: older DBs may not have preferred_language yet.
+        if (String(error?.code ?? "") !== "42703") throw error;
+        ({ rows } = await pool.query(
+          `SELECT id, name, email, role, created_at
+             FROM app_users
+            WHERE is_active = true
+            ORDER BY lower(email)`
+        ));
+      }
       res.json(rows.map((row) => mapUserRow(row)));
     })
   );
@@ -2556,6 +2826,7 @@ export const apiRouter = (() => {
         name: req.body?.name,
         email: req.body?.email,
         role: req.body?.role,
+        preferredLanguage: req.body?.preferredLanguage,
         password: req.body?.password,
         requirePassword: true,
       });
@@ -2568,12 +2839,24 @@ export const apiRouter = (() => {
       const id = randomUUID();
       const passwordHash = makePasswordHash(parsed.value.password);
         try {
-          const { rows } = await pool.query(
-            `INSERT INTO app_users (id, name, email, role, password_hash, is_active)
-             VALUES ($1, $2, $3, $4, $5, true)
-             RETURNING id, name, email, role, created_at`,
-            [id, parsed.value.name, parsed.value.email, parsed.value.role, passwordHash]
-          );
+          let rows = [];
+          try {
+            ({ rows } = await pool.query(
+              `INSERT INTO app_users (id, name, email, role, preferred_language, password_hash, is_active)
+               VALUES ($1, $2, $3, $4, $5, $6, true)
+               RETURNING id, name, email, role, preferred_language, created_at`,
+              [id, parsed.value.name, parsed.value.email, parsed.value.role, parsed.value.preferredLanguage, passwordHash]
+            ));
+          } catch (error) {
+            // Backward-compat: older DBs may not have preferred_language yet.
+            if (String(error?.code ?? "") !== "42703") throw error;
+            ({ rows } = await pool.query(
+              `INSERT INTO app_users (id, name, email, role, password_hash, is_active)
+               VALUES ($1, $2, $3, $4, $5, true)
+               RETURNING id, name, email, role, created_at`,
+              [id, parsed.value.name, parsed.value.email, parsed.value.role, passwordHash]
+            ));
+          }
           await writeAuditLogBestEffort(pool, req, {
             action: "admin.user_created",
             targetType: "user",
@@ -2605,6 +2888,7 @@ export const apiRouter = (() => {
         name: req.body?.name,
         email: req.body?.email,
         role: req.body?.role,
+        preferredLanguage: req.body?.preferredLanguage,
         password: req.body?.newPassword,
         requirePassword: false,
       });
@@ -2641,26 +2925,53 @@ export const apiRouter = (() => {
             }
           }
 
-          const result = await client.query(
-            `UPDATE app_users
-                SET name = $1,
-                    email = $2,
-                    role = $3,
-                    password_hash = CASE WHEN $4 = '' THEN password_hash ELSE $5 END,
-                    updated_at = now()
-              WHERE id = $6
-                AND is_active = true
-            RETURNING id, name, email, role, created_at`,
-            [
-              parsed.value.name,
-              parsed.value.email,
-              parsed.value.role,
-              newPassword,
-              newPassword ? makePasswordHash(newPassword) : "",
-              userId,
-            ]
-          );
-          updated = result.rows?.[0] ?? null;
+          let result = null;
+          try {
+            result = await client.query(
+              `UPDATE app_users
+                  SET name = $1,
+                      email = $2,
+                      role = $3,
+                      preferred_language = $4,
+                      password_hash = CASE WHEN $5 = '' THEN password_hash ELSE $6 END,
+                      updated_at = now()
+                WHERE id = $7
+                  AND is_active = true
+              RETURNING id, name, email, role, preferred_language, created_at`,
+              [
+                parsed.value.name,
+                parsed.value.email,
+                parsed.value.role,
+                parsed.value.preferredLanguage,
+                newPassword,
+                newPassword ? makePasswordHash(newPassword) : "",
+                userId,
+              ]
+            );
+          } catch (error) {
+            // Backward-compat: older DBs may not have preferred_language yet.
+            if (String(error?.code ?? "") !== "42703") throw error;
+            result = await client.query(
+              `UPDATE app_users
+                  SET name = $1,
+                      email = $2,
+                      role = $3,
+                      password_hash = CASE WHEN $4 = '' THEN password_hash ELSE $5 END,
+                      updated_at = now()
+                WHERE id = $6
+                  AND is_active = true
+              RETURNING id, name, email, role, created_at`,
+              [
+                parsed.value.name,
+                parsed.value.email,
+                parsed.value.role,
+                newPassword,
+                newPassword ? makePasswordHash(newPassword) : "",
+                userId,
+              ]
+            );
+          }
+          updated = result?.rows?.[0] ?? null;
         });
 
         if (res.headersSent) return;
@@ -2830,15 +3141,25 @@ export const apiRouter = (() => {
       const providedPassword = String(body.temporaryPassword ?? "").trim();
 
       const pool = await getPool();
-      const { rows } = await pool.query(
-        "SELECT id, name, email, is_active FROM app_users WHERE id = $1 LIMIT 1",
-        [userId]
-      );
+      let rows = [];
+      try {
+        ({ rows } = await pool.query(
+          "SELECT id, name, email, preferred_language, is_active FROM app_users WHERE id = $1 LIMIT 1",
+          [userId]
+        ));
+      } catch (error) {
+        // Backward-compat: older DBs may not have preferred_language yet.
+        if (String(error?.code ?? "") !== "42703") throw error;
+        ({ rows } = await pool.query("SELECT id, name, email, is_active FROM app_users WHERE id = $1 LIMIT 1", [
+          userId,
+        ]));
+      }
       const targetUser = rows?.[0] ?? null;
       if (!targetUser || targetUser.is_active === false) {
         res.status(404).json({ error: "User not found" });
         return;
       }
+      const lang = normalizeNotificationLanguage(targetUser.preferred_language) ?? "en";
 
       const settings = await getM365Settings(pool);
       const appUrl = providedAppUrl || String(settings.appBaseUrl ?? "").trim();
@@ -2848,7 +3169,7 @@ export const apiRouter = (() => {
       }
 
       const temporaryPassword = providedPassword || generateTemporaryPassword(12);
-      const subject = ACCESS_EMAIL_SUBJECT;
+      const subject = getAccessEmailSubject(lang);
       const logoB64 = await getAccessEmailLogoBase64();
       const logoSrc = logoB64
         ? `data:image/png;base64,${logoB64}`
@@ -2860,6 +3181,7 @@ export const apiRouter = (() => {
         appUrl,
         senderUpn: settings.senderUpn,
         logoSrc,
+        lang,
       });
 
       res.json({
@@ -2889,15 +3211,26 @@ export const apiRouter = (() => {
       const providedPassword = String(body.temporaryPassword ?? "").trim();
 
       const pool = await getPool();
-      const { rows } = await pool.query(
-        "SELECT id, name, email, is_active, password_hash FROM app_users WHERE id = $1 LIMIT 1",
-        [userId]
-      );
+      let rows = [];
+      try {
+        ({ rows } = await pool.query(
+          "SELECT id, name, email, preferred_language, is_active, password_hash FROM app_users WHERE id = $1 LIMIT 1",
+          [userId]
+        ));
+      } catch (error) {
+        // Backward-compat: older DBs may not have preferred_language yet.
+        if (String(error?.code ?? "") !== "42703") throw error;
+        ({ rows } = await pool.query(
+          "SELECT id, name, email, is_active, password_hash FROM app_users WHERE id = $1 LIMIT 1",
+          [userId]
+        ));
+      }
       const targetUser = rows?.[0] ?? null;
       if (!targetUser || targetUser.is_active === false) {
         res.status(404).json({ error: "User not found" });
         return;
       }
+      const lang = normalizeNotificationLanguage(targetUser.preferred_language) ?? "en";
 
       const settings = await getM365Settings(pool);
       const appUrl = providedAppUrl || String(settings.appBaseUrl ?? "").trim();
@@ -2907,7 +3240,7 @@ export const apiRouter = (() => {
       }
 
       const temporaryPassword = providedPassword || generateTemporaryPassword(12);
-      const subject = ACCESS_EMAIL_SUBJECT;
+      const subject = getAccessEmailSubject(lang);
       const logoB64 = await getAccessEmailLogoBase64();
       const attachments = logoB64
         ? [
@@ -2929,6 +3262,7 @@ export const apiRouter = (() => {
         appUrl,
         senderUpn: settings.senderUpn,
         logoSrc,
+        lang,
       });
 
       const nextPasswordHash = makePasswordHash(temporaryPassword);
@@ -3499,6 +3833,7 @@ export const apiRouter = (() => {
       const eventType = String(body.eventType ?? "request_status_changed").trim();
       const status = String(body.status ?? "submitted").trim();
       const requestId = String(body.requestId ?? "").trim();
+      const lang = normalizeNotificationLanguage(body.lang) ?? "en";
 
       const pool = await getPool();
       const settings = await getM365Settings(pool);
@@ -3527,7 +3862,7 @@ export const apiRouter = (() => {
         );
       }
 
-      const template = getTemplateForEvent(settings, eventType);
+      const template = getTemplateForEvent(settings, eventType, lang);
       const vars = {
         requestId: request.id,
         status,
@@ -3544,9 +3879,10 @@ export const apiRouter = (() => {
         dashboardLink: buildDashboardLink(settings.appBaseUrl),
         logoUrl: buildPublicAssetLink(settings.appBaseUrl, "monroc-logo.png"),
         template,
+        lang,
       });
 
-      res.json({ subject, html });
+      res.json({ subject, html, lang });
     })
   );
 
@@ -4304,31 +4640,37 @@ export const apiRouter = (() => {
           if (settings.enabled && tokenState.hasRefreshToken) {
             const to = resolveRecipientsForStatus(settings, createdStatus);
             if (to.length) {
-              const subject = `[CRA] Request ${id} status changed to ${createdStatus}`;
+              const subjectFallback = `[CRA] Request ${id} submitted`;
               const link = buildRequestLink(settings.appBaseUrl, id);
-              const template = getTemplateForEvent(settings, "request_created");
-              const subjectTpl = applyTemplateVars(template.subject, {
+              const vars = {
                 requestId: id,
                 status: createdStatus,
-              });
-              const html = renderStatusEmailHtml({
-                request: requestData,
-                newStatus: createdStatus,
-                actorName: body.createdByName ?? "",
-                comment: "",
-                link,
-                dashboardLink: buildDashboardLink(settings.appBaseUrl),
-                logoCid: "monroc-logo",
-                template,
-                introOverride: template.intro,
-              });
-              await pool.query(
-                `
-                INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
-                VALUES ($1,$2,$3,$4,$5,$6)
-                `,
-                [randomUUID(), "request_created", id, to.join(", "), subjectTpl || subject, html]
-              );
+              };
+
+              const groups = await groupRecipientsByPreferredLanguage(pool, to);
+              for (const [lang, groupEmails] of groups) {
+                const template = getTemplateForEvent(settings, "request_created", lang);
+                const subjectTpl = applyTemplateVars(template.subject, vars);
+                const html = renderStatusEmailHtml({
+                  request: requestData,
+                  newStatus: createdStatus,
+                  actorName: body.createdByName ?? "",
+                  comment: "",
+                  link,
+                  dashboardLink: buildDashboardLink(settings.appBaseUrl),
+                  logoCid: "monroc-logo",
+                  template,
+                  introOverride: template.intro,
+                  lang,
+                });
+                await pool.query(
+                  `
+                  INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+                  VALUES ($1,$2,$3,$4,$5,$6)
+                  `,
+                  [randomUUID(), "request_created", id, groupEmails.join(", "), subjectTpl || subjectFallback, html]
+                );
+              }
             }
           }
         }
@@ -4403,31 +4745,37 @@ export const apiRouter = (() => {
           if (settings.enabled && tokenState.hasRefreshToken) {
             const to = resolveRecipientsForStatus(settings, newStatus);
             if (to.length) {
-              const subject = `[CRA] Request ${requestId} status changed to ${newStatus}`;
+              const subjectFallback = `[CRA] Request ${requestId} status changed to ${newStatus}`;
               const link = buildRequestLink(settings.appBaseUrl, requestId);
-              const template = getTemplateForEvent(settings, "request_status_changed");
-              const subjectTpl = applyTemplateVars(template.subject, {
+              const vars = {
                 requestId,
                 status: newStatus,
-              });
-              const html = renderStatusEmailHtml({
-                request: updated,
-                newStatus,
-                actorName: body.userName ?? "",
-                comment: body.comment,
-                link,
-                dashboardLink: buildDashboardLink(settings.appBaseUrl),
-                logoCid: "monroc-logo",
-                template,
-                introOverride: template.intro,
-              });
-              await pool.query(
-                `
-                INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
-                VALUES ($1,$2,$3,$4,$5,$6)
-                `,
-                [randomUUID(), "request_status_changed", requestId, to.join(", "), subjectTpl || subject, html]
-              );
+              };
+
+              const groups = await groupRecipientsByPreferredLanguage(pool, to);
+              for (const [lang, groupEmails] of groups) {
+                const template = getTemplateForEvent(settings, "request_status_changed", lang);
+                const subjectTpl = applyTemplateVars(template.subject, vars);
+                const html = renderStatusEmailHtml({
+                  request: updated,
+                  newStatus,
+                  actorName: body.userName ?? "",
+                  comment: body.comment,
+                  link,
+                  dashboardLink: buildDashboardLink(settings.appBaseUrl),
+                  logoCid: "monroc-logo",
+                  template,
+                  introOverride: template.intro,
+                  lang,
+                });
+                await pool.query(
+                  `
+                  INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+                  VALUES ($1,$2,$3,$4,$5,$6)
+                  `,
+                  [randomUUID(), "request_status_changed", requestId, groupEmails.join(", "), subjectTpl || subjectFallback, html]
+                );
+              }
             }
           }
         }
@@ -4484,32 +4832,38 @@ export const apiRouter = (() => {
         return;
       }
 
-      const subjectFallback = `[CRA] Request ${requestId} updated`;
       const link = buildRequestLink(settings.appBaseUrl, requestId);
-      const template = getTemplateForEvent(settings, eventType);
-      const subjectTpl = applyTemplateVars(template.subject, {
+      const vars = {
         requestId,
         status,
-      });
-      const html = renderStatusEmailHtml({
-        request: existing,
-        newStatus: status,
-        actorName,
-        comment,
-        link,
-        dashboardLink: buildDashboardLink(settings.appBaseUrl),
-        logoCid: "monroc-logo",
-        template,
-        introOverride: template.intro,
-      });
+      };
 
-      await pool.query(
-        `
-        INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
-        VALUES ($1,$2,$3,$4,$5,$6)
-        `,
-        [randomUUID(), eventType, requestId, to.join(", "), subjectTpl || subjectFallback, html]
-      );
+      const groups = await groupRecipientsByPreferredLanguage(pool, to);
+      for (const [lang, groupEmails] of groups) {
+        const subjectFallback = `[CRA] Request ${requestId} updated`;
+        const template = getTemplateForEvent(settings, eventType, lang);
+        const subjectTpl = applyTemplateVars(template.subject, vars);
+        const html = renderStatusEmailHtml({
+          request: existing,
+          newStatus: status,
+          actorName,
+          comment,
+          link,
+          dashboardLink: buildDashboardLink(settings.appBaseUrl),
+          logoCid: "monroc-logo",
+          template,
+          introOverride: template.intro,
+          lang,
+        });
+
+        await pool.query(
+          `
+          INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+          VALUES ($1,$2,$3,$4,$5,$6)
+          `,
+          [randomUUID(), eventType, requestId, groupEmails.join(", "), subjectTpl || subjectFallback, html]
+        );
+      }
 
       res.json({ enqueued: true, to });
     })

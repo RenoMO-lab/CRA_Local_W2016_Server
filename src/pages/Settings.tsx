@@ -468,7 +468,13 @@ const Settings: React.FC = () => {
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
   const [isEditUserOpen, setIsEditUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<(UserItem & { newPassword?: string }) | null>(null);
-  const [newUserForm, setNewUserForm] = useState({ name: '', email: '', role: 'sales' as UserRole, password: '' });
+  const [newUserForm, setNewUserForm] = useState({
+    name: '',
+    email: '',
+    role: 'sales' as UserRole,
+    preferredLanguage: 'en' as 'en' | 'fr' | 'zh',
+    password: '',
+  });
   const [isAccessEmailOpen, setIsAccessEmailOpen] = useState(false);
   const [accessEmailUser, setAccessEmailUser] = useState<UserItem | null>(null);
   const [accessEmailAppUrl, setAccessEmailAppUrl] = useState('');
@@ -1716,9 +1722,10 @@ const Settings: React.FC = () => {
         name: newUserForm.name,
         email: newUserForm.email,
         role: newUserForm.role,
+        preferredLanguage: newUserForm.preferredLanguage,
         password: newUserForm.password,
       });
-      setNewUserForm({ name: '', email: '', role: 'sales', password: '' });
+      setNewUserForm({ name: '', email: '', role: 'sales', preferredLanguage: 'en', password: '' });
       setIsAddUserOpen(false);
       toast({
         title: t.settings.userAdded,
@@ -1761,6 +1768,7 @@ const Settings: React.FC = () => {
         name: editingUser.name,
         email: editingUser.email,
         role: editingUser.role,
+        preferredLanguage: editingUser.preferredLanguage,
         newPassword: editingUser.newPassword?.trim() || '',
       });
       setIsEditUserOpen(false);
@@ -2210,6 +2218,24 @@ const Settings: React.FC = () => {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-lang">{t.common.language}</Label>
+                    <Select
+                      value={newUserForm.preferredLanguage}
+                      onValueChange={(value) =>
+                        setNewUserForm({ ...newUserForm, preferredLanguage: value as 'en' | 'fr' | 'zh' })
+                      }
+                    >
+                      <SelectTrigger id="new-lang">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-card border border-border">
+                        <SelectItem value="en">EN</SelectItem>
+                        <SelectItem value="fr">FR</SelectItem>
+                        <SelectItem value="zh">ZH</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setIsAddUserOpen(false)}>
@@ -2228,13 +2254,14 @@ const Settings: React.FC = () => {
                   <TableHead className="font-semibold">{t.common.name}</TableHead>
                   <TableHead className="font-semibold">{t.common.email}</TableHead>
                   <TableHead className="font-semibold">{t.common.role}</TableHead>
+                  <TableHead className="font-semibold">{t.common.language}</TableHead>
                   <TableHead className="font-semibold text-right">{t.common.actions}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isUsersLoading && users.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="text-center text-muted-foreground">
                       {t.common.loading}
                     </TableCell>
                   </TableRow>
@@ -2251,6 +2278,7 @@ const Settings: React.FC = () => {
                         {t.roles[userItem.role]}
                       </span>
                     </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{String(userItem.preferredLanguage ?? 'en').toUpperCase()}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2">
                         <Button
@@ -2358,6 +2386,24 @@ const Settings: React.FC = () => {
                         <SelectItem value="design">{t.roles.design}</SelectItem>
                         <SelectItem value="costing">{t.roles.costing}</SelectItem>
                         <SelectItem value="admin">{t.roles.admin}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-lang">{t.common.language}</Label>
+                    <Select
+                      value={editingUser.preferredLanguage}
+                      onValueChange={(value) =>
+                        setEditingUser({ ...editingUser, preferredLanguage: value as 'en' | 'fr' | 'zh' })
+                      }
+                    >
+                      <SelectTrigger id="edit-lang">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-card border border-border">
+                        <SelectItem value="en">EN</SelectItem>
+                        <SelectItem value="fr">FR</SelectItem>
+                        <SelectItem value="zh">ZH</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
