@@ -640,7 +640,6 @@ const renderStatusEmailHtml = ({ request, eventType, newStatus, previousStatus, 
   if (updatedAt) metaParts.push(escapeHtml(updatedAt));
   if (actor) metaParts.push(`${escapeHtml(i18n.metaByPrefix)} ${escapeHtml(actor)}`);
   const metaLine = metaParts.join(" | ");
-  const topLabel = eventType === "request_created" ? (i18n.requestCreatedLabel || i18n.statusUpdatedLabel) : i18n.statusUpdatedLabel;
   const showTransition =
     eventType === "request_status_changed" &&
     previousStatusCode &&
@@ -722,7 +721,6 @@ const renderStatusEmailHtml = ({ request, eventType, newStatus, previousStatus, 
                         </tr>
                         <tr>
                           <td style="padding:22px 24px 18px 24px;">
-                            <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">${escapeHtml(topLabel)}</div>
                             <div style="margin-top:6px; font-size:24px; font-weight:900; color:#111827; letter-spacing:0.2px; line-height:30px;">${escapeHtml(titleText)}</div>
                             ${statusLine}
                             ${transitionLine}
