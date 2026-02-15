@@ -941,6 +941,7 @@ export const translations = {
     pdf: {
       reportTitle: 'Monroc Customer Request Report',
       generatedLabel: 'Generated',
+      continuedLabel: 'Continued',
       requestLabel: 'Request',
       createdAtLabel: 'Created At',
       lastUpdatedLabel: 'Last Updated',
@@ -1930,6 +1931,7 @@ export const translations = {
     pdf: {
       reportTitle: 'Rapport de demande client Monroc',
       generatedLabel: 'Généré',
+      continuedLabel: 'Suite',
       requestLabel: 'Demande',
       createdAtLabel: 'Créé le',
       lastUpdatedLabel: 'Dernière mise à jour',
@@ -2919,6 +2921,7 @@ export const translations = {
     pdf: {
       reportTitle: 'Monroc 客户需求报告',
       generatedLabel: '生成时间',
+      continuedLabel: '续',
       requestLabel: '需求',
       createdAtLabel: '创建时间',
       lastUpdatedLabel: '最后更新',

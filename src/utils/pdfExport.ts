@@ -393,18 +393,24 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   };
 
   const ensureSpace = (height: number) => {
-    if (y + height > pageHeight - bottomMargin) {
-      addPage();
+    if (y + height <= pageHeight - bottomMargin) return;
+    // If we're inside a card, close/reopen it on the new page with a "continued" header.
+    if (activeCard) {
+      pageBreakActiveCard();
+      return;
     }
+    addPage();
   };
 
-  type Card = { x: number; w: number; topY: number };
+  type Card = { x: number; w: number; topY: number; title: string };
+  type ActiveCard = { title: string; card: Card; continuedCount: number };
+  let activeCard: ActiveCard | null = null;
 
-  const startCard = (title: string): Card => {
+  const startCardFrame = (title: string, opts?: { variant?: "normal" | "continued" }): Card => {
     const x = margin;
     const w = contentWidth;
-    const headerH = 9;
-    ensureSpace(headerH + 14);
+    const variant = opts?.variant ?? "normal";
+    const headerH = variant === "continued" ? 7 : 9;
     const topY = y;
     // Inset header fills so they don't "leak" outside the rounded card corner.
     const headerInset = 0.8;
@@ -422,26 +428,71 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     pdf.rect(x + headerInset, stripY, 3 - headerInset, stripH, "F");
 
     // Header title.
-    pdf.setFontSize(11);
-    setFont("bold");
+    pdf.setFontSize(variant === "continued" ? 10 : 11);
+    setFont(variant === "continued" ? "normal" : "bold");
     const [tr, tg, tb] = rgb(COLORS.title);
     pdf.setTextColor(tr, tg, tb);
-    pdf.text(title, x + 6, topY + 6.2);
+    pdf.text(title, x + 6, topY + (variant === "continued" ? 5.1 : 6.2));
+
+    if (variant === "continued") {
+      // Smaller continuation indicator (less repetitive).
+      pdf.setFontSize(8);
+      setFont("normal");
+      const [mr, mg, mb] = rgb(COLORS.muted);
+      pdf.setTextColor(mr, mg, mb);
+      pdf.text(`(${t.pdf.continuedLabel})`, x + 6 + pdf.getTextWidth(title) + 2, topY + 5.0);
+      pdf.setTextColor(tr, tg, tb);
+    }
+
     setFont("normal");
     pdf.setTextColor(0, 0, 0);
 
     y = topY + headerH + 6;
-    return { x, w, topY };
+    return { x, w, topY, title };
   };
 
-  const endCard = (card: Card) => {
+  const endCardFrame = (card: Card, opts?: { advanceY?: boolean }) => {
     const padBottom = 4;
     const h = y - card.topY + padBottom;
     const [br, bg, bb] = rgb(COLORS.border);
     pdf.setDrawColor(br, bg, bb);
     pdf.setLineWidth(0.3);
     pdf.roundedRect(card.x, card.topY, card.w, h, 3, 3, "S");
-    y = card.topY + h + 7;
+    if (opts?.advanceY !== false) {
+      y = card.topY + h + 7;
+    }
+  };
+
+  const beginCard = (title: string) => {
+    // Minimum space: header + a couple of lines.
+    ensureSpace(9 + 14);
+    const card = startCardFrame(title, { variant: "normal" });
+    activeCard = { title, card, continuedCount: 0 };
+  };
+
+  const beginCardContinued = (title: string, continuedCount: number) => {
+    ensureSpace(7 + 10);
+    const card = startCardFrame(title, { variant: "continued" });
+    activeCard = { title, card, continuedCount };
+  };
+
+  const endCard = () => {
+    if (!activeCard) return;
+    endCardFrame(activeCard.card);
+    activeCard = null;
+  };
+
+  const pageBreakActiveCard = () => {
+    if (!activeCard) {
+      addPage();
+      return;
+    }
+    const { title, card, continuedCount } = activeCard;
+    // Close current page's frame without adding extra spacing (we're going to a new page).
+    endCardFrame(card, { advanceY: false });
+    addPage();
+    // Re-open the same card with a smaller "continued" header.
+    beginCardContinued(title, continuedCount + 1);
   };
 
   const measureKv = (label: string, value: string, x: number, w: number, labelW: number) => {
@@ -519,12 +570,31 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     const innerW = contentWidth - 12;
     pdf.setFontSize(10);
     setFont("normal");
-    const lines = pdf.splitTextToSize(String(text ?? ""), innerW) as string[];
-    const h = Math.max(1, lines.length) * lineHeightMm(10) + 1;
-    ensureSpace(h);
+    const raw = String(text ?? "").trim();
+    if (!raw) return;
+
+    const lines = pdf.splitTextToSize(raw, innerW) as string[];
+    const lh = lineHeightMm(10);
     pdf.setTextColor(0, 0, 0);
-    pdf.text(lines, innerX, y);
-    y += h;
+
+    // Render in chunks so long paragraphs never overflow the page (and frames remain correct).
+    let idx = 0;
+    while (idx < lines.length) {
+      const available = pageHeight - bottomMargin - y;
+      // Reserve a tiny bottom pad so the last line doesn't touch the border.
+      const maxLines = Math.max(1, Math.floor((available - 1) / lh));
+      if (maxLines <= 0) {
+        ensureSpace(lh + 2);
+        continue;
+      }
+
+      const chunk = lines.slice(idx, idx + maxLines);
+      const h = Math.max(1, chunk.length) * lh;
+      ensureSpace(h + 2);
+      pdf.text(chunk, innerX, y);
+      y += h + 2;
+      idx += chunk.length;
+    }
   };
 
   const drawTable = (opts: {
@@ -616,16 +686,14 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     title: string,
     opts: { headers: string[]; rows: Array<string[]>; colWidths: number[] },
   ) => {
-    let card = startCard(title);
+    beginCard(title);
     drawTable({
       ...opts,
       onPageBreak: () => {
-        endCard(card);
-        addPage();
-        card = startCard(title);
+        pageBreakActiveCard();
       },
     });
-    endCard(card);
+    endCard();
   };
 
   // First page header.
@@ -651,9 +719,9 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     { label: t.pdf.createdAtLabel, value: formatDate(new Date(request.createdAt), "MMMM d, yyyy") },
   ];
   if (summaryFields.some((f) => hasDisplayValueLocal(f.value))) {
-    const summaryCard = startCard(`${t.pdf.requestLabel}: ${request.id}`);
+    beginCard(`${t.pdf.requestLabel}: ${request.id}`);
     drawKvGrid(summaryFields, 2);
-    endCard(summaryCard);
+    endCard();
   }
 
   // General information card.
@@ -666,9 +734,9 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     ...(request.country === "China" && request.city ? [{ label: t.request.city, value: request.city }] : []),
   ];
   if (generalFields.some((f) => hasDisplayValueLocal(f.value))) {
-    const generalCard = startCard(t.request.generalInfo);
+    beginCard(t.request.generalInfo);
     drawKvGrid(generalFields, 2);
-    endCard(generalCard);
+    endCard();
   }
 
   // Expected delivery card.
@@ -680,9 +748,9 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     { label: t.request.clientExpectedDeliveryDate, value: request.clientExpectedDeliveryDate || "" },
   ];
   if (deliveryFields.some((f) => hasDisplayValueLocal(f.value))) {
-    const deliveryCard = startCard(t.request.expectedDelivery);
+    beginCard(t.request.expectedDelivery);
     drawKvGrid(deliveryFields, 1);
-    endCard(deliveryCard);
+    endCard();
   }
 
   // Client application card.
@@ -695,9 +763,9 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     { label: t.request.environment, value: translateResolvedOption(request.environment, request.environmentOther) },
   ];
   if (applicationFields.some((f) => hasDisplayValueLocal(f.value))) {
-    const applicationCard = startCard(t.request.clientApplication);
+    beginCard(t.request.clientApplication);
     drawKvGrid(applicationFields, 1);
-    endCard(applicationCard);
+    endCard();
   }
 
   const products = Array.isArray(request.products) && request.products.length ? request.products : [buildLegacyProduct(request)];
@@ -718,7 +786,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
           ? product.studsPcdSpecialText
           : "";
 
-    const card = startCard(`${t.request.technicalInfo} - ${productLabel}`);
+    beginCard(`${t.request.technicalInfo} - ${productLabel}`);
 
     const axleFields = [
       { label: t.request.productType, value: getProductTypeLabel(product, translateOption) },
@@ -782,7 +850,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       drawParagraph(product.productComments);
     }
 
-    endCard(card);
+    endCard();
 
     if (productAttachmentRows.length) {
       drawTableCard(`${t.request.attachments} - ${productLabel}`, {
@@ -795,18 +863,18 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
 
   // Design notes card.
   if ((request.designNotes ?? "").trim()) {
-    const card = startCard(t.pdf.designNotesTitle);
+    beginCard(t.pdf.designNotesTitle);
     drawParagraph(request.designNotes ?? "");
-    endCard(card);
+    endCard();
   }
 
   // Design result card.
   const designAttachments = Array.isArray(request.designResultAttachments) ? request.designResultAttachments : [];
   if ((request.designResultComments ?? "").trim()) {
-    const card = startCard(t.panels.designResult);
+    beginCard(t.panels.designResult);
     drawSubheading(t.panels.designResultComments);
     drawParagraph(request.designResultComments ?? "");
-    endCard(card);
+    endCard();
   }
   if (designAttachments.length) {
     const rows = designAttachments.map((att) => [
@@ -842,13 +910,13 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   ].filter(Boolean) as any[];
 
   if (costingFields.length || (request.costingNotes ?? "").trim()) {
-    const card = startCard(t.pdf.costingInformationTitle);
+    beginCard(t.pdf.costingInformationTitle);
     if (costingFields.length) drawKvGrid(costingFields, 2);
     if ((request.costingNotes ?? "").trim()) {
       drawSubheading(t.panels.costingNotes);
       drawParagraph(request.costingNotes ?? "");
     }
-    endCard(card);
+    endCard();
   }
 
   if (costingAttachments.length) {
@@ -887,13 +955,13 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   ].filter(Boolean) as any[];
 
   if (salesFields.length || (request.salesFeedbackComment ?? "").trim()) {
-    const card = startCard(t.panels.salesFollowup);
+    beginCard(t.panels.salesFollowup);
     if (salesFields.length) drawKvGrid(salesFields, 2);
     if ((request.salesFeedbackComment ?? "").trim()) {
       drawSubheading(t.panels.salesFeedback);
       drawParagraph(request.salesFeedbackComment ?? "");
     }
-    endCard(card);
+    endCard();
   }
 
   const salesPaymentTermsRaw = Array.isArray(request.salesPaymentTerms) ? request.salesPaymentTerms : [];
@@ -941,7 +1009,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       return !(sameStatus && sameUser && noComment);
     });
 
-    let card: Card | null = startCard(t.pdf.statusHistoryTitle);
+    beginCard(t.pdf.statusHistoryTitle);
     const headers = [t.common.status, t.common.date, t.pdf.byLabel, t.pdf.commentLabel];
     const colWidths = [28, 34, 30, contentWidth - 12 - 28 - 34 - 30];
 
@@ -997,9 +1065,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       const rowH = maxLines * lineHeightMm(fontSize) + rowPadY * 2;
 
       if (y + rowH > pageHeight - bottomMargin) {
-        if (card) endCard(card);
-        addPage();
-        card = startCard(t.pdf.statusHistoryTitle);
+        pageBreakActiveCard();
         drawHistoryHeader();
       }
 
@@ -1021,7 +1087,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       y += rowH;
     }
 
-    if (card) endCard(card);
+    endCard();
   }
 
   // Footer (page numbers).
