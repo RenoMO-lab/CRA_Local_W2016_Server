@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { ROLE_CONFIG } from '@/types';
-import { Copy, ExternalLink, RefreshCw } from 'lucide-react';
+import { CheckCheck, Copy, ExternalLink, RefreshCw, X } from 'lucide-react';
 
 type M365RoleKey = 'sales' | 'design' | 'costing' | 'admin';
 type M365ActionKey = 'request_created' | 'request_status_changed';
@@ -30,23 +30,12 @@ const RoleChip = ({ role, label }: { role: M365RoleKey; label: string }) => {
     admin: 'bg-destructive',
   };
   return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/20 px-3 py-1 text-xs font-semibold text-foreground/90">
+    <span className="inline-flex w-[120px] items-center justify-center gap-2 rounded-full border border-border bg-muted/20 px-3 py-1 text-xs font-semibold text-foreground/90">
       <span className={cn('h-2 w-2 rounded-full ring-1 ring-border/60', dot[role])} />
       <span className="truncate">{label}</span>
     </span>
   );
 };
-
-const TocLink = ({ href, label }: { href: string; label: string }) => (
-  <a
-    href={href}
-    className={cn(
-      'block rounded-lg px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors'
-    )}
-  >
-    {label}
-  </a>
-);
 
 export default function M365NotificationsTab(props: any) {
   const {
@@ -122,6 +111,12 @@ export default function M365NotificationsTab(props: any) {
   const isColumnAllOn = (role: M365RoleKey) => FLOW_STATUS_KEYS.every((status: string) => getFlowValue(status, role));
   const isRowAllOn = (status: string) => roles.every((role) => getFlowValue(status, role));
 
+  const jumpToSection = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const RecipientsField = ({
     id,
     label,
@@ -185,7 +180,7 @@ export default function M365NotificationsTab(props: any) {
 
   return (
     <div className="bg-card rounded-lg border border-border overflow-visible">
-      <div className="sticky top-0 z-10 bg-card/90 backdrop-blur border-b border-border px-4 md:px-6 py-4">
+      <div className="sticky top-0 z-40 bg-card border-b border-border px-4 md:px-6 py-4 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="space-y-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
@@ -210,13 +205,29 @@ export default function M365NotificationsTab(props: any) {
               </span>
             </div>
             <p className="text-sm text-muted-foreground">{t.settings.m365Description}</p>
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-semibold text-muted-foreground">{t.settings.m365JumpTo}:</span>
+              <Select onValueChange={(v) => jumpToSection(v)}>
+                <SelectTrigger className="h-9 w-[220px] bg-background/60">
+                  <SelectValue placeholder={t.settings.m365JumpTo} />
+                </SelectTrigger>
+                <SelectContent className="bg-card border border-border">
+                  <SelectItem value="m365-basics">{t.settings.m365Enabled}</SelectItem>
+                  <SelectItem value="m365-connection">{t.settings.m365Connect}</SelectItem>
+                  <SelectItem value="m365-recipients">{t.settings.m365RecipientsTitle}</SelectItem>
+                  <SelectItem value="m365-routing">{t.settings.m365FlowTitle}</SelectItem>
+                  <SelectItem value="m365-templates">{t.settings.m365TemplatesTitle}</SelectItem>
+                  <SelectItem value="m365-test">{t.settings.m365TestEmail}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          <div className="grid w-full gap-3 lg:w-[320px]">
-            <Button size="lg" className="w-full" onClick={saveM365Settings} disabled={hasM365Error || isM365Loading}>
+          <div className="flex w-full flex-col sm:flex-row gap-3 lg:w-auto lg:justify-end">
+            <Button size="lg" className="w-full sm:w-auto sm:min-w-48" onClick={saveM365Settings} disabled={hasM365Error || isM365Loading}>
               {t.settings.saveChanges}
             </Button>
-            <Button size="lg" className="w-full" variant="outline" onClick={loadM365Info} disabled={isM365Loading}>
+            <Button size="lg" className="w-full sm:w-auto sm:min-w-48" variant="outline" onClick={loadM365Info} disabled={isM365Loading}>
               <span className={cn('mr-2 inline-flex', isM365Loading ? 'animate-spin' : '')}>
                 <RefreshCw size={16} />
               </span>
@@ -230,25 +241,8 @@ export default function M365NotificationsTab(props: any) {
         {hasM365Error ? (
           <p className="text-sm text-destructive">{t.settings.m365LoadError}</p>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            <aside className="hidden lg:block lg:col-span-3">
-              <div className="sticky top-28 rounded-xl border border-border bg-muted/10 p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground px-3 py-2">
-                  {t.settings.m365JumpTo}
-                </div>
-                <div className="space-y-1">
-                  <TocLink href="#m365-basics" label={t.settings.m365Enabled} />
-                  <TocLink href="#m365-connection" label={t.settings.m365Connect} />
-                  <TocLink href="#m365-recipients" label={t.settings.m365RecipientsTitle} />
-                  <TocLink href="#m365-routing" label={t.settings.m365FlowTitle} />
-                  <TocLink href="#m365-templates" label={t.settings.m365TemplatesTitle} />
-                  <TocLink href="#m365-test" label={t.settings.m365TestEmail} />
-                </div>
-              </div>
-            </aside>
-
-            <div className="lg:col-span-9 space-y-6">
-              <section id="m365-basics" className="rounded-xl border border-border bg-muted/10 p-4 space-y-4">
+          <div className="space-y-6">
+            <section id="m365-basics" className="scroll-mt-28 md:scroll-mt-32 rounded-xl border border-border bg-muted/10 p-4 space-y-4">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-foreground">{t.settings.m365Enabled}</div>
                   <div className="text-xs text-muted-foreground">{t.settings.m365EnabledDesc}</div>
@@ -285,7 +279,7 @@ export default function M365NotificationsTab(props: any) {
                 </div>
               </section>
 
-              <section id="m365-connection" className="rounded-xl border border-border bg-muted/10 p-4 space-y-4">
+            <section id="m365-connection" className="scroll-mt-28 md:scroll-mt-32 rounded-xl border border-border bg-muted/10 p-4 space-y-4">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="space-y-1">
                     <div className="text-sm font-semibold text-foreground">{t.settings.m365Connect}</div>
@@ -375,7 +369,7 @@ export default function M365NotificationsTab(props: any) {
                 </div>
               </section>
 
-              <section id="m365-recipients" className="rounded-xl border border-border bg-muted/10 p-4 space-y-4">
+            <section id="m365-recipients" className="scroll-mt-28 md:scroll-mt-32 rounded-xl border border-border bg-muted/10 p-4 space-y-4">
                 <div className="text-sm font-semibold text-foreground">{t.settings.m365RecipientsTitle}</div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <RecipientsField
@@ -409,25 +403,34 @@ export default function M365NotificationsTab(props: any) {
                 </div>
               </section>
 
-              <section id="m365-routing" className="rounded-xl border border-border bg-muted/10 p-4 space-y-4">
+            <section id="m365-routing" className="scroll-mt-28 md:scroll-mt-32 rounded-xl border border-border bg-muted/10 p-4 space-y-4">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-foreground">{t.settings.m365FlowTitle}</div>
                   <div className="text-xs text-muted-foreground">{t.settings.m365FlowDesc}</div>
                 </div>
 
-                <div className="overflow-auto scrollbar-thin rounded-lg border border-border bg-background/60">
+                <div className="rounded-lg border border-border bg-background/60 overflow-hidden">
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/50 hover:bg-muted/50">
-                        <TableHead className="font-semibold sticky left-0 z-10 bg-muted/50">{t.settings.m365FlowStatus}</TableHead>
+                        <TableHead className="font-semibold sticky left-0 z-20 bg-muted w-[240px] min-w-[240px]">
+                          {t.settings.m365FlowStatus}
+                        </TableHead>
                         {roles.map((role) => {
                           const allOn = isColumnAllOn(role);
                           return (
-                            <TableHead key={role} className="font-semibold">
-                              <div className="flex items-center justify-between gap-3">
+                            <TableHead key={role} className="font-semibold w-[150px] min-w-[150px] text-center">
+                              <div className="flex flex-col items-center justify-center gap-2 py-1">
                                 <RoleChip role={role} label={roleLabel(role)} />
-                                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => toggleFlowColumn(role)}>
-                                  {allOn ? t.settings.m365ClearAll : t.settings.m365SelectAll}
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8"
+                                  onClick={() => toggleFlowColumn(role)}
+                                  title={allOn ? t.settings.m365ClearAll : t.settings.m365SelectAll}
+                                  aria-label={allOn ? t.settings.m365ClearAll : t.settings.m365SelectAll}
+                                >
+                                  {allOn ? <X size={16} /> : <CheckCheck size={16} />}
                                 </Button>
                               </div>
                             </TableHead>
@@ -440,17 +443,26 @@ export default function M365NotificationsTab(props: any) {
                         const allOn = isRowAllOn(status);
                         return (
                           <TableRow key={status}>
-                            <TableCell className="font-medium sticky left-0 z-10 bg-background/80">
+                            <TableCell className="font-medium sticky left-0 z-10 bg-background w-[240px] min-w-[240px]">
                               <div className="flex items-center justify-between gap-3">
                                 <span>{getStatusLabel(status)}</span>
-                                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => toggleFlowRow(status)}>
-                                  {allOn ? t.settings.m365ClearAll : t.settings.m365SelectAll}
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8"
+                                  onClick={() => toggleFlowRow(status)}
+                                  title={allOn ? t.settings.m365ClearAll : t.settings.m365SelectAll}
+                                  aria-label={allOn ? t.settings.m365ClearAll : t.settings.m365SelectAll}
+                                >
+                                  {allOn ? <X size={16} /> : <CheckCheck size={16} />}
                                 </Button>
                               </div>
                             </TableCell>
                             {roles.map((role) => (
-                              <TableCell key={role}>
-                                <Checkbox checked={getFlowValue(status, role)} onCheckedChange={(c) => updateFlowValue(status, role, Boolean(c))} />
+                              <TableCell key={role} className="w-[150px] min-w-[150px]">
+                                <div className="flex items-center justify-center">
+                                  <Checkbox checked={getFlowValue(status, role)} onCheckedChange={(c) => updateFlowValue(status, role, Boolean(c))} />
+                                </div>
                               </TableCell>
                             ))}
                           </TableRow>
@@ -461,7 +473,7 @@ export default function M365NotificationsTab(props: any) {
                 </div>
               </section>
 
-              <section id="m365-templates" className="rounded-xl border border-border bg-muted/10 p-4 space-y-4">
+            <section id="m365-templates" className="scroll-mt-28 md:scroll-mt-32 rounded-xl border border-border bg-muted/10 p-4 space-y-4">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-foreground">{t.settings.m365TemplatesTitle}</div>
                   <div className="text-xs text-muted-foreground">{t.settings.m365TemplatesDesc}</div>
@@ -578,7 +590,7 @@ export default function M365NotificationsTab(props: any) {
                 </div>
               </section>
 
-              <section id="m365-test" className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
+            <section id="m365-test" className="scroll-mt-28 md:scroll-mt-32 rounded-xl border border-border bg-muted/10 p-4 space-y-3">
                 <div className="text-sm font-semibold text-foreground">{t.settings.m365TestEmail}</div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
                   <div className="md:col-span-2 space-y-2">
@@ -593,7 +605,6 @@ export default function M365NotificationsTab(props: any) {
                   <p className="text-xs text-muted-foreground">{t.settings.m365TestEmailHint}</p>
                 ) : null}
               </section>
-            </div>
           </div>
         )}
       </div>
