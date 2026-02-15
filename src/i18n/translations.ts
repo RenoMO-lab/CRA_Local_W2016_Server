@@ -616,7 +616,8 @@ export const translations = {
       m365TemplatePrimary: 'Primary button label',
       m365TemplateSecondary: 'Secondary button label',
       m365TemplateFooter: 'Footer text',
-      m365TemplateVars: 'Available variables: {{requestId}}, {{status}} (localized), {{statusCode}}',
+      m365TemplateVars:
+        'Available variables: {{requestId}}, {{status}} (localized), {{statusCode}}, {{previousStatus}} (localized), {{previousStatusCode}}, {{client}}, {{country}}, {{applicationVehicle}}, {{expectedQty}}, {{expectedDeliveryDate}}, {{actor}}, {{updatedAt}}',
       m365TemplatePreview: 'Preview email',
       m365TemplateSaveHint: 'Save Changes to apply templates to real emails.',
       m365TemplateSubjectPreview: 'Subject preview',
@@ -1599,7 +1600,8 @@ export const translations = {
       m365TemplatePrimary: 'Libellé du bouton principal',
       m365TemplateSecondary: 'Libellé du bouton secondaire',
       m365TemplateFooter: 'Texte de pied de page',
-      m365TemplateVars: 'Variables disponibles : {{requestId}}, {{status}} (localisé), {{statusCode}}',
+      m365TemplateVars:
+        'Variables disponibles : {{requestId}}, {{status}} (localise), {{statusCode}}, {{previousStatus}} (localise), {{previousStatusCode}}, {{client}}, {{country}}, {{applicationVehicle}}, {{expectedQty}}, {{expectedDeliveryDate}}, {{actor}}, {{updatedAt}}',
       m365TemplatePreview: 'Aperçu de l’e-mail',
       m365TemplateSaveHint: 'Enregistrez pour appliquer les modèles aux e-mails réels.',
       m365TemplateSubjectPreview: 'Aperçu de l’objet',
@@ -2582,7 +2584,8 @@ export const translations = {
       m365TemplatePrimary: '主按钮文案',
       m365TemplateSecondary: '次按钮文案',
       m365TemplateFooter: '页脚文字',
-      m365TemplateVars: '可用变量：{{requestId}}，{{status}}（本地化），{{statusCode}}',
+      m365TemplateVars:
+        '可用变量：{{requestId}}，{{status}}（本地化），{{statusCode}}，{{previousStatus}}（本地化），{{previousStatusCode}}，{{client}}，{{country}}，{{applicationVehicle}}，{{expectedQty}}，{{expectedDeliveryDate}}，{{actor}}，{{updatedAt}}',
       m365TemplatePreview: '预览邮件',
       m365TemplateSaveHint: '保存更改后，模板才会应用到真实邮件。',
       m365TemplateSubjectPreview: '主题预览',

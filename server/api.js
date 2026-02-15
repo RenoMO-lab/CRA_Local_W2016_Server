@@ -362,7 +362,10 @@ const getTemplateForEvent = (settings, eventType, lang = "en") => {
   const langBucket = raw?.[resolvedLang] && typeof raw?.[resolvedLang] === "object" ? raw[resolvedLang] : null;
   const isI18nShape = Boolean(langBucket);
 
-  const override = isI18nShape ? langBucket?.[eventType] : raw?.[eventType];
+  // Translation fix: legacy templates (non-i18n shape) are treated as EN-only overrides.
+  // This prevents an old EN intro/subject from overwriting FR/ZH defaults.
+  const legacyOverride = resolvedLang === "en" ? raw?.[eventType] : null;
+  const override = isI18nShape ? langBucket?.[eventType] : legacyOverride;
   const merged = {
     ...getDefaultTemplateForEvent(eventType, resolvedLang),
     ...(override && typeof override === "object" ? override : {}),
@@ -387,6 +390,7 @@ const formatIsoUtc = (iso) => {
 const EMAIL_STRINGS_BY_LANG = {
   en: {
     notificationLabel: "CRA Notification",
+    requestCreatedLabel: "New Request",
     statusUpdatedLabel: "Status Updated",
     metaRequestPrefix: "Request",
     metaByPrefix: "By",
@@ -419,6 +423,7 @@ const EMAIL_STRINGS_BY_LANG = {
   },
   fr: {
     notificationLabel: "Notification CRA",
+    requestCreatedLabel: "Nouvelle demande",
     statusUpdatedLabel: "Statut mis a jour",
     metaRequestPrefix: "Demande",
     metaByPrefix: "Par",
@@ -451,6 +456,7 @@ const EMAIL_STRINGS_BY_LANG = {
   },
   zh: {
     notificationLabel: "CRA \u901a\u77e5",
+    requestCreatedLabel: "\u65b0\u8bf7\u6c42",
     statusUpdatedLabel: "\u72b6\u6001\u66f4\u65b0",
     metaRequestPrefix: "\u8bf7\u6c42",
     metaByPrefix: "\u64cd\u4f5c\u4eba",
@@ -488,20 +494,41 @@ const getEmailStrings = (lang) => {
   return EMAIL_STRINGS_BY_LANG[resolvedLang] ?? EMAIL_STRINGS_BY_LANG.en;
 };
 
-const getNotificationTemplateVars = ({ requestId, status, lang }) => {
+const getNotificationTemplateVars = ({ request, requestId, status, previousStatus, lang, actorName }) => {
   const statusCode = String(status ?? "").trim();
+  const previousStatusCode = String(previousStatus ?? "").trim();
   const i18n = getEmailStrings(lang);
   const statusLabel = i18n.statusLabels?.[statusCode] || humanizeStatus(statusCode) || statusCode;
+  const previousStatusLabel = previousStatusCode
+    ? (i18n.statusLabels?.[previousStatusCode] || humanizeStatus(previousStatusCode) || previousStatusCode)
+    : "";
+
+  const rid = String(requestId ?? request?.id ?? "").trim();
+  const updatedAt = formatIsoUtc(request?.updatedAt ?? request?.createdAt);
+  const actor = String(actorName ?? "").trim();
+  const client = String(request?.clientName ?? "").trim();
+  const country = String(request?.country ?? "").trim();
+  const applicationVehicle = String(request?.applicationVehicle ?? "").trim();
+  const expectedQty = typeof request?.expectedQty === "number" ? String(request.expectedQty) : "";
+  const expectedDeliveryDate = String(request?.clientExpectedDeliveryDate ?? "").trim();
+
   return {
-    requestId: String(requestId ?? "").trim(),
-    // Keep {{status}} user-facing (localized) for email subjects.
+    requestId: rid,
     status: statusLabel,
-    // Allow advanced templates to access raw codes if needed.
     statusCode,
+    previousStatus: previousStatusLabel,
+    previousStatusCode,
+    actor,
+    updatedAt,
+    client,
+    country,
+    applicationVehicle,
+    expectedQty,
+    expectedDeliveryDate,
   };
 };
 
-const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, dashboardLink, logoUrl, logoCid, template, introOverride, lang }) => {
+const renderStatusEmailHtml = ({ request, eventType, newStatus, previousStatus, actorName, comment, link, dashboardLink, logoUrl, logoCid, template, introOverride, lang }) => {
   const resolvedLang = normalizeNotificationLanguage(lang) ?? "en";
   const i18n = getEmailStrings(resolvedLang);
   const safeComment = String(comment ?? "").trim();
@@ -515,14 +542,30 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
   const actor = String(actorName ?? "").trim();
   const status = String(newStatus ?? "").trim();
   const statusLabel = i18n.statusLabels?.[status] || humanizeStatus(status) || status || i18n.statusUpdatedLabel;
+  const previousStatusCode = String(previousStatus ?? "").trim();
+  const previousStatusLabel = previousStatusCode
+    ? (i18n.statusLabels?.[previousStatusCode] || humanizeStatus(previousStatusCode) || previousStatusCode)
+    : "";
   const updatedAt = formatIsoUtc(request?.updatedAt ?? request?.createdAt);
-  const titleText = String(template?.title ?? "Request Update").trim() || "Request Update";
-  const introText = String(introOverride ?? template?.intro ?? "").trim();
-  const primaryText = String(template?.primaryButtonText ?? "Open request").trim() || "Open request";
-  const footerText = String(template?.footerText ?? "").trim();
+
+  const vars = getNotificationTemplateVars({
+    request,
+    requestId: rid,
+    status,
+    previousStatus: previousStatusCode,
+    lang: resolvedLang,
+    actorName: actor,
+  });
+
+  const titleText = applyTemplateVars(String(template?.title ?? "Request Update").trim() || "Request Update", vars);
+  const introText = applyTemplateVars(String(introOverride ?? template?.intro ?? "").trim(), vars);
+  const primaryText = applyTemplateVars(String(template?.primaryButtonText ?? "Open request").trim() || "Open request", vars);
+  const secondaryText = applyTemplateVars(String(template?.secondaryButtonText ?? "").trim(), vars);
+  const footerText = applyTemplateVars(String(template?.footerText ?? "").trim(), vars);
 
   const badge = statusBadgeStyles(status);
   const openRequestHref = link ? escapeHtml(link) : "";
+  const dashboardHref = dashboardLink ? escapeHtml(dashboardLink) : "";
   const safeLogoCid = String(logoCid ?? "").trim();
   const logoImg = safeLogoCid
     ? `<img src="cid:${escapeHtml(safeLogoCid)}" width="120" alt="MONROC" style="display:block; border:0; outline:none; text-decoration:none; height:auto;" />`
@@ -552,6 +595,29 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
     `.trim();
   };
 
+  const renderSecondaryButton = ({ href, text, widthPx = 420 }) => {
+    const safeHref = String(href ?? "");
+    const safeText = escapeHtml(text);
+    const width = Number.isFinite(widthPx) ? Math.max(280, Math.min(520, Math.floor(widthPx))) : 420;
+
+    if (!safeHref) return "";
+    if (!String(text ?? "").trim()) return "";
+
+    return `
+      <center>
+      <table role="presentation" align="center" cellpadding="0" cellspacing="0" border="0" width="${width}" style="border-collapse:separate; width:${width}px; max-width:${width}px; margin:0 auto; mso-table-lspace:0pt; mso-table-rspace:0pt;">
+        <tr>
+          <td align="center" valign="middle" bgcolor="#FFFFFF" style="background:#FFFFFF; border:1px solid #CBD5E1; border-radius:12px; mso-padding-alt:14px 18px;">
+            <a href="${safeHref}" style="display:block; font-family:Arial, sans-serif; font-size:14px; font-weight:800; color:#0F172A; text-decoration:none; padding:14px 18px; line-height:20px; -webkit-text-size-adjust:none; border-radius:12px; text-align:center;">
+              <span style="color:#0F172A; text-decoration:none;">${safeText}</span>
+            </a>
+          </td>
+        </tr>
+      </table>
+      </center>
+    `.trim();
+  };
+
   const kvCell = (label, value) => {
     const v = String(value ?? "").trim();
     if (!v) return null;
@@ -566,6 +632,7 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
   const qtyText = typeof expectedQty === "number" ? String(expectedQty) : "";
 
   const primaryBtn = renderPrimaryButton({ href: openRequestHref, text: primaryText, widthPx: 440 });
+  const secondaryBtn = renderSecondaryButton({ href: dashboardHref, text: secondaryText, widthPx: 440 });
 
   const accent = badge.accent;
   const metaParts = [];
@@ -573,6 +640,15 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
   if (updatedAt) metaParts.push(escapeHtml(updatedAt));
   if (actor) metaParts.push(`${escapeHtml(i18n.metaByPrefix)} ${escapeHtml(actor)}`);
   const metaLine = metaParts.join(" | ");
+  const topLabel = eventType === "request_created" ? (i18n.requestCreatedLabel || i18n.statusUpdatedLabel) : i18n.statusUpdatedLabel;
+  const showTransition =
+    eventType === "request_status_changed" &&
+    previousStatusCode &&
+    previousStatusCode !== status;
+  const transitionLine = showTransition
+    ? `<div style="margin-top:8px; font-size:12px; color:#374151; line-height:18px;">${escapeHtml(previousStatusLabel)} &rarr; ${escapeHtml(statusLabel)}</div>`
+    : "";
+  const statusLine = statusLabel ? `<div style="margin-top:10px; font-size:13px; font-weight:800; letter-spacing:0.02em; color:${accent}; text-transform:uppercase;">${escapeHtml(statusLabel)}</div>` : "";
 
   const facts = [
     kvCell(i18n.labels.client, client),
@@ -643,8 +719,10 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
                         </tr>
                         <tr>
                           <td style="padding:22px 24px 18px 24px;">
-                            <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">${escapeHtml(i18n.statusUpdatedLabel)}</div>
-                            <div style="margin-top:6px; font-size:24px; font-weight:900; color:#111827; letter-spacing:0.2px; line-height:30px;">${escapeHtml(statusLabel)}</div>
+                            <div style="font-size:11px; color:#6B7280; text-transform:uppercase; letter-spacing:0.08em;">${escapeHtml(topLabel)}</div>
+                            <div style="margin-top:6px; font-size:24px; font-weight:900; color:#111827; letter-spacing:0.2px; line-height:30px;">${escapeHtml(titleText)}</div>
+                            ${statusLine}
+                            ${transitionLine}
                             ${introText ? `<div style="margin-top:10px; font-size:14px; color:#374151; line-height:20px;">${escapeHtml(introText)}</div>` : ""}
                             ${metaLine ? `<div style="margin-top:10px; font-size:12px; color:#6B7280; line-height:18px;">${metaLine}</div>` : ""}
                           </td>
@@ -676,6 +754,7 @@ const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, d
                                 <td align="center">
                                   <div style="text-align:center;">
                                     ${primaryBtn}
+                                    ${secondaryBtn ? `<div style="height:10px; line-height:10px;">&nbsp;</div>${secondaryBtn}` : ""}
                                   </div>
                                 </td>
                               </tr>
@@ -3897,13 +3976,16 @@ export const apiRouter = (() => {
       }
 
       const template = getTemplateForEvent(settings, eventType, lang);
-      const vars = getNotificationTemplateVars({ requestId: request.id, status, lang });
+      const previousStatus = String(body.previousStatus ?? "").trim();
+      const vars = getNotificationTemplateVars({ request, requestId: request.id, status, previousStatus, lang, actorName: "System" });
       const subject = applyTemplateVars(template.subject, vars);
 
       const link = buildRequestLink(settings.appBaseUrl, request.id);
       const html = renderStatusEmailHtml({
         request,
+        eventType,
         newStatus: status,
+        previousStatus,
         actorName: "System",
         comment: "Example comment (optional).",
         link,
@@ -4675,7 +4757,14 @@ export const apiRouter = (() => {
 
               const groups = await groupRecipientsByPreferredLanguage(pool, to);
               for (const [lang, groupEmails] of groups) {
-                const vars = getNotificationTemplateVars({ requestId: id, status: createdStatus, lang });
+                const vars = getNotificationTemplateVars({
+                  request: requestData,
+                  requestId: id,
+                  status: createdStatus,
+                  previousStatus: "",
+                  lang,
+                  actorName: body.createdByName ?? "",
+                });
                 const subjectFallback = applyTemplateVars(
                   getDefaultTemplateForEvent("request_created", lang)?.subject ?? "",
                   vars
@@ -4684,7 +4773,9 @@ export const apiRouter = (() => {
                 const subjectTpl = applyTemplateVars(template.subject, vars);
                 const html = renderStatusEmailHtml({
                   request: requestData,
+                  eventType: "request_created",
                   newStatus: createdStatus,
+                  previousStatus: "",
                   actorName: body.createdByName ?? "",
                   comment: "",
                   link,
@@ -4780,7 +4871,14 @@ export const apiRouter = (() => {
 
               const groups = await groupRecipientsByPreferredLanguage(pool, to);
               for (const [lang, groupEmails] of groups) {
-                const vars = getNotificationTemplateVars({ requestId, status: newStatus, lang });
+                const vars = getNotificationTemplateVars({
+                  request: updated,
+                  requestId,
+                  status: newStatus,
+                  previousStatus,
+                  lang,
+                  actorName: body.userName ?? "",
+                });
                 const subjectFallback = applyTemplateVars(
                   getDefaultTemplateForEvent("request_status_changed", lang)?.subject ?? "",
                   vars
@@ -4789,7 +4887,9 @@ export const apiRouter = (() => {
                 const subjectTpl = applyTemplateVars(template.subject, vars);
                 const html = renderStatusEmailHtml({
                   request: updated,
+                  eventType: "request_status_changed",
                   newStatus,
+                  previousStatus,
                   actorName: body.userName ?? "",
                   comment: body.comment,
                   link,
@@ -4867,7 +4967,8 @@ export const apiRouter = (() => {
 
       const groups = await groupRecipientsByPreferredLanguage(pool, to);
       for (const [lang, groupEmails] of groups) {
-        const vars = getNotificationTemplateVars({ requestId, status, lang });
+        const previousStatus = String(body.previousStatus ?? "").trim();
+        const vars = getNotificationTemplateVars({ request: existing, requestId, status, previousStatus, lang, actorName });
         const subjectFallback = applyTemplateVars(
           getDefaultTemplateForEvent(eventType, lang)?.subject ?? "",
           vars
@@ -4876,7 +4977,9 @@ export const apiRouter = (() => {
         const subjectTpl = applyTemplateVars(template.subject, vars);
         const html = renderStatusEmailHtml({
           request: existing,
+          eventType,
           newStatus: status,
+          previousStatus,
           actorName,
           comment,
           link,
