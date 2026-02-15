@@ -332,7 +332,7 @@ const AuditLogPanel: React.FC = () => {
       </div>
 
       <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto scrollbar-thin">
           <SheetHeader>
             <SheetTitle>{t.settings.auditLogDetails}</SheetTitle>
           </SheetHeader>
@@ -354,14 +354,14 @@ const AuditLogPanel: React.FC = () => {
 
                 <div className="space-y-2">
                   <Label>{t.settings.auditLogMetadata}</Label>
-                  <pre className="rounded-lg border border-border bg-background p-3 text-xs overflow-auto whitespace-pre-wrap break-words">
+                  <pre className="rounded-lg border border-border bg-background p-3 text-xs overflow-auto scrollbar-thin whitespace-pre-wrap break-words">
                     {JSON.stringify(selected.metadata ?? {}, null, 2)}
                   </pre>
                 </div>
 
                 <div className="space-y-2">
                   <Label>{t.settings.auditLogUserAgent}</Label>
-                  <pre className="rounded-lg border border-border bg-background p-3 text-xs overflow-auto whitespace-pre-wrap break-words">
+                  <pre className="rounded-lg border border-border bg-background p-3 text-xs overflow-auto scrollbar-thin whitespace-pre-wrap break-words">
                     {selected.userAgent ?? '-'}
                   </pre>
                 </div>

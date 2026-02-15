@@ -225,11 +225,14 @@
 
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted)) transparent;
+    /* Firefox */
+    scrollbar-color: hsl(var(--muted-foreground) / 0.55) transparent;
+    scrollbar-gutter: stable;
   }
 
   .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
+    width: 10px;
+    height: 10px;
   }
 
   .scrollbar-thin::-webkit-scrollbar-track {
@@ -237,7 +240,17 @@
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background-color: hsl(var(--muted));
-    border-radius: 3px;
+    background-color: hsl(var(--muted-foreground) / 0.45);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.6);
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:active {
+    background-color: hsl(var(--muted-foreground) / 0.75);
   }
 }

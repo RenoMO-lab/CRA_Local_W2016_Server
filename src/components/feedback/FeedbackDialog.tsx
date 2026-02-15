@@ -115,7 +115,7 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ trigger }) => {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="bg-card max-h-[85vh] overflow-y-auto">
+      <DialogContent className="bg-card max-h-[85vh] overflow-y-auto scrollbar-thin">
         <DialogHeader>
           <DialogTitle>{t.feedback.dialogTitle}</DialogTitle>
           <DialogDescription>{t.feedback.dialogDesc}</DialogDescription>

@@ -638,7 +638,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
       )}
 
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto scrollbar-thin" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle className="truncate pr-8">{previewAttachment?.filename}</DialogTitle>
           </DialogHeader>

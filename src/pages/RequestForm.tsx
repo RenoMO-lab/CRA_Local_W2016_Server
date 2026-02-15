@@ -2086,7 +2086,7 @@ const RequestForm: React.FC = () => {
               <RequestProcessSummary request={existingRequest} />
 
               <Sheet open={isMyActionsOpen} onOpenChange={setIsMyActionsOpen}>
-                <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+                <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto scrollbar-thin">
                   <SheetHeader className="pr-8">
                     <SheetTitle>{t.request.myActionsTitle}</SheetTitle>
                     <SheetDescription>{existingRequest.id}</SheetDescription>
@@ -2340,7 +2340,7 @@ const RequestForm: React.FC = () => {
           )}
 
           <Dialog open={isDesignPreviewOpen} onOpenChange={setIsDesignPreviewOpen}>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto scrollbar-thin" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
               <DialogHeader>
                 <DialogTitle className="truncate pr-8">{designPreviewAttachment?.filename}</DialogTitle>
               </DialogHeader>

@@ -403,7 +403,7 @@ const normalizeDbBackupSets = (value: unknown): DbBackupSet[] => {
 const Settings: React.FC = () => {
   const { user } = useAuth();
   const { toast } = useToast();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { requests, isLoading } = useRequests();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
@@ -857,6 +857,7 @@ const Settings: React.FC = () => {
           eventType: m365SelectedAction,
           status: m365PreviewStatus,
           requestId: m365PreviewRequestId,
+          lang: language,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -2438,7 +2439,7 @@ const Settings: React.FC = () => {
                 </DialogHeader>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-6 pb-4">
+              <div className="flex-1 overflow-y-auto scrollbar-thin px-6 pb-4">
                 {editingUser && (
                   <div className="space-y-4">
                     <div className="space-y-2">
@@ -2530,7 +2531,7 @@ const Settings: React.FC = () => {
               }
             }}
           >
-            <DialogContent className="bg-card max-w-4xl">
+            <DialogContent className="bg-card max-w-4xl max-h-[90vh] overflow-y-auto scrollbar-thin">
               <DialogHeader>
                 <DialogTitle>{t.settings.sendAccessEmail}</DialogTitle>
                 <DialogDescription>{t.settings.sendAccessEmailDesc}</DialogDescription>
@@ -2719,7 +2720,7 @@ const Settings: React.FC = () => {
           {/* Feedback details: drawer on desktop, modal on mobile */}
           {selectedFeedback && !isMobile && (
             <Sheet open={isFeedbackDetailsOpen} onOpenChange={setIsFeedbackDetailsOpen}>
-              <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto">
+              <SheetContent side="right" className="w-full sm:max-w-xl overflow-y-auto scrollbar-thin">
                 <SheetHeader className="pr-8">
                   <SheetTitle>{selectedFeedback.title}</SheetTitle>
                 </SheetHeader>
@@ -2791,7 +2792,7 @@ const Settings: React.FC = () => {
 
           {selectedFeedback && isMobile && (
             <Dialog open={isFeedbackDetailsOpen} onOpenChange={setIsFeedbackDetailsOpen}>
-              <DialogContent className="bg-card max-h-[90vh] overflow-y-auto">
+              <DialogContent className="bg-card max-h-[90vh] overflow-y-auto scrollbar-thin">
                 <DialogHeader>
                   <DialogTitle>{selectedFeedback.title}</DialogTitle>
                 </DialogHeader>
@@ -3096,7 +3097,7 @@ const Settings: React.FC = () => {
                     <div className="text-sm font-semibold text-foreground">{t.settings.m365FlowTitle}</div>
                     <div className="text-xs text-muted-foreground">{t.settings.m365FlowDesc}</div>
                   </div>
-                  <div className="overflow-auto">
+                  <div className="overflow-auto scrollbar-thin">
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-muted/50 hover:bg-muted/50">
@@ -4471,7 +4472,7 @@ const Settings: React.FC = () => {
               {hasDeployError ? (
                 <p className="text-sm text-destructive">{t.settings.deployLoadError}</p>
               ) : (
-                <pre className="text-xs font-mono whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 max-h-96 overflow-auto">
+                <pre className="text-xs font-mono whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 max-h-96 overflow-auto scrollbar-thin">
                   {isDeployLoading
                     ? t.common.loading
                     : (() => {

@@ -144,7 +144,7 @@ const AttachmentList: React.FC<{
 
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
         <DialogContent
-          className="max-w-4xl max-h-[90vh] overflow-auto"
+          className="max-w-4xl max-h-[90vh] overflow-auto scrollbar-thin"
           onInteractOutside={(event) => event.preventDefault()}
           onEscapeKeyDown={(event) => event.preventDefault()}
         >

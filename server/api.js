@@ -488,6 +488,19 @@ const getEmailStrings = (lang) => {
   return EMAIL_STRINGS_BY_LANG[resolvedLang] ?? EMAIL_STRINGS_BY_LANG.en;
 };
 
+const getNotificationTemplateVars = ({ requestId, status, lang }) => {
+  const statusCode = String(status ?? "").trim();
+  const i18n = getEmailStrings(lang);
+  const statusLabel = i18n.statusLabels?.[statusCode] || humanizeStatus(statusCode) || statusCode;
+  return {
+    requestId: String(requestId ?? "").trim(),
+    // Keep {{status}} user-facing (localized) for email subjects.
+    status: statusLabel,
+    // Allow advanced templates to access raw codes if needed.
+    statusCode,
+  };
+};
+
 const renderStatusEmailHtml = ({ request, newStatus, actorName, comment, link, dashboardLink, logoUrl, logoCid, template, introOverride, lang }) => {
   const resolvedLang = normalizeNotificationLanguage(lang) ?? "en";
   const i18n = getEmailStrings(resolvedLang);
@@ -3863,10 +3876,7 @@ export const apiRouter = (() => {
       }
 
       const template = getTemplateForEvent(settings, eventType, lang);
-      const vars = {
-        requestId: request.id,
-        status,
-      };
+      const vars = getNotificationTemplateVars({ requestId: request.id, status, lang });
       const subject = applyTemplateVars(template.subject, vars);
 
       const link = buildRequestLink(settings.appBaseUrl, request.id);
@@ -4640,15 +4650,15 @@ export const apiRouter = (() => {
           if (settings.enabled && tokenState.hasRefreshToken) {
             const to = resolveRecipientsForStatus(settings, createdStatus);
             if (to.length) {
-              const subjectFallback = `[CRA] Request ${id} submitted`;
               const link = buildRequestLink(settings.appBaseUrl, id);
-              const vars = {
-                requestId: id,
-                status: createdStatus,
-              };
 
               const groups = await groupRecipientsByPreferredLanguage(pool, to);
               for (const [lang, groupEmails] of groups) {
+                const vars = getNotificationTemplateVars({ requestId: id, status: createdStatus, lang });
+                const subjectFallback = applyTemplateVars(
+                  getDefaultTemplateForEvent("request_created", lang)?.subject ?? "",
+                  vars
+                );
                 const template = getTemplateForEvent(settings, "request_created", lang);
                 const subjectTpl = applyTemplateVars(template.subject, vars);
                 const html = renderStatusEmailHtml({
@@ -4745,15 +4755,15 @@ export const apiRouter = (() => {
           if (settings.enabled && tokenState.hasRefreshToken) {
             const to = resolveRecipientsForStatus(settings, newStatus);
             if (to.length) {
-              const subjectFallback = `[CRA] Request ${requestId} status changed to ${newStatus}`;
               const link = buildRequestLink(settings.appBaseUrl, requestId);
-              const vars = {
-                requestId,
-                status: newStatus,
-              };
 
               const groups = await groupRecipientsByPreferredLanguage(pool, to);
               for (const [lang, groupEmails] of groups) {
+                const vars = getNotificationTemplateVars({ requestId, status: newStatus, lang });
+                const subjectFallback = applyTemplateVars(
+                  getDefaultTemplateForEvent("request_status_changed", lang)?.subject ?? "",
+                  vars
+                );
                 const template = getTemplateForEvent(settings, "request_status_changed", lang);
                 const subjectTpl = applyTemplateVars(template.subject, vars);
                 const html = renderStatusEmailHtml({
@@ -4833,14 +4843,14 @@ export const apiRouter = (() => {
       }
 
       const link = buildRequestLink(settings.appBaseUrl, requestId);
-      const vars = {
-        requestId,
-        status,
-      };
 
       const groups = await groupRecipientsByPreferredLanguage(pool, to);
       for (const [lang, groupEmails] of groups) {
-        const subjectFallback = `[CRA] Request ${requestId} updated`;
+        const vars = getNotificationTemplateVars({ requestId, status, lang });
+        const subjectFallback = applyTemplateVars(
+          getDefaultTemplateForEvent(eventType, lang)?.subject ?? "",
+          vars
+        ) || `[CRA] Request ${requestId} updated`;
         const template = getTemplateForEvent(settings, eventType, lang);
         const subjectTpl = applyTemplateVars(template.subject, vars);
         const html = renderStatusEmailHtml({

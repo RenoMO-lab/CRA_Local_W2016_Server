@@ -179,7 +179,7 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto">
+      <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto scrollbar-thin">
         <SheetHeader className="pr-8">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">

@@ -81,7 +81,7 @@ const AccountDialog: React.FC<AccountDialogProps> = ({ open, onOpenChange }) => 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-card max-h-[90vh] overflow-y-auto">
+      <DialogContent className="bg-card max-h-[90vh] overflow-y-auto scrollbar-thin">
         <DialogHeader>
           <DialogTitle>{t.account.myAccount}</DialogTitle>
           <DialogDescription>{t.account.myAccountDesc}</DialogDescription>
