@@ -2303,7 +2303,19 @@ const Settings: React.FC = () => {
                   </TableRow>
                 ) : null}
                 {users.map((userItem) => (
-                  <TableRow key={userItem.id}>
+                  <TableRow
+                    key={userItem.id}
+                    className="cursor-pointer"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openEditUserDialog(userItem)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openEditUserDialog(userItem);
+                      }
+                    }}
+                  >
                     <TableCell className="font-medium">{userItem.name}</TableCell>
                     <TableCell>{userItem.email}</TableCell>
                     <TableCell>
@@ -2322,7 +2334,7 @@ const Settings: React.FC = () => {
                         }
                         disabled={isUsersLoading || isLegacyUserImporting || Boolean(languageUpdatingUserIds[userItem.id])}
                       >
-                        <SelectTrigger className="h-8 w-20">
+                        <SelectTrigger className="h-8 w-20" onClick={(e) => e.stopPropagation()}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="bg-card border border-border">
@@ -2337,7 +2349,10 @@ const Settings: React.FC = () => {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => openAccessEmailDialog(userItem)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openAccessEmailDialog(userItem);
+                          }}
                           title={t.settings.sendAccessEmail}
                         >
                           <Mail size={14} />
@@ -2345,7 +2360,10 @@ const Settings: React.FC = () => {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => openEditUserDialog(userItem)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditUserDialog(userItem);
+                          }}
                         >
                           <Pencil size={14} />
                         </Button>
@@ -2356,6 +2374,7 @@ const Settings: React.FC = () => {
                               size="sm"
                               className="text-destructive hover:text-destructive hover:bg-destructive/10"
                               disabled={userItem.email === user?.email}
+                              onClick={(e) => e.stopPropagation()}
                             >
                               <Trash2 size={14} />
                             </Button>
