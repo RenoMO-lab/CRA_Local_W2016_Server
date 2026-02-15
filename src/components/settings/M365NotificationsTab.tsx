@@ -476,19 +476,19 @@ export default function M365NotificationsTab(props: any) {
                 </div>
               </section>
 
-            <section id="m365-templates" className="scroll-mt-28 md:scroll-mt-32 rounded-xl border border-border bg-muted/10 p-4 space-y-4">
+            <section id="m365-templates" className="scroll-mt-28 md:scroll-mt-32 rounded-xl border border-border bg-muted/10 p-4 space-y-3">
                 <div className="space-y-1">
                   <div className="text-sm font-semibold text-foreground">{t.settings.m365TemplatesTitle}</div>
                   <div className="text-xs text-muted-foreground">{t.settings.m365TemplatesDesc}</div>
                 </div>
 
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
                         <Label>{t.settings.m365TemplateAction}</Label>
                         <Select value={m365SelectedAction} onValueChange={(v) => setM365SelectedAction(v as M365ActionKey)}>
-                          <SelectTrigger>
+                          <SelectTrigger className="h-9">
                             <SelectValue placeholder={t.settings.m365TemplateAction} />
                           </SelectTrigger>
                           <SelectContent>
@@ -498,10 +498,10 @@ export default function M365NotificationsTab(props: any) {
                         </Select>
                       </div>
 
-                      <div className="space-y-2">
+                      <div className="space-y-1.5">
                         <Label>{t.settings.m365TemplatePreviewStatus}</Label>
                         <Select value={m365PreviewStatus} onValueChange={(v) => setM365PreviewStatus(v)}>
-                          <SelectTrigger>
+                          <SelectTrigger className="h-9">
                             <SelectValue placeholder={t.settings.m365TemplatePreviewStatus} />
                           </SelectTrigger>
                           <SelectContent>
@@ -515,65 +515,76 @@ export default function M365NotificationsTab(props: any) {
                       </div>
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <Label>{t.settings.m365TemplateLanguage}</Label>
                       <Tabs value={m365TemplateLang} onValueChange={(v) => setM365TemplateLang(v as NotificationLang)}>
-                        <TabsList className="h-9">
-                          <TabsTrigger className="h-8 text-xs" value="en">EN</TabsTrigger>
-                          <TabsTrigger className="h-8 text-xs" value="fr">FR</TabsTrigger>
-                          <TabsTrigger className="h-8 text-xs" value="zh">ZH</TabsTrigger>
+                        <TabsList className="h-8">
+                          <TabsTrigger className="h-7 text-xs" value="en">EN</TabsTrigger>
+                          <TabsTrigger className="h-7 text-xs" value="fr">FR</TabsTrigger>
+                          <TabsTrigger className="h-7 text-xs" value="zh">ZH</TabsTrigger>
                         </TabsList>
                       </Tabs>
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <Label htmlFor="m365-preview-requestid">{t.settings.m365TemplatePreviewRequestId}</Label>
-                      <Input id="m365-preview-requestid" value={m365PreviewRequestId} onChange={(e) => setM365PreviewRequestId(e.target.value)} placeholder="(optional) CRA26020704" />
+                      <Input
+                        className="h-9"
+                        id="m365-preview-requestid"
+                        value={m365PreviewRequestId}
+                        onChange={(e) => setM365PreviewRequestId(e.target.value)}
+                        placeholder="(optional) CRA26020704"
+                      />
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <div className="flex items-center justify-between gap-3 flex-wrap">
                         <Label>{t.settings.m365TemplateSubject}</Label>
                         <div className="flex flex-wrap gap-2">
-                          <Button size="sm" variant="outline" onClick={() => appendVar('subject', '{{requestId}}')}>{'{{requestId}}'}</Button>
-                          <Button size="sm" variant="outline" onClick={() => appendVar('subject', '{{status}}')}>{'{{status}}'}</Button>
-                          <Button size="sm" variant="outline" onClick={() => appendVar('subject', '{{statusCode}}')}>{'{{statusCode}}'}</Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => appendVar('subject', '{{requestId}}')}>{'{{requestId}}'}</Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => appendVar('subject', '{{status}}')}>{'{{status}}'}</Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => appendVar('subject', '{{statusCode}}')}>{'{{statusCode}}'}</Button>
                         </div>
                       </div>
-                      <Input value={String(template.subject ?? '')} onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'subject', e.target.value)} placeholder="[CRA] Request {{requestId}} ..." />
+                      <Input
+                        className="h-9"
+                        value={String(template.subject ?? '')}
+                        onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'subject', e.target.value)}
+                        placeholder="[CRA] Request {{requestId}} ..."
+                      />
                       <p className="text-xs text-muted-foreground">{t.settings.m365TemplateVars}</p>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
                         <Label>{t.settings.m365TemplateTitle}</Label>
-                        <Input value={String(template.title ?? '')} onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'title', e.target.value)} />
+                        <Input className="h-9" value={String(template.title ?? '')} onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'title', e.target.value)} />
                       </div>
-                      <div className="space-y-2">
+                      <div className="space-y-1.5">
                         <Label>{t.settings.m365TemplatePrimary}</Label>
-                        <Input value={String(template.primaryButtonText ?? '')} onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'primaryButtonText', e.target.value)} />
+                        <Input className="h-9" value={String(template.primaryButtonText ?? '')} onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'primaryButtonText', e.target.value)} />
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
                         <Label>{t.settings.m365TemplateSecondary}</Label>
-                        <Input value={String(template.secondaryButtonText ?? '')} onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'secondaryButtonText', e.target.value)} />
+                        <Input className="h-9" value={String(template.secondaryButtonText ?? '')} onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'secondaryButtonText', e.target.value)} />
                       </div>
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <Label>{t.settings.m365TemplateIntro}</Label>
-                      <Textarea value={String(template.intro ?? '')} onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'intro', e.target.value)} />
+                      <Textarea className="min-h-[90px]" value={String(template.intro ?? '')} onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'intro', e.target.value)} />
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <Label>{t.settings.m365TemplateFooter}</Label>
-                      <Textarea value={String(template.footerText ?? '')} onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'footerText', e.target.value)} />
+                      <Textarea className="min-h-[90px]" value={String(template.footerText ?? '')} onChange={(e) => updateTemplateField(m365TemplateLang, m365SelectedAction, 'footerText', e.target.value)} />
                     </div>
 
                     <div className="flex flex-wrap gap-3 items-center">
-                      <Button variant="outline" onClick={previewM365Template} disabled={isM365PreviewLoading}>
+                      <Button variant="outline" className="h-9" onClick={previewM365Template} disabled={isM365PreviewLoading}>
                         {isM365PreviewLoading ? t.common.loading : t.settings.m365TemplatePreview}
                       </Button>
                       <span className="text-xs text-muted-foreground">{t.settings.m365TemplateSaveHint}</span>
@@ -588,7 +599,7 @@ export default function M365NotificationsTab(props: any) {
                         <div className="mt-1 text-xs text-muted-foreground">{t.settings.m365TemplatePreviewEmpty}</div>
                       ) : null}
                     </div>
-                    <iframe title="email-preview" style={{ width: '100%', height: 520, border: '0' }} srcDoc={m365PreviewHtml || '<div></div>'} />
+                    <iframe title="email-preview" style={{ width: '100%', height: 440, border: '0' }} srcDoc={m365PreviewHtml || '<div></div>'} />
                   </div>
                 </div>
               </section>
