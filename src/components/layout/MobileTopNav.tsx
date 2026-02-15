@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Menu, Plus, MessageCircle, Laptop, Sun, Moon, KeyRound } from 'lucide-react';
+import { LogOut, Menu, Plus, MessageCircle, Laptop, Sun, Moon, KeyRound, Settings } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { ROLE_CONFIG } from '@/types';
@@ -40,27 +40,26 @@ const MobileTopNav: React.FC = () => {
     if (location.pathname !== '/settings') return 'export';
     return new URLSearchParams(location.search).get('tab') || 'export';
   })();
+  const isSettingsActive = location.pathname === '/settings';
 
   const navItems = [
     { path: '/dashboard', label: t.nav.dashboard, roles: ['sales', 'design', 'costing', 'admin'] },
     { path: '/requests/new', label: t.nav.newRequest, roles: ['sales', 'admin'] },
     { path: '/price-list', label: t.nav.priceList, roles: ['sales', 'admin'] },
     { path: '/performance', label: t.nav.performance, roles: ['sales', 'design', 'costing', 'admin'] },
-    ...(user?.role === 'admin'
-      ? [
-          { path: '/settings?tab=export', label: t.settings.export, roles: ['admin'] },
-          { path: '/settings?tab=lists', label: t.settings.systemLists, roles: ['admin'] },
-          { path: '/settings?tab=users', label: t.settings.usersRoles, roles: ['admin'] },
-          { path: '/settings?tab=feedback', label: t.settings.feedbackTab, roles: ['admin'] },
-          { path: '/settings?tab=m365', label: t.settings.m365Tab, roles: ['admin'] },
-          { path: '/settings?tab=dbmonitor', label: t.settings.dbMonitorTab, roles: ['admin'] },
-          { path: '/settings?tab=auditlog', label: t.settings.auditLogTab, roles: ['admin'] },
-          { path: '/settings?tab=deployments', label: t.settings.deploymentsTab, roles: ['admin'] },
-        ]
-      : []),
   ];
 
   const filteredNavItems = navItems.filter((item) => user && item.roles.includes(user.role));
+  const adminNavItems = user?.role === 'admin' ? [
+    { tab: 'export', label: t.settings.export },
+    { tab: 'lists', label: t.settings.systemLists },
+    { tab: 'users', label: t.settings.usersRoles },
+    { tab: 'feedback', label: t.settings.feedbackTab },
+    { tab: 'm365', label: t.settings.m365Tab },
+    { tab: 'dbmonitor', label: t.settings.dbMonitorTab },
+    { tab: 'auditlog', label: t.settings.auditLogTab },
+    { tab: 'deployments', label: t.settings.deploymentsTab },
+  ] : [];
   const showCreateButton = user?.role === 'sales' || user?.role === 'admin';
   const isActive = (path: string) => {
     if (path.startsWith('/settings?')) {
@@ -115,6 +114,41 @@ const MobileTopNav: React.FC = () => {
                   </DropdownMenuItem>
                 ))}
               </div>
+
+              {adminNavItems.length ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <div className="py-1">
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger
+                        className={cn(
+                          "cursor-pointer",
+                          isSettingsActive && "bg-primary/10 text-primary font-medium"
+                        )}
+                      >
+                        <Settings size={14} className="mr-2" />
+                        {t.nav.admin}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent className="min-w-[220px] bg-popover border border-border shadow-lg rounded-lg p-1">
+                          {adminNavItems.map((it) => {
+                            const path = `/settings?tab=${encodeURIComponent(it.tab)}`;
+                            return (
+                              <DropdownMenuItem
+                                key={it.tab}
+                                onClick={() => navigate(path)}
+                                className={cn("cursor-pointer", isActive(path) && 'bg-primary/10 text-primary font-medium')}
+                              >
+                                {it.label}
+                              </DropdownMenuItem>
+                            );
+                          })}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                  </div>
+                </>
+              ) : null}
               <DropdownMenuSeparator />
               <div className="py-1">
                 <FeedbackDialog
