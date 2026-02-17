@@ -514,6 +514,54 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     setFont("normal");
   };
 
+  const drawWatermark = () => {
+    const wm1 = String((t as any)?.pdf?.watermarkLine1 ?? "CONFIDENTIAL - INTERNAL USE ONLY");
+    const wm2 = String((t as any)?.pdf?.watermarkLine2 ?? "PROPERTY OF MONROC");
+    const centerX = pageWidth / 2;
+    const centerY = pageHeight / 2;
+    const angle = -35;
+
+    // Best practice: use real opacity (alpha) so watermark stays readable but unobtrusive.
+    // Fallback: very light gray when GState/opacity isn't available in the runtime build.
+    const hasGState = typeof (pdf as any).GState === "function" && typeof (pdf as any).setGState === "function";
+
+    try {
+      (pdf as any).saveGraphicsState?.();
+    } catch {}
+
+    if (hasGState) {
+      // Line 1
+      const gs1 = new (pdf as any).GState({ opacity: 0.08, fillOpacity: 0.08, strokeOpacity: 0.08 });
+      (pdf as any).setGState(gs1);
+      pdf.setTextColor(0, 0, 0);
+      pdf.setFontSize(38);
+      setFont("bold");
+      pdf.text(wm1, centerX, centerY, { align: "center", angle } as any);
+
+      // Line 2
+      const gs2 = new (pdf as any).GState({ opacity: 0.06, fillOpacity: 0.06, strokeOpacity: 0.06 });
+      (pdf as any).setGState(gs2);
+      pdf.setFontSize(18);
+      setFont("bold");
+      pdf.text(wm2, centerX, centerY + 10, { align: "center", angle } as any);
+    } else {
+      pdf.setTextColor(230, 230, 230);
+      pdf.setFontSize(38);
+      setFont("bold");
+      pdf.text(wm1, centerX, centerY, { align: "center", angle } as any);
+      pdf.setFontSize(18);
+      setFont("bold");
+      pdf.text(wm2, centerX, centerY + 10, { align: "center", angle } as any);
+    }
+
+    // Reset drawing state for the rest of the page.
+    pdf.setTextColor(0, 0, 0);
+    setFont("normal");
+    try {
+      (pdf as any).restoreGraphicsState?.();
+    } catch {}
+  };
+
   const drawPageHeader = (isFirstPage: boolean) => {
     // Top accent line.
     const [rr, rg, rb] = rgb(MONROC_RED);
@@ -525,6 +573,9 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     const [fr, fg, fb] = rgb(COLORS.headerFill);
     pdf.setFillColor(fr, fg, fb);
     pdf.rect(0, 0, pageWidth, pageHeaderHeight, "F");
+
+    // Watermark should be behind content: draw it before logo/issue date and before body rendering.
+    drawWatermark();
 
     // Logo.
     if (cachedLogo) {
@@ -1524,27 +1575,6 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   const pageCount = pdf.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     pdf.setPage(i);
-
-    // Watermark (all pages, localized).
-    // Draw in a very light color so it doesn't affect readability.
-    try {
-      (pdf as any).saveGraphicsState?.();
-    } catch {}
-    const wm1 = String((t as any)?.pdf?.watermarkLine1 ?? "CONFIDENTIAL - INTERNAL USE ONLY");
-    const wm2 = String((t as any)?.pdf?.watermarkLine2 ?? "PROPERTY OF MONROC");
-    pdf.setTextColor(230, 230, 230);
-    pdf.setFontSize(38);
-    setFont("bold");
-    pdf.text(wm1, pageWidth / 2, pageHeight / 2, { align: "center", angle: -35 } as any);
-    pdf.setFontSize(18);
-    setFont("bold");
-    pdf.text(wm2, pageWidth / 2, pageHeight / 2 + 10, { align: "center", angle: -35 } as any);
-    pdf.setTextColor(0, 0, 0);
-    setFont("normal");
-    try {
-      (pdf as any).restoreGraphicsState?.();
-    } catch {}
-
     pdf.setFontSize(7.5);
     pdf.setTextColor(150, 150, 150);
     const pageLabel = t.pdf.pageOfLabel.replace("{current}", String(i)).replace("{total}", String(pageCount));
