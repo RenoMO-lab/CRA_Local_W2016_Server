@@ -1524,6 +1524,27 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   const pageCount = pdf.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     pdf.setPage(i);
+
+    // Watermark (all pages, localized).
+    // Draw in a very light color so it doesn't affect readability.
+    try {
+      (pdf as any).saveGraphicsState?.();
+    } catch {}
+    const wm1 = String((t as any)?.pdf?.watermarkLine1 ?? "CONFIDENTIAL - INTERNAL USE ONLY");
+    const wm2 = String((t as any)?.pdf?.watermarkLine2 ?? "PROPERTY OF MONROC");
+    pdf.setTextColor(230, 230, 230);
+    pdf.setFontSize(38);
+    setFont("bold");
+    pdf.text(wm1, pageWidth / 2, pageHeight / 2, { align: "center", angle: -35 } as any);
+    pdf.setFontSize(18);
+    setFont("bold");
+    pdf.text(wm2, pageWidth / 2, pageHeight / 2 + 10, { align: "center", angle: -35 } as any);
+    pdf.setTextColor(0, 0, 0);
+    setFont("normal");
+    try {
+      (pdf as any).restoreGraphicsState?.();
+    } catch {}
+
     pdf.setFontSize(7.5);
     pdf.setTextColor(150, 150, 150);
     const pageLabel = t.pdf.pageOfLabel.replace("{current}", String(i)).replace("{total}", String(pageCount));
