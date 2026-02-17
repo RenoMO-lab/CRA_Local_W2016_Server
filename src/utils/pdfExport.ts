@@ -514,12 +514,13 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     setFont("normal");
   };
 
-  const drawWatermark = () => {
+  const drawWatermark = (opts?: { layer?: "over" | "under" }) => {
     const wm1 = String((t as any)?.pdf?.watermarkLine1 ?? "CONFIDENTIAL - INTERNAL USE ONLY");
     const wm2 = String((t as any)?.pdf?.watermarkLine2 ?? "PROPERTY OF MONROC");
     const centerX = pageWidth / 2;
     const centerY = pageHeight / 2;
     const angle = -35;
+    const layer = opts?.layer ?? "under";
 
     // Best practice: use real opacity (alpha) so watermark stays readable but unobtrusive.
     // Fallback: very light gray when GState/opacity isn't available in the runtime build.
@@ -531,7 +532,12 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
 
     if (hasGState) {
       // Line 1
-      const gs1 = new (pdf as any).GState({ opacity: 0.08, fillOpacity: 0.08, strokeOpacity: 0.08 });
+      // When watermark is over content, use slightly lower opacity to keep the content readable.
+      const gs1 = new (pdf as any).GState({
+        opacity: layer === "over" ? 0.06 : 0.08,
+        fillOpacity: layer === "over" ? 0.06 : 0.08,
+        strokeOpacity: layer === "over" ? 0.06 : 0.08,
+      });
       (pdf as any).setGState(gs1);
       pdf.setTextColor(0, 0, 0);
       pdf.setFontSize(38);
@@ -539,7 +545,11 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       pdf.text(wm1, centerX, centerY, { align: "center", angle } as any);
 
       // Line 2
-      const gs2 = new (pdf as any).GState({ opacity: 0.06, fillOpacity: 0.06, strokeOpacity: 0.06 });
+      const gs2 = new (pdf as any).GState({
+        opacity: layer === "over" ? 0.04 : 0.06,
+        fillOpacity: layer === "over" ? 0.04 : 0.06,
+        strokeOpacity: layer === "over" ? 0.04 : 0.06,
+      });
       (pdf as any).setGState(gs2);
       pdf.setFontSize(18);
       setFont("bold");
@@ -573,9 +583,6 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     const [fr, fg, fb] = rgb(COLORS.headerFill);
     pdf.setFillColor(fr, fg, fb);
     pdf.rect(0, 0, pageWidth, pageHeaderHeight, "F");
-
-    // Watermark should be behind content: draw it before logo/issue date and before body rendering.
-    drawWatermark();
 
     // Logo.
     if (cachedLogo) {
@@ -1575,6 +1582,10 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   const pageCount = pdf.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     pdf.setPage(i);
+
+    // Watermark over content (all pages, localized). Keep it transparent so content remains readable.
+    drawWatermark({ layer: "over" });
+
     pdf.setFontSize(7.5);
     pdf.setTextColor(150, 150, 150);
     const pageLabel = t.pdf.pageOfLabel.replace("{current}", String(i)).replace("{total}", String(pageCount));
