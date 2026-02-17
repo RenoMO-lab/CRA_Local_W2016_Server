@@ -940,7 +940,10 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     return unique.join(", ");
   };
 
-  const drawParamTable = (rows: Array<{ param: string; value: any; unit?: string }>, opts?: { colWidths?: [number, number, number] }) => {
+  const drawParamTable = (
+    rows: Array<{ param: string; value: any; unit?: string }>,
+    opts?: { colWidths?: [number, number] },
+  ) => {
     const visible = rows
       .map((r) => ({
         param: String(r.param ?? "").trim(),
@@ -950,11 +953,26 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       .filter((r) => r.param && r.value !== null);
     if (!visible.length) return;
 
-    const colWidths: [number, number, number] = opts?.colWidths ?? [62, 88, (contentWidth - 12 - 62 - 88)];
+    const formatValueWithUnit = (value: string, unit: string) => {
+      const v = String(value ?? "").trim();
+      const u = String(unit ?? "").trim();
+      if (!u) return v;
+
+      // Currency as prefix.
+      if (u === "EUR" || u === "USD" || u === "RMB") return `${u} ${v}`;
+
+      // Percent: no space (per requirement).
+      if (u === "%") return `${v}%`;
+
+      // Default: suffix with a space (incl. pcs).
+      return `${v} ${u}`;
+    };
+
+    const colWidths: [number, number] = opts?.colWidths ?? [72, contentWidth - 12 - 72];
     drawTable({
-      headers: [String(t.pdf.parameterLabel ?? "Parameter"), String(t.pdf.valueLabel ?? "Value"), String(t.pdf.unitLabel ?? "Unit")],
-      rows: visible.map((r) => [r.param, String(r.value ?? ""), r.unit]),
-      colWidths: [colWidths[0], colWidths[1], colWidths[2]],
+      headers: [String(t.pdf.parameterLabel ?? "Parameter"), String(t.pdf.valueLabel ?? "Value")],
+      rows: visible.map((r) => [r.param, formatValueWithUnit(String(r.value ?? ""), r.unit)]),
+      colWidths: [colWidths[0], colWidths[1]],
       onPageBreak: () => {
         pageBreakActiveCard();
       },
