@@ -18,7 +18,6 @@ import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "rec
 import { CustomerRequest, RequestStatus } from "@/types";
 import { useLanguage } from "@/context/LanguageContext";
 
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -45,7 +44,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import MetricsCharts from "@/components/dashboard/MetricsCharts";
 
 type TimePeriod = "day" | "week" | "month" | "last30" | "last90" | "year";
 
@@ -746,16 +744,6 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
           })}
         </div>
       </div>
-
-      <Accordion type="single" collapsible className="w-full">
-        <AccordionItem value="people">
-          <AccordionTrigger>{t.performance.peopleTitle}</AccordionTrigger>
-          <AccordionContent>
-            <div className="text-sm text-muted-foreground mb-3">{t.performance.peopleDesc}</div>
-            <MetricsCharts requests={requests} />
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
 
       <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
         <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto scrollbar-thin">
