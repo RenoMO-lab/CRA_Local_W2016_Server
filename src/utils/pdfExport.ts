@@ -195,6 +195,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   const pdf = new jsPDF("p", "mm", "a4");
   const language = languageOverride ?? getPdfLanguage();
   const useChineseFont = language === "zh" ? await loadChineseFont(pdf) : false;
+  const issuedAt = new Date();
 
   const setFont = (weight: "normal" | "bold") => {
     if (useChineseFont) {
@@ -513,7 +514,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     setFont("normal");
   };
 
-  const drawPageHeader = (_isFirstPage: boolean) => {
+  const drawPageHeader = (isFirstPage: boolean) => {
     // Top accent line.
     const [rr, rg, rb] = rgb(MONROC_RED);
     pdf.setDrawColor(rr, rg, rb);
@@ -536,6 +537,21 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       // Vertically center within the header band.
       const yLogo = Math.max(2.0, (pageHeaderHeight - h) / 2);
       pdf.addImage(cachedLogo.dataUrl, "PNG", margin, yLogo, w, h);
+    }
+
+    if (isFirstPage) {
+      pdf.setFontSize(9);
+      setFont("normal");
+      const [mr, mg, mb] = rgb(COLORS.muted);
+      pdf.setTextColor(mr, mg, mb);
+      // Keep the issue/generated date in the header (cover page only).
+      pdf.text(
+        `${String(t.pdf.generatedLabel ?? "Generated")}: ${formatDate(issuedAt, "MMMM d, yyyy HH:mm")}`,
+        pageWidth - margin,
+        pageHeaderHeight - 8.2,
+        { align: "right" },
+      );
+      pdf.setTextColor(0, 0, 0);
     }
 
     pdf.setTextColor(0, 0, 0);
@@ -986,15 +1002,15 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
 
     const revisionValue = (() => {
       const raw: any = (request as any)?.revision ?? (request as any)?.version ?? null;
-      if (raw === null || raw === undefined || raw === "") return "1";
-      return String(raw);
+      if (raw !== null && raw !== undefined && String(raw).trim() !== "") return String(raw);
+      const edits = Array.isArray(request.history) ? request.history.filter((h: any) => h?.status === "edited").length : 0;
+      return String(Math.max(1, 1 + edits));
     })();
 
     const rightFields = [
       { kind: "status" as const, label: String(t.common.status ?? "Status"), value: String(statusLabel) },
       { kind: "text" as const, label: String(t.table.createdBy ?? "Created By"), value: request.createdByName },
       { kind: "text" as const, label: String(t.pdf.createdAtLabel ?? "Created At"), value: formatDate(new Date(request.createdAt), "MMMM d, yyyy") },
-      { kind: "text" as const, label: String(t.pdf.generatedLabel ?? "Generated"), value: formatDate(new Date(), "MMMM d, yyyy HH:mm") },
       { kind: "text" as const, label: String(t.pdf.revisionLabel ?? "Revision"), value: revisionValue },
     ];
 
