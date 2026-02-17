@@ -32,9 +32,16 @@ git pull --ff-only
 
 # Server 2016: keep tooling simple and predictable (npm + package-lock.json).
 # Use npm.cmd to avoid PowerShell execution policy issues with npm.ps1.
-& npm.cmd ci
+#
+# NOTE: Even in production we must install devDependencies to run `vite build`.
+& npm.cmd ci --include=dev
+if ($LASTEXITCODE -ne 0) { throw "npm ci failed" }
+
 & npm.cmd run migrate
+if ($LASTEXITCODE -ne 0) { throw "npm run migrate failed" }
+
 & npm.cmd run build
+if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
 
 function Restart-AppService {
   param(
