@@ -209,9 +209,19 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   const locale = getPdfLocale(language);
   const formatDate = (date: Date, pattern: string) => format(date, pattern, { locale });
 
+  const options = t.options as Record<string, string>;
+  const normalizeOptionKey = (raw: string) => String(raw ?? "").trim().replace(/\s+/g, " ");
+  const optionsNormalized = new Map<string, string>();
+  for (const [k, v] of Object.entries(options || {})) {
+    optionsNormalized.set(normalizeOptionKey(k).toLowerCase(), v);
+  }
+
   const translateOption = (value: string) => {
-    const options = t.options as Record<string, string>;
-    return options?.[value] || value;
+    const raw = String(value ?? "");
+    const direct = options?.[raw];
+    if (direct) return direct;
+    const normalized = normalizeOptionKey(raw);
+    return options?.[normalized] || optionsNormalized.get(normalized.toLowerCase()) || raw;
   };
 
   const translateBrakeType = (value: string | null | undefined) => {
@@ -1025,6 +1035,12 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       // Percent: no space (per requirement).
       if (u === "%") return `${v}%`;
 
+      // Unit localization where needed.
+      if (u.toLowerCase() === "pcs") {
+        const pcs = String(t.pdf.unitPcs ?? "pcs");
+        return `${v} ${pcs}`;
+      }
+
       // Default: suffix with a space (incl. pcs).
       return `${v} ${u}`;
     };
@@ -1288,7 +1304,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     drawParamTable([
       { param: String(t.request.tyreSize), value: product.tyreSize },
       { param: String(t.pdf.trackMmLabel), value: product.trackMm, unit: "mm" },
-      ...(showWheelBase ? [{ param: String(t.request.wheelBase), value: product.wheelBase }] : []),
+    ...(showWheelBase ? [{ param: String(t.request.wheelBase), value: translateOption(product.wheelBase) }] : []),
     ]);
 
     const brakeTypeRaw = String(product.brakeType ?? "").toLowerCase();
