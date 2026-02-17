@@ -257,17 +257,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="end" className="min-w-[160px] bg-popover border border-border shadow-lg rounded-lg p-1">
-                  <FeedbackDialog
-                    trigger={
-                      <DropdownMenuItem
-                        onSelect={(event) => event.preventDefault()}
-                        className="flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-all duration-150 hover:bg-accent"
-                      >
-                        <MessageCircle size={14} className="mr-2" />
-                        {t.feedback.reportIssue}
-                      </DropdownMenuItem>
-                    }
-                  />
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      window.dispatchEvent(new CustomEvent('feedback:open'));
+                    }}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-md cursor-pointer transition-all duration-150 hover:bg-accent"
+                  >
+                    <MessageCircle size={14} className="mr-2" />
+                    {t.feedback.reportIssue}
+                  </DropdownMenuItem>
                   <HelpDialog
                     trigger={
                       <DropdownMenuItem
@@ -327,6 +326,11 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
         )}
+      </div>
+
+      {/* Always-mounted feedback dialog so Help and menu items can open it via a global event. */}
+      <div className="hidden">
+        <FeedbackDialog trigger={<span />} />
       </div>
 
       <AccountDialog open={isAccountOpen} onOpenChange={setIsAccountOpen} />

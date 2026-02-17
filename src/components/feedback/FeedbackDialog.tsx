@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,14 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ trigger }) => {
     steps: '',
     severity: 'medium',
   });
+
+  useEffect(() => {
+    const handler = () => setOpen(true);
+    window.addEventListener('feedback:open', handler as any);
+    return () => {
+      window.removeEventListener('feedback:open', handler as any);
+    };
+  }, []);
 
   const severityOptions = useMemo(
     () => [
