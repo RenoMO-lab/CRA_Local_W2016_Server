@@ -55,6 +55,7 @@ import { cn } from '@/lib/utils';
 import ListManager from '@/components/settings/ListManager';
 import AuditLogPanel from '@/components/settings/AuditLogPanel';
 import M365NotificationsTab from '@/components/settings/M365NotificationsTab';
+import { localizeApiError } from '@/utils/localizeApiError';
 import { format } from 'date-fns';
 import { Textarea } from '@/components/ui/textarea';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -1187,7 +1188,7 @@ const Settings: React.FC = () => {
       toast({ title: t.common.copied, description: raw.length > 24 ? `${raw.slice(0, 24)}...` : raw });
     } catch (e) {
       console.error('Failed to copy:', e);
-      toast({ title: t.request.error, description: 'Copy failed', variant: 'destructive' });
+      toast({ title: t.request.error, description: t.common.copyFailed, variant: 'destructive' });
     }
   };
 
@@ -1277,8 +1278,8 @@ const Settings: React.FC = () => {
       setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
       const createdName = String(data?.created?.fileName ?? '').trim();
       toast({
-        title: 'Backup created',
-        description: createdName ? `${createdName}` : 'Database backup completed.',
+        title: t.settings.backupToastCreatedTitle,
+        description: createdName ? `${createdName}` : t.settings.backupToastCreatedDesc,
       });
     } catch (error) {
       console.error('Failed to create DB backup:', error);
@@ -1316,8 +1317,8 @@ const Settings: React.FC = () => {
       setIsDbBackupSetupOpen(false);
       await loadDbBackups();
       toast({
-        title: 'Backup setup complete',
-        description: 'Backup credentials were saved and validated.',
+        title: t.settings.backupToastSetupCompleteTitle,
+        description: t.settings.backupToastSetupCompleteDesc,
       });
     } catch (error) {
       const message = String((error as any)?.message ?? error);
@@ -1351,8 +1352,8 @@ const Settings: React.FC = () => {
       setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention?.kept));
       setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
       toast({
-        title: 'Restore completed',
-        description: `${fileName} restored successfully.`,
+        title: t.settings.backupToastRestoreCompletedTitle,
+        description: String(t.settings.backupToastRestoreCompletedDesc).replace('{target}', fileName),
       });
     } catch (error) {
       const message = String((error as any)?.message ?? error);
@@ -1393,7 +1394,7 @@ const Settings: React.FC = () => {
       if (!res.ok) throw new Error(data?.error || `Import validate failed: ${res.status}`);
       setDbBackupImportDirectory(String(data?.directory ?? dbBackupImportDirectory));
       setDbBackupImportSets(normalizeDbBackupSets(data?.sets));
-      toast({ title: 'Import validated', description: 'Uploaded files were scanned successfully.' });
+      toast({ title: t.settings.backupToastImportValidatedTitle, description: t.settings.backupToastImportValidatedDesc });
     } catch (error) {
       const message = String((error as any)?.message ?? error);
       setDbBackupImportError(message);
@@ -1406,7 +1407,7 @@ const Settings: React.FC = () => {
 
   const uploadDbBackupImportFiles = async () => {
     if (!dbBackupImportFiles.length) {
-      toast({ title: t.request.error, description: 'Select the 3 backup files first (.dump, _globals.sql, _manifest.json).', variant: 'destructive' });
+      toast({ title: t.request.error, description: t.settings.backupSelectFilesFirstError, variant: 'destructive' });
       return;
     }
     setIsDbBackupImportUploading(true);
@@ -1423,7 +1424,7 @@ const Settings: React.FC = () => {
       if (!res.ok) throw new Error(data?.error || `Upload failed: ${res.status}`);
       setDbBackupImportDirectory(String(data?.directory ?? dbBackupImportDirectory));
       setDbBackupImportSets(normalizeDbBackupSets(data?.sets));
-      toast({ title: 'Files uploaded', description: 'Import files were uploaded successfully.' });
+      toast({ title: t.settings.backupToastFilesUploadedTitle, description: t.settings.backupToastFilesUploadedDesc });
     } catch (error) {
       const message = String((error as any)?.message ?? error);
       setDbBackupImportError(message);
@@ -1454,7 +1455,10 @@ const Settings: React.FC = () => {
       setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention?.kept));
       setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
 
-      toast({ title: 'Restore completed', description: `${prefix} restored successfully.` });
+      toast({
+        title: t.settings.backupToastRestoreCompletedTitle,
+        description: String(t.settings.backupToastRestoreCompletedDesc).replace('{target}', prefix),
+      });
     } catch (error) {
       const message = String((error as any)?.message ?? error);
       setDbBackupImportError(message);
@@ -1912,7 +1916,7 @@ const Settings: React.FC = () => {
       console.error('Failed to add user:', error);
       toast({
         title: t.request.error,
-        description: String((error as any)?.message ?? error),
+        description: localizeApiError(t, (error as any)?.message ?? error),
         variant: 'destructive',
       });
     }
@@ -1958,7 +1962,7 @@ const Settings: React.FC = () => {
       console.error('Failed to update user:', error);
       toast({
         title: t.request.error,
-        description: String((error as any)?.message ?? error),
+        description: localizeApiError(t, (error as any)?.message ?? error),
         variant: 'destructive',
       });
     }
@@ -1987,7 +1991,7 @@ const Settings: React.FC = () => {
       console.error('Failed to update user language:', error);
       toast({
         title: t.request.error,
-        description: String((error as any)?.message ?? error),
+        description: localizeApiError(t, (error as any)?.message ?? error),
         variant: 'destructive',
       });
     } finally {
@@ -2022,7 +2026,7 @@ const Settings: React.FC = () => {
       console.error('Failed to delete user:', error);
       toast({
         title: t.request.error,
-        description: String((error as any)?.message ?? error),
+        description: localizeApiError(t, (error as any)?.message ?? error),
         variant: 'destructive',
       });
     }
@@ -3225,9 +3229,9 @@ const Settings: React.FC = () => {
 
           <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-5">
             <div className="space-y-1">
-              <h3 className="text-lg font-semibold text-foreground">Backups</h3>
+              <h3 className="text-lg font-semibold text-foreground">{t.settings.backupsTitle}</h3>
               <p className="text-sm text-muted-foreground">
-                Automatic schedule, manual backups, and migration restore workflow.
+                {t.settings.backupsDesc}
               </p>
             </div>
 
@@ -3262,9 +3266,9 @@ const Settings: React.FC = () => {
                   <>
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div className="space-y-1">
-                        <h4 className="text-base font-semibold text-foreground">Backup Status</h4>
+                        <h4 className="text-base font-semibold text-foreground">{t.settings.backupStatusTitle}</h4>
                         <p className="text-sm text-muted-foreground">
-                          Automatic schedule, retained files, manual backups, and restore workflow.
+                          {t.settings.backupStatusDesc}
                         </p>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full md:w-auto md:min-w-[440px] md:justify-end">
@@ -3278,7 +3282,7 @@ const Settings: React.FC = () => {
                           <span className={cn("mr-2 inline-flex", isDbBackupsLoading ? "animate-spin" : "")}>
                             <RefreshCw size={16} />
                           </span>
-                          {isDbBackupsLoading ? t.common.loading : 'Refresh'}
+                          {isDbBackupsLoading ? t.common.loading : t.common.refresh}
                         </Button>
                         <Button
                           size="sm"
@@ -3287,7 +3291,7 @@ const Settings: React.FC = () => {
                           className="h-11 w-full justify-center"
                         >
                           <Database size={16} className="mr-2" />
-                          {isDbBackupCreating ? 'Creating backup...' : 'Run backup now'}
+                          {isDbBackupCreating ? t.settings.backupCreating : t.settings.backupRunNow}
                         </Button>
                         <Button
                           size="sm"
@@ -3297,42 +3301,42 @@ const Settings: React.FC = () => {
                           className="h-11 w-full justify-center sm:col-span-2"
                         >
                           <SettingsIcon size={16} className="mr-2" />
-                          {configured ? 'Update setup' : 'Setup credentials'}
+                          {configured ? t.settings.backupUpdateSetup : t.settings.backupSetupCredentials}
                         </Button>
                       </div>
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      {pill('Configured', configured ? 'Yes' : 'No', configured ? 'ok' : 'warn')}
-                      {pill('Auto', enabled ? 'Enabled' : 'Disabled', enabled ? 'ok' : 'warn')}
+                      {pill(t.settings.backupPillConfigured, configured ? t.common.yes : t.common.no, configured ? 'ok' : 'warn')}
+                      {pill(t.settings.backupPillAuto, enabled ? t.common.enabled : t.common.disabled, enabled ? 'ok' : 'warn')}
                       {pill(
-                        'Last auto',
+                        t.settings.backupPillLastAuto,
                         dbBackupAutomatic?.latestAuto?.started_at
                           ? `${formatDateTime(dbBackupAutomatic.latestAuto.started_at)} (${dbBackupAutomatic.latestAuto.status})`
                           : '-',
                         dbBackupAutomatic?.latestAuto?.status === 'success' ? 'ok' : dbBackupAutomatic?.latestAuto?.status ? 'warn' : 'muted'
                       )}
-                      {pill('Retention', `${keptCount}/3 files`, keptCount === 3 ? 'ok' : 'error')}
+                      {pill(t.settings.backupPillRetention, `${keptCount}/3 ${t.settings.backupFilesLabel}`, keptCount === 3 ? 'ok' : 'error')}
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
                       <div className="flex flex-col gap-2 h-full">
-                        <div className="text-sm font-medium text-foreground">Schedule details</div>
+                        <div className="text-sm font-medium text-foreground">{t.settings.backupScheduleDetails}</div>
                         <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1 flex-1">
                           <div>
-                            <span className="text-muted-foreground">Frequency:</span>{' '}
+                            <span className="text-muted-foreground">{t.settings.backupFrequency}:</span>{' '}
                             <span className="text-foreground">{dbBackupAutomatic?.frequency || 'Daily at 01:00'}</span>
                           </div>
                           <div>
-                            <span className="text-muted-foreground">Policy:</span>{' '}
+                            <span className="text-muted-foreground">{t.settings.backupPolicy}:</span>{' '}
                             <span className="text-foreground">{dbBackupAutomatic?.policy || 'Keep latest day, day-1, and week-1 backup'}</span>
                           </div>
                           <div>
-                            <span className="text-muted-foreground">Task name:</span>{' '}
+                            <span className="text-muted-foreground">{t.settings.backupTaskName}:</span>{' '}
                             <span className="text-foreground font-mono break-all">{dbBackupAutomatic?.taskName || 'CRA_Local_DailyDbBackup'}</span>
                           </div>
                           <div>
-                            <span className="text-muted-foreground">Next run:</span>{' '}
+                            <span className="text-muted-foreground">{t.settings.backupNextRun}:</span>{' '}
                             <span className="text-foreground">
                               {dbBackupAutomatic?.nextRunAt ? formatDateTime(dbBackupAutomatic.nextRunAt) : '-'}
                             </span>
@@ -3341,10 +3345,10 @@ const Settings: React.FC = () => {
                       </div>
 
                       <div className="flex flex-col gap-2 h-full">
-                        <div className="text-sm font-medium text-foreground">Recent activity</div>
+                        <div className="text-sm font-medium text-foreground">{t.settings.backupRecentActivity}</div>
                         <div className="rounded-lg border border-border bg-muted/10 p-3 text-xs space-y-1 flex-1">
                           <div>
-                            <span className="text-muted-foreground">Last restore:</span>{' '}
+                            <span className="text-muted-foreground">{t.settings.backupLastRestore}:</span>{' '}
                             <span className="text-foreground">
                               {dbBackupAutomatic?.latestRestore?.started_at
                                 ? `${formatDateTime(dbBackupAutomatic.latestRestore.started_at)} (${dbBackupAutomatic.latestRestore.status})`
@@ -3352,7 +3356,7 @@ const Settings: React.FC = () => {
                             </span>
                           </div>
                           <div>
-                            <span className="text-muted-foreground">Last manual:</span>{' '}
+                            <span className="text-muted-foreground">{t.settings.backupLastManual}:</span>{' '}
                             <span className="text-foreground">
                               {dbBackupAutomatic?.latestManual?.started_at
                                 ? `${formatDateTime(dbBackupAutomatic.latestManual.started_at)} (${dbBackupAutomatic.latestManual.status})`
@@ -3372,12 +3376,12 @@ const Settings: React.FC = () => {
             <div className="rounded-xl border border-border bg-background/30 p-4 md:p-5 space-y-4">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="space-y-1">
-                  <h4 className="text-base font-semibold text-foreground">Import / Restore (Migration)</h4>
+                  <h4 className="text-base font-semibold text-foreground">{t.settings.backupImportTitle}</h4>
                   <p className="text-sm text-muted-foreground">
-                    Upload a backup set from another server and restore this instance.
+                    {t.settings.backupImportDesc}
                   </p>
                   <p className="text-xs text-muted-foreground break-all">
-                    Storage path:{' '}
+                    {t.settings.backupStoragePath}:{' '}
                     {dbBackupImportDirectory
                       ? dbBackupImportDirectory
                       : dbBackupImportId
@@ -3398,7 +3402,7 @@ const Settings: React.FC = () => {
                     }}
                     disabled={isDbBackupImportUploading || isDbBackupImportValidating || isDbBackupImportRestoring}
                   >
-                    New import session
+                    {t.settings.backupNewImportSession}
                   </Button>
                 </div>
               </div>
@@ -3406,11 +3410,8 @@ const Settings: React.FC = () => {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
                 <div className="lg:col-span-2 flex flex-col h-full">
                   <div className="rounded-md border border-border bg-muted/10 p-3 space-y-2 flex flex-col h-full">
-                    <div className="text-sm font-medium text-foreground">Upload files</div>
-                    <p className="text-xs text-muted-foreground">
-                      Select the 3 files generated by the app: <span className="font-mono">*.dump</span>,{' '}
-                      <span className="font-mono">*_globals.sql</span>, <span className="font-mono">*_manifest.json</span>
-                    </p>
+                    <div className="text-sm font-medium text-foreground">{t.settings.backupUploadFiles}</div>
+                    <p className="text-xs text-muted-foreground">{t.settings.backupUploadFilesDesc}</p>
                     <Input
                       type="file"
                       multiple
@@ -3426,7 +3427,12 @@ const Settings: React.FC = () => {
                           </div>
                         ))}
                         {dbBackupImportFiles.length > 8 ? (
-                          <div>+{dbBackupImportFiles.length - 8} more</div>
+                          <div>
+                            {String(t.settings.backupMoreFiles).replace(
+                              '{count}',
+                              String(dbBackupImportFiles.length - 8)
+                            )}
+                          </div>
                         ) : null}
                       </div>
                     ) : null}
@@ -3436,7 +3442,7 @@ const Settings: React.FC = () => {
                         disabled={isDbBackupImportUploading || isDbBackupImportValidating || isDbBackupImportRestoring}
                       >
                         <Database size={16} className="mr-2" />
-                        {isDbBackupImportUploading ? 'Uploading...' : 'Upload'}
+                        {isDbBackupImportUploading ? t.common.uploading : t.common.upload}
                       </Button>
                       <Button
                         variant="outline"
@@ -3446,7 +3452,7 @@ const Settings: React.FC = () => {
                         <span className={cn("mr-2 inline-flex", isDbBackupImportValidating ? "animate-spin" : "")}>
                           <RefreshCw size={16} />
                         </span>
-                        {isDbBackupImportValidating ? t.common.loading : 'Validate'}
+                        {isDbBackupImportValidating ? t.common.loading : t.common.validate}
                       </Button>
                     </div>
                   </div>
@@ -3454,9 +3460,9 @@ const Settings: React.FC = () => {
 
                 <div className="flex flex-col h-full">
                   <div className="rounded-md border border-border bg-muted/10 p-3 space-y-2 flex flex-col h-full">
-                    <div className="text-sm font-medium text-foreground">Restore options</div>
+                    <div className="text-sm font-medium text-foreground">{t.settings.backupRestoreOptions}</div>
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs text-muted-foreground">Include globals (roles/users)</span>
+                      <span className="text-xs text-muted-foreground">{t.settings.backupIncludeGlobals}</span>
                       <Switch
                         checked={dbBackupImportIncludeGlobals}
                         onCheckedChange={(checked) => setDbBackupImportIncludeGlobals(Boolean(checked))}
@@ -3464,7 +3470,7 @@ const Settings: React.FC = () => {
                       />
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Leave enabled for full migration. Disable only if you intentionally want data-only restore.
+                      {t.settings.backupIncludeGlobalsHint}
                     </p>
                     <div className="flex-1" />
                   </div>
@@ -3482,11 +3488,11 @@ const Settings: React.FC = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Backup set</TableHead>
-                        <TableHead>Artifacts</TableHead>
-                        <TableHead>Created</TableHead>
-                        <TableHead className="text-right">Size</TableHead>
-                        <TableHead className="text-right">Action</TableHead>
+                        <TableHead>{t.settings.backupSet}</TableHead>
+                        <TableHead>{t.settings.backupArtifacts}</TableHead>
+                        <TableHead>{t.settings.backupCreated}</TableHead>
+                        <TableHead className="text-right">{t.settings.backupSize}</TableHead>
+                        <TableHead className="text-right">{t.settings.backupAction}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -3505,17 +3511,17 @@ const Settings: React.FC = () => {
                             <TableCell className="text-xs">
                               <div className="font-mono break-all">{item.prefix}</div>
                               <div className={cn('mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] border', item.isComplete ? 'border-green-500/40 text-green-400 bg-green-500/10' : 'border-amber-500/40 text-amber-400 bg-amber-500/10')}>
-                                {item.isComplete ? 'Complete' : 'Partial'}
+                                {item.isComplete ? t.common.complete : t.common.partial}
                               </div>
                             </TableCell>
                             <TableCell className="text-xs">
                               <div className="space-y-1">
-                                <div className={cn('font-mono break-all', dump ? 'text-foreground' : 'text-destructive')}>dump: {dump?.fileName || 'missing'}</div>
-                                <div className={cn('font-mono break-all', globals ? 'text-foreground' : 'text-destructive')}>globals: {globals?.fileName || 'missing'}</div>
-                                <div className={cn('font-mono break-all', manifest ? 'text-foreground' : 'text-destructive')}>manifest: {manifest?.fileName || 'missing'}</div>
+                                <div className={cn('font-mono break-all', dump ? 'text-foreground' : 'text-destructive')}>dump: {dump?.fileName || t.common.missing}</div>
+                                <div className={cn('font-mono break-all', globals ? 'text-foreground' : 'text-destructive')}>globals: {globals?.fileName || t.common.missing}</div>
+                                <div className={cn('font-mono break-all', manifest ? 'text-foreground' : 'text-destructive')}>manifest: {manifest?.fileName || t.common.missing}</div>
                                 {allReady ? null : (
                                   <div className="text-[11px] text-muted-foreground">
-                                    Upload the missing files to make this set restorable.
+                                    {t.settings.backupUploadMissingFilesHint}
                                   </div>
                                 )}
                               </div>
@@ -3529,7 +3535,7 @@ const Settings: React.FC = () => {
                                 onClick={() => setDbBackupImportRestoreTarget(item.prefix)}
                                 disabled={isDbBackupImportRestoring || !item.restoreReady || !dbBackupImportId}
                               >
-                                {isDbBackupImportRestoring && dbBackupImportRestoreTarget === item.prefix ? 'Restoring...' : 'Restore'}
+                                {isDbBackupImportRestoring && dbBackupImportRestoreTarget === item.prefix ? t.common.restoring : t.common.restore}
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -3540,7 +3546,7 @@ const Settings: React.FC = () => {
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">
-                  No imported backup sets yet. Upload the 3 files to start.
+                  {t.settings.backupNoImportedYet}
                 </p>
               )}
             </div>
@@ -3550,12 +3556,12 @@ const Settings: React.FC = () => {
             <div className="rounded-xl border border-border bg-background/30 p-4 md:p-5 space-y-4">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                 <div className="space-y-1">
-                  <h4 className="text-base font-semibold text-foreground">Available Backup Sets</h4>
+                  <h4 className="text-base font-semibold text-foreground">{t.settings.backupAvailableSetsTitle}</h4>
                   <p className="text-sm text-muted-foreground">
-                    View, download, and restore backup sets (auto and manual).
+                    {t.settings.backupAvailableSetsDesc}
                   </p>
                   <p className="text-xs text-muted-foreground break-all">
-                    Storage path: {dbBackupDirectory || CANONICAL_DB_BACKUP_DIR}
+                    {t.settings.backupStoragePath}: {dbBackupDirectory || CANONICAL_DB_BACKUP_DIR}
                   </p>
                 </div>
               </div>
@@ -3563,72 +3569,72 @@ const Settings: React.FC = () => {
             <Dialog open={isDbBackupSetupOpen} onOpenChange={setIsDbBackupSetupOpen}>
               <DialogContent className="sm:max-w-xl">
                 <DialogHeader>
-                  <DialogTitle>Backup Setup</DialogTitle>
+                  <DialogTitle>{t.settings.backupSetupDialogTitle}</DialogTitle>
                   <DialogDescription>
-                    Configure Postgres admin credentials once so the app can create full backups with globals.sql.
+                    {t.settings.backupSetupDialogDesc}
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label>Admin host</Label>
+                    <Label>{t.settings.backupAdminHost}</Label>
                     <Input value={dbBackupSetupForm.adminHost} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminHost: e.target.value }))} />
                   </div>
                   <div className="space-y-1">
-                    <Label>Admin port</Label>
+                    <Label>{t.settings.backupAdminPort}</Label>
                     <Input type="number" value={dbBackupSetupForm.adminPort} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminPort: Number(e.target.value || 5432) }))} />
                   </div>
                   <div className="space-y-1">
-                    <Label>Admin database</Label>
+                    <Label>{t.settings.backupAdminDatabase}</Label>
                     <Input value={dbBackupSetupForm.adminDatabase} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminDatabase: e.target.value }))} />
                   </div>
                   <div className="space-y-1">
-                    <Label>Admin user</Label>
+                    <Label>{t.settings.backupAdminUser}</Label>
                     <Input value={dbBackupSetupForm.adminUser} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminUser: e.target.value }))} />
                   </div>
                   <div className="space-y-1 md:col-span-2">
-                    <Label>Admin password</Label>
+                    <Label>{t.settings.backupAdminPassword}</Label>
                     <Input type="password" value={dbBackupSetupForm.adminPassword} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminPassword: e.target.value }))} />
                   </div>
 
                   <div className="space-y-1">
-                    <Label>Backup host</Label>
+                    <Label>{t.settings.backupHost}</Label>
                     <Input value={dbBackupSetupForm.backupHost} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupHost: e.target.value }))} />
                   </div>
                   <div className="space-y-1">
-                    <Label>Backup port</Label>
+                    <Label>{t.settings.backupPort}</Label>
                     <Input type="number" value={dbBackupSetupForm.backupPort} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupPort: Number(e.target.value || 5432) }))} />
                   </div>
                   <div className="space-y-1">
-                    <Label>Backup database</Label>
+                    <Label>{t.settings.backupDatabase}</Label>
                     <Input value={dbBackupSetupForm.backupDatabase} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupDatabase: e.target.value }))} />
                   </div>
                   <div className="space-y-1">
-                    <Label>Backup user</Label>
+                    <Label>{t.settings.backupUser}</Label>
                     <Input value={dbBackupSetupForm.backupUser} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupUser: e.target.value }))} />
                   </div>
                   <div className="space-y-1 md:col-span-2">
-                    <Label>Backup user password</Label>
+                    <Label>{t.settings.backupUserPassword}</Label>
                     <Input type="password" value={dbBackupSetupForm.backupPassword} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupPassword: e.target.value }))} />
                   </div>
                   <div className="space-y-1">
-                    <Label>Schedule hour (0-23)</Label>
+                    <Label>{t.settings.backupScheduleHour}</Label>
                     <Input type="number" min={0} max={23} value={dbBackupSetupForm.scheduleHour} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, scheduleHour: Number(e.target.value || 1) }))} />
                   </div>
                   <div className="space-y-1">
-                    <Label>Schedule minute (0-59)</Label>
+                    <Label>{t.settings.backupScheduleMinute}</Label>
                     <Input type="number" min={0} max={59} value={dbBackupSetupForm.scheduleMinute} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, scheduleMinute: Number(e.target.value || 0) }))} />
                   </div>
                   <div className="md:col-span-2 flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <span className="text-sm text-muted-foreground">Enable automatic daily backups</span>
+                    <span className="text-sm text-muted-foreground">{t.settings.backupEnableDaily}</span>
                     <Switch checked={dbBackupSetupForm.enabled} onCheckedChange={(checked) => setDbBackupSetupForm((p) => ({ ...p, enabled: checked }))} />
                   </div>
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setIsDbBackupSetupOpen(false)} disabled={isDbBackupSetupSaving}>
-                    Cancel
+                    {t.common.cancel}
                   </Button>
                   <Button onClick={saveDbBackupSetup} disabled={isDbBackupSetupSaving}>
-                    {isDbBackupSetupSaving ? 'Saving...' : 'Save backup setup'}
+                    {isDbBackupSetupSaving ? t.common.saving : t.settings.backupSaveSetup}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -3647,12 +3653,12 @@ const Settings: React.FC = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[110px]">Retained</TableHead>
-                      <TableHead>Backup set</TableHead>
-                      <TableHead className="w-[190px]">Created</TableHead>
-                      <TableHead className="w-[110px] text-right">Size</TableHead>
-                      <TableHead className="w-[200px]">Files</TableHead>
-                      <TableHead className="w-[220px] text-right">Actions</TableHead>
+                      <TableHead className="w-[110px]">{t.settings.backupRetained}</TableHead>
+                      <TableHead>{t.settings.backupSet}</TableHead>
+                      <TableHead className="w-[190px]">{t.settings.backupCreated}</TableHead>
+                      <TableHead className="w-[110px] text-right">{t.settings.backupSize}</TableHead>
+                      <TableHead className="w-[200px]">{t.settings.backupFiles}</TableHead>
+                      <TableHead className="w-[220px] text-right">{t.settings.backupActions}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -3716,7 +3722,7 @@ const Settings: React.FC = () => {
                                     : 'border-amber-500/40 text-amber-400 bg-amber-500/10'
                                 )}
                               >
-                                {item.isComplete ? 'Complete' : 'Partial'}
+                                {item.isComplete ? t.common.complete : t.common.partial}
                               </div>
                             </TableCell>
                             <TableCell className="text-sm">{formatDateTime(item.createdAt)}</TableCell>
@@ -3740,7 +3746,7 @@ const Settings: React.FC = () => {
                                   <DropdownMenuTrigger asChild>
                                     <Button size="sm" variant="outline">
                                       <Download size={14} className="mr-2" />
-                                      Download
+                                      {t.common.download}
                                     </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
@@ -3754,7 +3760,7 @@ const Settings: React.FC = () => {
                                       manifest
                                     </DropdownMenuItem>
                                     <DropdownMenuItem disabled={!allReady} onClick={() => downloadAllBackupArtifacts(item)}>
-                                      all
+                                      {t.common.all}
                                     </DropdownMenuItem>
                                   </DropdownMenuContent>
                                 </DropdownMenu>
@@ -3764,7 +3770,7 @@ const Settings: React.FC = () => {
                                   onClick={() => dump && setDbBackupRestoreTarget(dump.fileName)}
                                   disabled={isDbBackupRestoring || !item.restoreReady || !dump}
                                 >
-                                  {isDbBackupRestoring && dbBackupRestoreTarget === dump?.fileName ? 'Restoring...' : 'Restore'}
+                                  {isDbBackupRestoring && dbBackupRestoreTarget === dump?.fileName ? t.common.restoring : t.common.restore}
                                 </Button>
                               </div>
                             </TableCell>
@@ -3801,7 +3807,7 @@ const Settings: React.FC = () => {
                                             : 'border-amber-500/40 text-amber-400 bg-amber-500/10'
                                         )}
                                       >
-                                        {item.isComplete ? 'Complete' : 'Partial'}
+                                        {item.isComplete ? t.common.complete : t.common.partial}
                                       </div>
                                     </>
                                   ) : (
@@ -3831,7 +3837,7 @@ const Settings: React.FC = () => {
                                       <DropdownMenuTrigger asChild>
                                         <Button size="sm" variant="outline" disabled={!item}>
                                           <Download size={14} className="mr-2" />
-                                          Download
+                                          {t.common.download}
                                         </Button>
                                       </DropdownMenuTrigger>
                                       <DropdownMenuContent align="end">
@@ -3845,7 +3851,7 @@ const Settings: React.FC = () => {
                                           manifest
                                         </DropdownMenuItem>
                                         <DropdownMenuItem disabled={!r.allReady} onClick={() => item && downloadAllBackupArtifacts(item)}>
-                                          all
+                                          {t.common.all}
                                         </DropdownMenuItem>
                                       </DropdownMenuContent>
                                     </DropdownMenu>
@@ -3855,7 +3861,7 @@ const Settings: React.FC = () => {
                                       onClick={() => r.dump && setDbBackupRestoreTarget(r.dump.fileName)}
                                       disabled={isDbBackupRestoring || !item?.restoreReady || !r.dump}
                                     >
-                                      Restore
+                                      {t.common.restore}
                                     </Button>
                                   </div>
                                 </TableCell>
@@ -3879,7 +3885,7 @@ const Settings: React.FC = () => {
                 </Table>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No backups found yet. Create the first backup to start.</p>
+              <p className="text-sm text-muted-foreground">{t.settings.backupNoBackupsYet}</p>
             )}
             </div>
           </div>
@@ -3887,14 +3893,14 @@ const Settings: React.FC = () => {
           <AlertDialog open={Boolean(dbBackupRestoreTarget)} onOpenChange={(open) => { if (!open) setDbBackupRestoreTarget(null); }}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Restore backup?</AlertDialogTitle>
+                <AlertDialogTitle>{t.settings.backupRestoreConfirmTitle}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will replace current database data with backup{' '}
-                  <span className="font-mono">{dbBackupRestoreTarget}</span>. The app may be unavailable briefly.
+                  {t.settings.backupRestoreConfirmDesc1}{' '}
+                  <span className="font-mono">{dbBackupRestoreTarget}</span>. {t.settings.backupRestoreConfirmDesc2}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel disabled={isDbBackupRestoring}>Cancel</AlertDialogCancel>
+                <AlertDialogCancel disabled={isDbBackupRestoring}>{t.common.cancel}</AlertDialogCancel>
                 <AlertDialogAction
                   disabled={isDbBackupRestoring || !dbBackupRestoreTarget}
                   onClick={(e) => {
@@ -3903,7 +3909,7 @@ const Settings: React.FC = () => {
                     void restoreDbBackup(dbBackupRestoreTarget);
                   }}
                 >
-                  {isDbBackupRestoring ? 'Restoring...' : 'Restore now'}
+                  {isDbBackupRestoring ? t.common.restoring : t.settings.backupRestoreNow}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -3917,14 +3923,14 @@ const Settings: React.FC = () => {
           >
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Restore imported backup?</AlertDialogTitle>
+                <AlertDialogTitle>{t.settings.backupImportRestoreConfirmTitle}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will replace current database data with imported backup set{' '}
-                  <span className="font-mono">{dbBackupImportRestoreTarget}</span>. The app may be unavailable briefly.
+                  {t.settings.backupImportRestoreConfirmDesc1}{' '}
+                  <span className="font-mono">{dbBackupImportRestoreTarget}</span>. {t.settings.backupImportRestoreConfirmDesc2}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel disabled={isDbBackupImportRestoring}>Cancel</AlertDialogCancel>
+                <AlertDialogCancel disabled={isDbBackupImportRestoring}>{t.common.cancel}</AlertDialogCancel>
                 <AlertDialogAction
                   disabled={isDbBackupImportRestoring || !dbBackupImportRestoreTarget || !dbBackupImportId}
                   onClick={(e) => {
@@ -3933,7 +3939,7 @@ const Settings: React.FC = () => {
                     void restoreDbBackupImport(dbBackupImportRestoreTarget);
                   }}
                 >
-                  {isDbBackupImportRestoring ? 'Restoring...' : 'Restore now'}
+                  {isDbBackupImportRestoring ? t.common.restoring : t.settings.backupRestoreNow}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

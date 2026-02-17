@@ -460,13 +460,16 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
         const imgs = await renderPdfBytesToImages(bytes, 10);
         return { kind: "pdf", dataUrls: imgs };
       }
-      return { kind: "none", note: "Preview not available for this file type." };
+      return { kind: "none", note: String(t.request.previewNotAvailable ?? "Preview not available for this file type.") };
     }
 
     // remote/relative URL
     try {
       const res = await fetch(url);
-      if (!res.ok) return { kind: "none", note: `Failed to fetch attachment (${res.status}).` };
+      if (!res.ok) {
+        const tpl = String(t.pdf.attachmentFetchFailed ?? "Failed to fetch attachment ({status}).");
+        return { kind: "none", note: tpl.replace("{status}", String(res.status)) };
+      }
       const ab = await res.arrayBuffer();
       const bytes = new Uint8Array(ab);
       const mime = String(res.headers.get("content-type") || "").toLowerCase() || sniffMimeFromBytes(bytes) || "";
@@ -478,9 +481,9 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
         const imgs = await renderPdfBytesToImages(bytes, 10);
         return { kind: "pdf", dataUrls: imgs };
       }
-      return { kind: "none", note: "Preview not available for this file type." };
+      return { kind: "none", note: String(t.request.previewNotAvailable ?? "Preview not available for this file type.") };
     } catch (e) {
-      return { kind: "none", note: "Failed to load attachment for preview." };
+      return { kind: "none", note: String(t.pdf.previewLoadFailed ?? "Failed to load attachment for preview.") };
     }
   };
 
@@ -1572,7 +1575,16 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       setFont("normal");
       const [mr, mg, mb] = rgb(COLORS.muted);
       pdf.setTextColor(mr, mg, mb);
-      pdf.text(String(preview.note || "Preview not available."), margin, y);
+      pdf.text(
+        String(
+          preview.note ||
+            t.pdf.previewNotAvailableGeneric ||
+            t.request.previewNotAvailable ||
+            "Preview not available."
+        ),
+        margin,
+        y
+      );
       pdf.setTextColor(0, 0, 0);
       y += 8;
     }

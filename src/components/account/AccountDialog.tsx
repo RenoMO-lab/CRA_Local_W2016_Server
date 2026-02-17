@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
+import { localizeApiError } from '@/utils/localizeApiError';
 
 interface AccountDialogProps {
   open: boolean;
@@ -62,7 +63,7 @@ const AccountDialog: React.FC<AccountDialogProps> = ({ open, onOpenChange }) => 
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        const message = String(data?.error ?? 'Failed to update password');
+        const message = localizeApiError(t, data?.error) || t.account.passwordUpdateFailed;
         toast({ title: t.account.changePassword, description: message, variant: 'destructive' as any });
         return;
       }
@@ -71,7 +72,7 @@ const AccountDialog: React.FC<AccountDialogProps> = ({ open, onOpenChange }) => 
     } catch (e: any) {
       toast({
         title: t.account.changePassword,
-        description: String(e?.message ?? e ?? 'Failed to update password'),
+        description: localizeApiError(t, e?.message ?? e) || t.account.passwordUpdateFailed,
         variant: 'destructive' as any,
       });
     } finally {
