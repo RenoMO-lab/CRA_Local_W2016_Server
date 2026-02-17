@@ -9,7 +9,11 @@ Set-Location $AppPath
 
 $backupScript = Join-Path $AppPath "deploy\db-backup.ps1"
 if (Test-Path $backupScript) {
-  & $backupScript -AppPath $AppPath
+  try {
+    & $backupScript -AppPath $AppPath
+  } catch {
+    Write-Warning ("Database backup failed; continuing deployment. Error: {0}" -f $_.Exception.Message)
+  }
 } else {
   Write-Warning "db-backup.ps1 not found. Skipping backup."
 }
