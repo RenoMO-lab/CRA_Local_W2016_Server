@@ -5,8 +5,6 @@ import { enUS, fr, zhCN } from 'date-fns/locale';
 import { translations, Language } from '@/i18n/translations';
 
 const MONROC_RED = '#FA0000';
-const LIGHT_GREY = '#F3F4F6';
-const MID_GREY = '#6B7280';
 const TEXT_GREY = '#4B5563';
 const LOGO_URL = '/monroc-logo.png';
 const CHINESE_FONT_FILE = '/fonts/simhei.ttf';
@@ -235,8 +233,8 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   const margin = 14;
   const contentWidth = pageWidth - margin * 2;
   const bottomMargin = 16;
-  // Needs to fit: request id + status badge + generated timestamp without overlap.
-  const pageHeaderHeight = 24;
+  // Branding-only header band (logo + accent line).
+  const pageHeaderHeight = 28;
   const ptToMm = (pt: number) => (pt * 25.4) / 72;
   const lineHeightMm = (fontSizePt: number) => ptToMm(fontSizePt) * pdf.getLineHeightFactor();
 
@@ -258,7 +256,6 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   };
 
   const getDisplayValueLocal = (value: string | number | null | undefined) => getDisplayValue(value);
-  const hasDisplayValueLocal = (value: string | number | null | undefined) => getDisplayValueLocal(value) !== null;
 
   const rgb = (hex: string) => {
     const v = hexToRgb(hex);
@@ -516,7 +513,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     setFont("normal");
   };
 
-  const drawPageHeader = (isFirstPage: boolean) => {
+  const drawPageHeader = (_isFirstPage: boolean) => {
     // Top accent line.
     const [rr, rg, rb] = rgb(MONROC_RED);
     pdf.setDrawColor(rr, rg, rb);
@@ -531,39 +528,14 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     // Logo.
     if (cachedLogo) {
       // Make the logo clearly visible in the header band.
-      const maxH = 20;
-      const maxW = 92;
+      const maxH = 24;
+      const maxW = 112;
       const scale = Math.min(maxW / cachedLogo.width, maxH / cachedLogo.height);
       const w = cachedLogo.width * scale;
       const h = cachedLogo.height * scale;
       // Vertically center within the header band.
       const yLogo = Math.max(2.0, (pageHeaderHeight - h) / 2);
       pdf.addImage(cachedLogo.dataUrl, "PNG", margin, yLogo, w, h);
-    }
-
-    // Status on the right (request id is already shown in the report body).
-    pdf.setFontSize(9);
-    setFont("bold");
-    const [tr, tg, tb] = rgb(COLORS.title);
-    pdf.setTextColor(tr, tg, tb);
-    const badgeY = 9.2;
-    const badgeH = 6.6;
-    drawStatusBadge(String(statusLabel), pageWidth - margin, badgeY);
-
-    if (isFirstPage) {
-      pdf.setFontSize(9);
-      setFont("normal");
-      const [mr, mg, mb] = rgb(COLORS.muted);
-      pdf.setTextColor(mr, mg, mb);
-      // Keep the generated timestamp below the status badge to avoid overlap.
-      pdf.text(
-        `${t.pdf.generatedLabel}: ${formatDate(new Date(), "MMMM d, yyyy HH:mm")}`,
-        pageWidth - margin,
-        badgeY + badgeH + 5.2,
-        {
-        align: "right",
-        },
-      );
     }
 
     pdf.setTextColor(0, 0, 0);
@@ -605,18 +577,43 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     pdf.rect(x + headerInset, topY + headerInset, w - headerInset * 2, headerH - headerInset, "F");
     const [ar, ag, ab] = rgb(MONROC_RED);
     pdf.setFillColor(ar, ag, ab);
-    // Start the strip slightly lower so the rounded top-left border stays clean.
-    const stripTopPad = 1.4;
-    const stripY = topY + headerInset + stripTopPad;
-    const stripH = Math.max(0, headerH - headerInset - stripTopPad);
-    pdf.rect(x + headerInset, stripY, 3 - headerInset, stripH, "F");
+    // Keep the strip away from the rounded corner to avoid "bleeding" outside the frame.
+    const stripX = x + 1.6;
+    const stripY = topY + 2.4;
+    const stripW = 2.0;
+    const stripH = Math.max(0, headerH - 3.6);
+    pdf.rect(stripX, stripY, stripW, stripH, "F");
+
+    const truncateToWidth = (text: string, maxW: number) => {
+      const raw = String(text ?? "");
+      if (pdf.getTextWidth(raw) <= maxW) return raw;
+      let t = raw;
+      while (t.length > 0 && pdf.getTextWidth(`${t}...`) > maxW) {
+        t = t.slice(0, -1);
+      }
+      return `${t}...`;
+    };
 
     // Header title.
     pdf.setFontSize(variant === "continued" ? 10 : 11);
     setFont(variant === "continued" ? "normal" : "bold");
     const [tr, tg, tb] = rgb(COLORS.title);
     pdf.setTextColor(tr, tg, tb);
-    pdf.text(title, x + 6, topY + (variant === "continued" ? 5.1 : 6.2));
+
+    const titleX = x + 6;
+    const titleY = topY + (variant === "continued" ? 5.1 : 6.2);
+    let titleText = title;
+    if (variant === "continued") {
+      const continuedText = `(${String(t.pdf.continuedLabel ?? "Continued")})`;
+      pdf.setFontSize(8);
+      setFont("normal");
+      const continuedW = pdf.getTextWidth(continuedText);
+      pdf.setFontSize(10);
+      setFont("normal");
+      const maxTitleW = Math.max(20, w - 12 - continuedW - 6);
+      titleText = truncateToWidth(title, maxTitleW);
+    }
+    pdf.text(titleText, titleX, titleY);
 
     if (variant === "continued") {
       // Smaller continuation indicator (less repetitive), right-aligned to avoid overlap.
@@ -678,64 +675,6 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     addPage();
     // Re-open the same card with a smaller "continued" header.
     beginCardContinued(title, continuedCount + 1);
-  };
-
-  const measureKv = (label: string, value: string, x: number, w: number, labelW: number) => {
-    pdf.setFontSize(9);
-    setFont("bold");
-    const labelTextW = pdf.getTextWidth(label);
-    setFont("normal");
-    const valueX = x + Math.max(labelW, labelTextW + 3);
-    const valueW = Math.max(20, w - (valueX - x));
-    pdf.setFontSize(10);
-    const lines = pdf.splitTextToSize(value, valueW) as string[];
-    return { labelTextW, valueX, lines, lineCount: Math.max(lines.length, 1) };
-  };
-
-  const drawKv = (label: string, rawValue: string | number | null | undefined, x: number, w: number) => {
-    const value = getDisplayValueLocal(rawValue);
-    if (!value) return 0;
-    const labelW = 44;
-    const m = measureKv(label, value, x, w, labelW);
-
-    pdf.setFontSize(9);
-    setFont("bold");
-    const [lr, lg, lb] = rgb(TEXT_GREY);
-    pdf.setTextColor(lr, lg, lb);
-    pdf.text(label, x, y);
-    pdf.text(":", x + m.labelTextW + 1.6, y);
-
-    pdf.setFontSize(10);
-    setFont("normal");
-    pdf.setTextColor(0, 0, 0);
-    pdf.text(m.lines, m.valueX, y);
-    return m.lineCount;
-  };
-
-  const drawKvGrid = (fields: { label: string; value: any }[], columns = 2) => {
-    // Drop empty values up-front so the grid doesn't create blank rows/columns.
-    const visible = fields.filter((f) => hasDisplayValueLocal(f.value));
-    if (!visible.length) return;
-
-    const innerX = margin + 6;
-    const innerW = contentWidth - 12;
-    const gutter = 8;
-    const colW = columns === 1 ? innerW : (innerW - gutter) / columns;
-
-    for (let i = 0; i < visible.length; i += columns) {
-      const slice = visible.slice(i, i + columns);
-      const measures = slice.map((f) => measureKv(f.label, String(getDisplayValueLocal(f.value) ?? ""), innerX, colW, 44));
-      const lineCount = Math.max(1, ...measures.map((m: any) => m.lineCount));
-      const rowH = lineCount * lineHeightMm(10) + 1.5;
-      ensureSpace(rowH);
-
-      for (let c = 0; c < slice.length; c++) {
-        const f = slice[c];
-        const x = innerX + c * (colW + gutter);
-        drawKv(f.label, f.value, x, colW);
-      }
-      y += rowH;
-    }
   };
 
   const drawSubheading = (text: string) => {
@@ -805,6 +744,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     rows: Array<string[]>;
     colWidths: number[];
     onPageBreak?: () => void;
+    emptyCellValue?: string;
   }) => {
     const x = margin + 6;
     const w = contentWidth - 12;
@@ -846,9 +786,11 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       const row = opts.rows[r] ?? [];
       pdf.setFontSize(fontSize);
       setFont("normal");
+      const emptyCellValue = opts.emptyCellValue ?? "-";
       const cellLines = row.map((cell, idx) => {
         const cw = (opts.colWidths[idx] ?? 20) - padX * 2;
-        const text = String(cell ?? "").trim() || "-";
+        const trimmed = String(cell ?? "").trim();
+        const text = trimmed.length ? trimmed : emptyCellValue;
         return pdf.splitTextToSize(text, Math.max(10, cw)) as string[];
       });
       const maxLines = Math.max(1, ...cellLines.map((lines) => lines.length));
@@ -885,115 +827,336 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     }
   };
 
-  const drawTableCard = (
-    title: string,
-    opts: { headers: string[]; rows: Array<string[]>; colWidths: number[] },
-  ) => {
-    beginCard(title);
+  type AppendixContext = "technical" | "design" | "costing" | "sales";
+  type AppendixItem = {
+    id: string; // A.1, A.2...
+    category: string;
+    typeLabel: string;
+    filename: string;
+    uploadedBy: string;
+    uploadedAt: Date | null;
+    sizeLabel: string;
+    attachment: Attachment;
+  };
+
+  const appendixItems: AppendixItem[] = [];
+  const appendixKeyToId = new Map<string, string>();
+
+  const appendixIdForIndex = (idx: number) => `A.${idx + 1}`;
+
+  const extFromFilename = (filename: string) => {
+    const base = String(filename ?? "").trim();
+    const dot = base.lastIndexOf(".");
+    if (dot === -1) return "";
+    const ext = base.slice(dot + 1).toLowerCase();
+    return ext && ext.length <= 8 ? ext : "";
+  };
+
+  const categoryForContext = (ctx: AppendixContext) => {
+    if (ctx === "technical") return String(t.pdf.attachmentCategoryTechnicalDrawing ?? "Technical Drawing");
+    if (ctx === "design") return String(t.pdf.attachmentCategoryTechnicalDrawing ?? "Technical Drawing");
+    if (ctx === "costing") return String(t.pdf.attachmentCategoryCommercial ?? "Commercial");
+    if (ctx === "sales") return String(t.pdf.attachmentCategoryCommercial ?? "Commercial");
+    return String(t.pdf.attachmentCategoryOther ?? "Other");
+  };
+
+  const seeAppendixText = (ref: string) =>
+    String(t.pdf.seeAppendix || "See Appendix {appendix}").replace("{appendix}", ref);
+
+  const registerAppendixAttachments = (ctx: AppendixContext, attachments: Attachment[]) => {
+    const atts = Array.isArray(attachments) ? attachments : [];
+    const ids: string[] = [];
+
+    for (const att of atts) {
+      const filename = String(att?.filename ?? "").trim();
+      const url = String(att?.url ?? "");
+      if (!filename && !url) continue;
+
+      const key = `${String(att?.type ?? "")}::${filename}::${url}`;
+      const existing = appendixKeyToId.get(key);
+      if (existing) {
+        ids.push(existing);
+        continue;
+      }
+
+      const id = appendixIdForIndex(appendixItems.length);
+      appendixKeyToId.set(key, id);
+
+      const ext = extFromFilename(filename);
+      const typeLabelRaw = formatAttachmentType(String(att?.type ?? ""));
+      const typeLabel = ext ? `${typeLabelRaw} (${ext})` : typeLabelRaw;
+
+      const uploadedAt = att?.uploadedAt ? new Date(att.uploadedAt as any) : null;
+      const uploadedBy = String(att?.uploadedBy ?? "").trim();
+
+      appendixItems.push({
+        id,
+        category: categoryForContext(ctx),
+        typeLabel,
+        filename: filename || "-",
+        uploadedBy,
+        uploadedAt,
+        sizeLabel: formatBytes(estimateBase64Bytes(url)),
+        attachment: att,
+      });
+      ids.push(id);
+    }
+
+    const unique = Array.from(new Set(ids));
+    unique.sort((a, b) => {
+      const an = parseInt(a.split(".")[1] || "0", 10);
+      const bn = parseInt(b.split(".")[1] || "0", 10);
+      return an - bn;
+    });
+
+    if (!unique.length) return "";
+    const nums = unique
+      .map((id) => parseInt(id.split(".")[1] || "", 10))
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .sort((a, b) => a - b);
+
+    const min = nums[0];
+    const max = nums[nums.length - 1];
+    const contiguous = nums.every((n, i) => i === 0 || n === nums[i - 1] + 1);
+
+    if (contiguous && min === max) return `A.${min}`;
+    if (contiguous) return `A.${min}-A.${max}`;
+    return unique.join(", ");
+  };
+
+  const drawParamTable = (rows: Array<{ param: string; value: any; unit?: string }>, opts?: { colWidths?: [number, number, number] }) => {
+    const visible = rows
+      .map((r) => ({
+        param: String(r.param ?? "").trim(),
+        value: getDisplayValueLocal(r.value),
+        unit: String(r.unit ?? "").trim(),
+      }))
+      .filter((r) => r.param && r.value !== null);
+    if (!visible.length) return;
+
+    const colWidths: [number, number, number] = opts?.colWidths ?? [62, 88, (contentWidth - 12 - 62 - 88)];
     drawTable({
-      ...opts,
+      headers: [String(t.pdf.parameterLabel ?? "Parameter"), String(t.pdf.valueLabel ?? "Value"), String(t.pdf.unitLabel ?? "Unit")],
+      rows: visible.map((r) => [r.param, String(r.value ?? ""), r.unit]),
+      colWidths: [colWidths[0], colWidths[1], colWidths[2]],
       onPageBreak: () => {
         pageBreakActiveCard();
       },
+      emptyCellValue: "",
     });
-    endCard();
+    y += 4;
   };
 
-  type AppendixSection = {
-    label: string;
-    title: string;
-    headers: string[];
-    rows: Array<string[]>;
-    colWidths: number[];
-    attachments: Attachment[];
+  const measureStackField = (label: string, value: string, maxW: number) => {
+    pdf.setFontSize(8);
+    const lhLabel = lineHeightMm(8);
+    pdf.setFontSize(11);
+    const lines = pdf.splitTextToSize(String(value ?? ""), Math.max(10, maxW)) as string[];
+    const lhValue = lineHeightMm(11);
+    return lhLabel + Math.max(1, lines.length) * lhValue + 2.2;
   };
-  const appendixSections: AppendixSection[] = [];
-  const appendixLabelFor = (index: number) => {
-    // A..Z, then A1, A2... (should be plenty for our attachment groups)
-    if (index < 26) return String.fromCharCode(65 + index);
-    return `A${index - 25}`;
+
+  const drawStackField = (label: string, value: string, x: number, maxW: number, yTop: number) => {
+    const v = String(value ?? "").trim();
+    pdf.setFontSize(8);
+    setFont("bold");
+    const [mr, mg, mb] = rgb(COLORS.muted);
+    pdf.setTextColor(mr, mg, mb);
+    pdf.text(label, x, yTop);
+
+    pdf.setFontSize(11);
+    setFont("normal");
+    pdf.setTextColor(0, 0, 0);
+    const lines = pdf.splitTextToSize(v || "-", Math.max(10, maxW)) as string[];
+    const yValue = yTop + lineHeightMm(8) + 1.6;
+    pdf.text(lines, x, yValue);
+    return yValue + Math.max(1, lines.length) * lineHeightMm(11) + 2.2;
   };
-  const registerAppendixTable = (
-    title: string,
-    opts: { headers: string[]; rows: Array<string[]>; colWidths: number[]; attachments: Attachment[] },
-  ) => {
-    const label = appendixLabelFor(appendixSections.length);
-    appendixSections.push({ label, title, ...opts, attachments: opts.attachments ?? [] });
-    return label;
+
+  const drawCoverHeaderBlock = () => {
+    const leftFields = [
+      { label: String(t.pdf.requestNumberLabel ?? "Request Number"), value: request.id },
+      { label: String(t.request.clientName ?? "Client Name"), value: request.clientName },
+      { label: String(t.request.country ?? "Country"), value: translateResolvedOption(request.country, request.countryOther) },
+      {
+        label: String(t.request.applicationVehicle ?? "Application Vehicle"),
+        value: translateResolvedOption(request.applicationVehicle, request.applicationVehicleOther),
+      },
+    ];
+
+    const revisionValue = (() => {
+      const raw: any = (request as any)?.revision ?? (request as any)?.version ?? null;
+      if (raw === null || raw === undefined || raw === "") return "1";
+      return String(raw);
+    })();
+
+    const rightFields = [
+      { kind: "status" as const, label: String(t.common.status ?? "Status"), value: String(statusLabel) },
+      { kind: "text" as const, label: String(t.table.createdBy ?? "Created By"), value: request.createdByName },
+      { kind: "text" as const, label: String(t.pdf.createdAtLabel ?? "Created At"), value: formatDate(new Date(request.createdAt), "MMMM d, yyyy") },
+      { kind: "text" as const, label: String(t.pdf.generatedLabel ?? "Generated"), value: formatDate(new Date(), "MMMM d, yyyy HH:mm") },
+      { kind: "text" as const, label: String(t.pdf.revisionLabel ?? "Revision"), value: revisionValue },
+    ];
+
+    const x = margin;
+    const w = contentWidth;
+    const pad = 7;
+    const colGap = 10;
+    const colW = (w - colGap) / 2;
+    const innerW = colW - pad * 2;
+
+    const leftH = leftFields.reduce((sum, f) => sum + measureStackField(f.label, String(f.value ?? ""), innerW), 0);
+    const statusRowH = lineHeightMm(8) + 6.6 + 4.0;
+    const rightTextH = rightFields
+      .filter((f) => f.kind === "text")
+      .reduce((sum, f: any) => sum + measureStackField(f.label, String(f.value ?? ""), innerW), 0);
+    const blockH = Math.max(leftH, statusRowH + rightTextH) + pad * 2;
+
+    ensureSpace(blockH + 4);
+
+    const [br, bg, bb] = rgb(COLORS.border);
+    const [fillR, fillG, fillB] = rgb("#F9FAFB");
+    pdf.setFillColor(fillR, fillG, fillB);
+    pdf.setDrawColor(br, bg, bb);
+    pdf.setLineWidth(0.3);
+    pdf.roundedRect(x, y, w, blockH, 3, 3, "FD");
+
+    const leftX = x + pad;
+    const rightX = x + colW + colGap + pad;
+    let yLeft = y + pad + 4;
+    let yRight = y + pad + 4;
+
+    for (const f of leftFields) {
+      yLeft = drawStackField(f.label, String(f.value ?? ""), leftX, innerW, yLeft);
+    }
+
+    // Status badge (value) in the right column.
+    pdf.setFontSize(8);
+    setFont("bold");
+    const [mr, mg, mb] = rgb(COLORS.muted);
+    pdf.setTextColor(mr, mg, mb);
+    pdf.text(rightFields[0].label, rightX, yRight);
+    pdf.setTextColor(0, 0, 0);
+
+    const badgeY = yRight + lineHeightMm(8) + 1.4;
+    drawStatusBadge(String(statusLabel), rightX + innerW, badgeY);
+    yRight = badgeY + 6.6 + 4.2;
+
+    for (const f of rightFields.slice(1)) {
+      yRight = drawStackField(f.label, String((f as any).value ?? ""), rightX, innerW, yRight);
+    }
+
+    y += blockH + 8;
   };
-  const seeAppendixText = (label: string) => String(t.pdf.seeAppendix || "See Appendix {appendix}").replace("{appendix}", label);
+
+  const drawExecutiveSummaryBox = () => {
+    const deliverables = request.expectedDeliverySelections?.length
+      ? request.expectedDeliverySelections.map(translateOption).join("; ")
+      : "";
+    const quantity = typeof request.expectedQty === "number" ? String(request.expectedQty) : "";
+    const targetReplyDate = String(request.clientExpectedDeliveryDate ?? "").trim();
+
+    const fields = [
+      { label: String(t.request.applicationVehicle ?? "Application Vehicle"), value: translateResolvedOption(request.applicationVehicle, request.applicationVehicleOther) },
+      { label: String(t.pdf.deliverablesLabel ?? "Deliverables"), value: deliverables },
+      { label: String(t.request.quantity ?? "Quantity"), value: quantity },
+      { label: String(t.request.clientExpectedDeliveryDate ?? "Client Expected Reply Date"), value: targetReplyDate },
+    ];
+
+    const x = margin;
+    const w = contentWidth;
+    const pad = 7;
+    const colGap = 10;
+    const colW = (w - colGap) / 2;
+    const innerW = colW - pad * 2;
+
+    const titleH = lineHeightMm(12) + 4.5;
+    const leftH = measureStackField(fields[0].label, String(fields[0].value ?? ""), innerW) + measureStackField(fields[1].label, String(fields[1].value ?? ""), innerW);
+    const rightH = measureStackField(fields[2].label, String(fields[2].value ?? ""), innerW) + measureStackField(fields[3].label, String(fields[3].value ?? ""), innerW);
+    const boxH = Math.max(leftH, rightH) + pad * 2 + titleH;
+
+    ensureSpace(boxH + 4);
+
+    const [br, bg, bb] = rgb(COLORS.border);
+    const [fillR, fillG, fillB] = rgb("#FFFFFF");
+    pdf.setFillColor(fillR, fillG, fillB);
+    pdf.setDrawColor(br, bg, bb);
+    pdf.setLineWidth(0.3);
+    pdf.roundedRect(x, y, w, boxH, 3, 3, "FD");
+
+    // Title + divider
+    pdf.setFontSize(12);
+    setFont("bold");
+    const [tr, tg, tb] = rgb(COLORS.title);
+    pdf.setTextColor(tr, tg, tb);
+    pdf.text(String(t.pdf.executiveSummaryTitle ?? "Executive Summary"), x + pad, y + pad + 2);
+    pdf.setTextColor(0, 0, 0);
+    setFont("normal");
+    const yDiv = y + pad + 4.6;
+    pdf.setDrawColor(br, bg, bb);
+    pdf.setLineWidth(0.2);
+    pdf.line(x + pad, yDiv, x + w - pad, yDiv);
+
+    const leftX = x + pad;
+    const rightX = x + colW + colGap + pad;
+    let yLeft = yDiv + 6;
+    let yRight = yDiv + 6;
+
+    yLeft = drawStackField(fields[0].label, String(fields[0].value ?? ""), leftX, innerW, yLeft);
+    yLeft = drawStackField(fields[1].label, String(fields[1].value ?? ""), leftX, innerW, yLeft);
+
+    yRight = drawStackField(fields[2].label, String(fields[2].value ?? ""), rightX, innerW, yRight);
+    yRight = drawStackField(fields[3].label, String(fields[3].value ?? ""), rightX, innerW, yRight);
+
+    y += boxH + 10;
+  };
 
   // First page header.
   drawPageHeader(true);
 
-  // Title block.
-  ensureSpace(18);
+  // Report title + cover content.
+  ensureSpace(22);
   pdf.setFontSize(18);
   setFont("bold");
   const [tr, tg, tb] = rgb(COLORS.title);
   pdf.setTextColor(tr, tg, tb);
-  pdf.text(t.pdf.reportTitle, margin, y);
+  pdf.text(String(t.pdf.reportTitle ?? "Monroc Customer Request Report"), margin, y);
   setFont("normal");
   pdf.setTextColor(0, 0, 0);
   y += 10;
 
-  // Summary card.
-  const summaryFields = [
-    { label: t.common.status, value: statusLabel },
-    { label: t.request.clientName, value: request.clientName },
-    { label: t.request.clientContact, value: request.clientContact },
-    { label: t.table.createdBy, value: request.createdByName },
-    { label: t.pdf.createdAtLabel, value: formatDate(new Date(request.createdAt), "MMMM d, yyyy") },
-  ];
-  if (summaryFields.some((f) => hasDisplayValueLocal(f.value))) {
-    beginCard(`${t.pdf.requestLabel}: ${request.id}`);
-    drawKvGrid(summaryFields, 2);
-    endCard();
-  }
+  drawCoverHeaderBlock();
+  drawExecutiveSummaryBox();
 
-  // General information card.
-  const generalFields = [
-    {
-      label: t.request.applicationVehicle,
-      value: translateResolvedOption(request.applicationVehicle, request.applicationVehicleOther),
-    },
-    { label: t.request.country, value: translateResolvedOption(request.country, request.countryOther) },
-    ...(request.country === "China" && request.city ? [{ label: t.request.city, value: request.city }] : []),
-  ];
-  if (generalFields.some((f) => hasDisplayValueLocal(f.value))) {
-    beginCard(t.request.generalInfo);
-    drawKvGrid(generalFields, 2);
-    endCard();
-  }
+  // 1. General Information
+  beginCard(`1. ${String(t.request.generalInfo ?? "General Information")}`);
+  drawParamTable([
+    { param: String(t.request.clientContact ?? "Client Contact"), value: request.clientContact },
+    { param: String(t.request.repeatability ?? "Repeatability"), value: translateOption(request.repeatability) },
+    { param: String(t.request.country ?? "Country"), value: translateResolvedOption(request.country, request.countryOther) },
+    { param: String(t.request.applicationVehicle ?? "Application Vehicle"), value: translateResolvedOption(request.applicationVehicle, request.applicationVehicleOther) },
+    ...(request.country === "China" && request.city ? [{ param: String(t.request.city ?? "City"), value: request.city }] : []),
+  ]);
 
-  // Expected delivery card.
-  const deliveryFields = [
+  drawSubheading(String(t.request.expectedDelivery ?? "Expected Deliverable"));
+  drawParamTable([
     {
-      label: t.pdf.deliverablesLabel,
+      param: String(t.pdf.deliverablesLabel ?? "Deliverables"),
       value: request.expectedDeliverySelections?.length ? request.expectedDeliverySelections.map(translateOption).join("; ") : "",
     },
-    { label: t.request.clientExpectedDeliveryDate, value: request.clientExpectedDeliveryDate || "" },
-  ];
-  if (deliveryFields.some((f) => hasDisplayValueLocal(f.value))) {
-    beginCard(t.request.expectedDelivery);
-    drawKvGrid(deliveryFields, 1);
-    endCard();
-  }
+    { param: String(t.request.quantity ?? "Quantity"), value: typeof request.expectedQty === "number" ? String(request.expectedQty) : "", unit: "pcs" },
+    { param: String(t.request.clientExpectedDeliveryDate ?? "Client Expected Reply Date"), value: request.clientExpectedDeliveryDate || "" },
+  ]);
+  endCard();
 
-  // Client application card.
-  const applicationFields = [
-    {
-      label: t.request.workingCondition,
-      value: translateResolvedOption(request.workingCondition, request.workingConditionOther),
-    },
-    { label: t.request.usageType, value: translateResolvedOption(request.usageType, request.usageTypeOther) },
-    { label: t.request.environment, value: translateResolvedOption(request.environment, request.environmentOther) },
-  ];
-  if (applicationFields.some((f) => hasDisplayValueLocal(f.value))) {
-    beginCard(t.request.clientApplication);
-    drawKvGrid(applicationFields, 1);
-    endCard();
-  }
+  // 2. Client Application
+  beginCard(`2. ${String(t.request.clientApplication ?? "Client Application")}`);
+  drawParamTable([
+    { param: String(t.request.workingCondition ?? "Working Condition"), value: translateResolvedOption(request.workingCondition, request.workingConditionOther) },
+    { param: String(t.request.usageType ?? "Road Conditions"), value: translateResolvedOption(request.usageType, request.usageTypeOther) },
+    { param: String(t.request.environment ?? "Environment"), value: translateResolvedOption(request.environment, request.environmentOther) },
+  ]);
+  endCard();
 
   const products = Array.isArray(request.products) && request.products.length ? request.products : [buildLegacyProduct(request)];
   const studsLabelMap = new Map(STANDARD_STUDS_PCD_OPTIONS.map((option) => [option.id, option.label]));
@@ -1013,79 +1176,57 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
           ? product.studsPcdSpecialText
           : "";
 
-    beginCard(`${t.request.technicalInfo} - ${productLabel}`);
+    beginCard(`3. ${t.request.technicalInfo} - ${productLabel}`);
 
-    const axleFields = [
-      { label: t.request.productType, value: getProductTypeLabel(product, translateOption) },
-      { label: t.request.repeatability, value: translateOption(request.repeatability) },
-      { label: t.request.quantity, value: product.quantity },
-      { label: t.pdf.loadsKgLabel, value: product.loadsKg },
-      { label: t.pdf.speedsKmhLabel, value: product.speedsKmh },
-    ];
-    if (axleFields.some((f) => hasDisplayValueLocal(f.value))) {
-      drawSubheading(t.pdf.axlePerformanceTitle);
-      drawKvGrid(axleFields, 2);
-    }
+    drawSubheading(`3.1 ${t.pdf.axlePerformanceTitle}`);
+    drawParamTable([
+      { param: String(t.request.productType), value: getProductTypeLabel(product, translateOption) },
+      { param: String(t.request.repeatability), value: translateOption(request.repeatability) },
+      { param: String(t.request.quantity), value: product.quantity !== null && product.quantity !== undefined ? String(product.quantity) : "", unit: "pcs" },
+      { param: String(t.pdf.loadsKgLabel), value: product.loadsKg, unit: "kg" },
+      { param: String(t.pdf.speedsKmhLabel), value: product.speedsKmh, unit: "km/h" },
+    ]);
 
     const articulationValue = String(product.articulationType ?? "").toLowerCase();
     const showWheelBase = articulationValue.includes("steering");
-    const wheelsFields = [
-      { label: t.request.tyreSize, value: product.tyreSize },
-      { label: t.pdf.trackMmLabel, value: product.trackMm },
-      ...(showWheelBase ? [{ label: t.request.wheelBase, value: product.wheelBase }] : []),
-    ];
-    if (wheelsFields.some((f) => hasDisplayValueLocal(f.value))) {
-      drawSubheading(t.pdf.wheelsGeometryTitle);
-      drawKvGrid(wheelsFields, 2);
-    }
+    drawSubheading(`3.2 ${t.pdf.wheelsGeometryTitle}`);
+    drawParamTable([
+      { param: String(t.request.tyreSize), value: product.tyreSize },
+      { param: String(t.pdf.trackMmLabel), value: product.trackMm, unit: "mm" },
+      ...(showWheelBase ? [{ param: String(t.request.wheelBase), value: product.wheelBase }] : []),
+    ]);
 
     const brakeTypeRaw = String(product.brakeType ?? "").toLowerCase();
     const isBrakeNA = brakeTypeRaw === "na" || brakeTypeRaw === "n/a" || brakeTypeRaw === "n.a";
-    const brakingFields = [
-      { label: t.request.brakeType, value: translateBrakeType(product.brakeType) },
-      ...(!isBrakeNA ? [{ label: t.request.brakeSize, value: translateOption(product.brakeSize) }] : []),
-      { label: t.request.brakePowerType, value: translateOption(product.brakePowerType) },
-      { label: t.request.brakeCertificate, value: translateOption(product.brakeCertificate) },
-      { label: t.request.suspension, value: translateOption(product.suspension) },
-    ];
-    if (brakingFields.some((f) => hasDisplayValueLocal(f.value))) {
-      drawSubheading(t.pdf.brakingSuspensionTitle);
-      drawKvGrid(brakingFields, 2);
-    }
+    drawSubheading(`3.3 ${t.pdf.brakingSuspensionTitle}`);
+    drawParamTable([
+      { param: String(t.request.brakeType), value: translateBrakeType(product.brakeType) },
+      ...(!isBrakeNA ? [{ param: String(t.request.brakeSize), value: translateOption(product.brakeSize) }] : []),
+      { param: String(t.request.brakePowerType), value: translateOption(product.brakePowerType) },
+      { param: String(t.request.brakeCertificate), value: translateOption(product.brakeCertificate) },
+      { param: String(t.request.suspension), value: translateOption(product.suspension) },
+    ]);
 
-    const finishFields = [
-      { label: t.request.finish, value: product.finish },
-      { label: t.request.studsPcd, value: studsValue },
-      { label: t.request.mainBodySectionType, value: translateOption(product.mainBodySectionType) },
-      { label: t.request.clientSealingRequest, value: translateOption(product.clientSealingRequest) },
-      { label: t.request.cupLogo, value: translateOption(product.cupLogo) },
-    ];
-    if (finishFields.some((f) => hasDisplayValueLocal(f.value))) {
-      drawSubheading(t.pdf.finishInterfaceTitle);
-      drawKvGrid(finishFields, 2);
-    }
+    drawSubheading(`3.4 ${t.pdf.finishInterfaceTitle}`);
+    drawParamTable([
+      { param: String(t.request.finish), value: product.finish },
+      { param: String(t.request.studsPcd), value: studsValue },
+      { param: String(t.request.mainBodySectionType), value: translateOption(product.mainBodySectionType) },
+      { param: String(t.request.clientSealingRequest), value: translateOption(product.clientSealingRequest) },
+      { param: String(t.request.cupLogo), value: translateOption(product.cupLogo) },
+    ]);
 
     const productAttachments = Array.isArray(product.attachments) ? product.attachments : [];
-    const productAttachmentRows = productAttachments.map((att) => [
-      String(att.filename ?? "").trim() || "-",
-      formatAttachmentType(att.type),
-      formatBytes(estimateBase64Bytes(att.url)),
-    ]);
 
     if (product.productComments) {
       drawSubheading(t.request.productComments);
       drawParagraph(product.productComments);
     }
 
-    if (productAttachmentRows.length) {
-      const appendixLabel = registerAppendixTable(`${t.request.attachments} - ${productLabel}`, {
-        headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
-        rows: productAttachmentRows,
-        colWidths: [90, 55, contentWidth - 12 - 90 - 55],
-        attachments: productAttachments,
-      });
+    if (productAttachments.length) {
+      const appendixRef = registerAppendixAttachments("technical", productAttachments);
       drawSubheading(t.request.attachments);
-      drawNote(seeAppendixText(appendixLabel));
+      drawNote(seeAppendixText(appendixRef));
     }
 
     endCard();
@@ -1097,7 +1238,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   const hasDesignResultComments = (request.designResultComments ?? "").trim().length > 0;
   const hasDesignAttachments = designAttachments.length > 0;
   if (hasDesignNotes || hasDesignResultComments || hasDesignAttachments) {
-    beginCard(t.panels.designResult);
+    beginCard(`4. ${t.panels.designResult}`);
 
     if (hasDesignNotes) {
       drawSubheading(t.pdf.designNotesTitle);
@@ -1108,94 +1249,85 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       drawParagraph(request.designResultComments ?? "");
     }
     if (hasDesignAttachments) {
-      const rows = designAttachments.map((att) => [
-        String(att.filename ?? "").trim() || "-",
-        formatAttachmentType(att.type),
-        formatBytes(estimateBase64Bytes(att.url)),
-      ]);
-      const appendixLabel = registerAppendixTable(`${t.panels.designResult} - ${t.panels.designResultUploads}`, {
-        headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
-        rows,
-        colWidths: [90, 55, contentWidth - 12 - 90 - 55],
-        attachments: designAttachments,
-      });
+      const appendixRef = registerAppendixAttachments("design", designAttachments);
       drawSubheading(t.panels.designResultUploads);
-      drawNote(seeAppendixText(appendixLabel));
+      drawNote(seeAppendixText(appendixRef));
     }
 
     endCard();
   }
 
-  // Costing card.
+  // 5. Internal Costing
   const costingAttachments = Array.isArray(request.costingAttachments) ? request.costingAttachments : [];
   const incotermValue = request.incoterm === "other" ? request.incotermOther : request.incoterm;
   const sellingCurrency = request.sellingCurrency ?? "EUR";
-  const costingFields = [
-    request.sellingPrice ? { label: t.panels.sellingPrice, value: `${sellingCurrency} ${request.sellingPrice.toFixed(2)}` } : null,
-    request.calculatedMargin ? { label: t.panels.margin, value: `${request.calculatedMargin.toFixed(1)}%` } : null,
-    request.deliveryLeadtime ? { label: t.panels.deliveryLeadtime, value: request.deliveryLeadtime } : null,
-    incotermValue ? { label: t.panels.incoterm, value: incotermValue } : null,
-    request.vatMode
-      ? {
-          label: t.panels.vatMode,
-          value:
-            request.vatMode === "with"
-              ? `${t.panels.withVat}${request.vatRate !== null ? ` (${request.vatRate}%)` : ""}`
-              : t.panels.withoutVat,
-        }
-      : null,
-  ].filter(Boolean) as any[];
+  const vatValue = request.vatMode
+    ? request.vatMode === "with"
+      ? `${t.panels.withVat}${request.vatRate !== null ? ` (${request.vatRate}%)` : ""}`
+      : t.panels.withoutVat
+    : "";
 
-  if (costingFields.length || (request.costingNotes ?? "").trim()) {
-    beginCard(t.pdf.costingInformationTitle);
-    if (costingFields.length) drawKvGrid(costingFields, 2);
+  const hasSellingPrice = typeof request.sellingPrice === "number" && Number.isFinite(request.sellingPrice);
+  const hasCostingMargin = typeof request.calculatedMargin === "number" && Number.isFinite(request.calculatedMargin);
+  if (hasSellingPrice || hasCostingMargin || request.deliveryLeadtime || incotermValue || request.vatMode || (request.costingNotes ?? "").trim() || costingAttachments.length) {
+    beginCard(`5. ${String(t.pdf.internalCostingTitle ?? t.pdf.costingInformationTitle)}`);
+    drawParamTable([
+      hasSellingPrice ? { param: String(t.panels.sellingPrice), value: request.sellingPrice!.toFixed(2), unit: sellingCurrency } : { param: "", value: null },
+      hasCostingMargin ? { param: String(t.panels.margin), value: request.calculatedMargin!.toFixed(1), unit: "%" } : { param: "", value: null },
+      request.deliveryLeadtime ? { param: String(t.panels.deliveryLeadtime), value: request.deliveryLeadtime } : { param: "", value: null },
+      incotermValue ? { param: String(t.panels.incoterm), value: incotermValue } : { param: "", value: null },
+      vatValue ? { param: String(t.panels.vatMode), value: vatValue } : { param: "", value: null },
+    ]);
     if ((request.costingNotes ?? "").trim()) {
       drawSubheading(t.panels.costingNotes);
       drawParagraph(request.costingNotes ?? "");
     }
     if (costingAttachments.length) {
-      const rows = costingAttachments.map((att) => [
-        String(att.filename ?? "").trim() || "-",
-        formatAttachmentType(att.type),
-        formatBytes(estimateBase64Bytes(att.url)),
-      ]);
-      const appendixLabel = registerAppendixTable(`${t.pdf.costingInformationTitle} - ${t.panels.costingAttachments}`, {
-        headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
-        rows,
-        colWidths: [90, 55, contentWidth - 12 - 90 - 55],
-        attachments: costingAttachments,
-      });
+      const appendixRef = registerAppendixAttachments("costing", costingAttachments);
       drawSubheading(t.panels.costingAttachments);
-      drawNote(seeAppendixText(appendixLabel));
+      drawNote(seeAppendixText(appendixRef));
     }
     endCard();
   }
 
-  // Sales follow-up card.
+  // 6. Commercial Offer (Sales Follow-up)
   const salesAttachments = Array.isArray(request.salesAttachments) ? request.salesAttachments : [];
   const salesIncotermValue = request.salesIncoterm === "other" ? request.salesIncotermOther : request.salesIncoterm;
   const salesCurrency = request.salesCurrency ?? "EUR";
-  const salesFields = [
-    request.salesFinalPrice ? { label: t.panels.salesFinalPrice, value: `${salesCurrency} ${request.salesFinalPrice.toFixed(2)}` } : null,
-    typeof request.salesMargin === "number" ? { label: t.panels.salesMargin, value: `${request.salesMargin.toFixed(2)}%` } : null,
-    (request.salesWarrantyPeriod ?? "").trim() ? { label: t.panels.warrantyPeriod, value: String(request.salesWarrantyPeriod).trim() } : null,
-    (request.salesOfferValidityPeriod ?? "").trim() ? { label: t.panels.offerValidityPeriod, value: String(request.salesOfferValidityPeriod).trim() } : null,
-    request.salesExpectedDeliveryDate ? { label: t.panels.salesExpectedDeliveryDate, value: String(request.salesExpectedDeliveryDate) } : null,
-    salesIncotermValue ? { label: t.panels.incoterm, value: salesIncotermValue } : null,
-    request.salesVatMode
-      ? {
-          label: t.panels.vatMode,
-          value:
-            request.salesVatMode === "with"
-              ? `${t.panels.withVat}${request.salesVatRate !== null ? ` (${request.salesVatRate}%)` : ""}`
-              : t.panels.withoutVat,
-        }
-      : null,
-  ].filter(Boolean) as any[];
+  const salesVatValue = request.salesVatMode
+    ? request.salesVatMode === "with"
+      ? `${t.panels.withVat}${request.salesVatRate !== null ? ` (${request.salesVatRate}%)` : ""}`
+      : t.panels.withoutVat
+    : "";
 
-  if (salesFields.length || (request.salesFeedbackComment ?? "").trim()) {
-    beginCard(t.panels.salesFollowup);
-    if (salesFields.length) drawKvGrid(salesFields, 2);
+  const hasSalesFinalPrice = request.salesFinalPrice !== null && request.salesFinalPrice !== undefined && Number.isFinite(Number(request.salesFinalPrice));
+  const hasSalesContent =
+    hasSalesFinalPrice ||
+    typeof request.salesMargin === "number" ||
+    (request.salesWarrantyPeriod ?? "").trim() ||
+    (request.salesOfferValidityPeriod ?? "").trim() ||
+    request.salesExpectedDeliveryDate ||
+    salesIncotermValue ||
+    request.salesVatMode ||
+    (request.salesFeedbackComment ?? "").trim() ||
+    (Array.isArray(request.salesPaymentTerms) && request.salesPaymentTerms.length) ||
+    salesAttachments.length;
+
+  if (hasSalesContent) {
+    beginCard(`6. ${String(t.pdf.commercialOfferTitle ?? t.panels.salesFollowup)}`);
+    drawParamTable(
+      [
+        hasSalesFinalPrice ? { param: String(t.panels.salesFinalPrice), value: Number(request.salesFinalPrice).toFixed(2), unit: salesCurrency } : { param: "", value: null },
+        typeof request.salesMargin === "number" ? { param: String(t.panels.salesMargin), value: request.salesMargin.toFixed(2), unit: "%" } : { param: "", value: null },
+        (request.salesWarrantyPeriod ?? "").trim() ? { param: String(t.panels.warrantyPeriod), value: String(request.salesWarrantyPeriod).trim() } : { param: "", value: null },
+        (request.salesOfferValidityPeriod ?? "").trim()
+          ? { param: String(t.panels.offerValidityPeriod), value: String(request.salesOfferValidityPeriod).trim() }
+          : { param: "", value: null },
+        request.salesExpectedDeliveryDate ? { param: String(t.panels.salesExpectedDeliveryDate), value: String(request.salesExpectedDeliveryDate) } : { param: "", value: null },
+        salesIncotermValue ? { param: String(t.panels.incoterm), value: salesIncotermValue } : { param: "", value: null },
+        salesVatValue ? { param: String(t.panels.vatMode), value: salesVatValue } : { param: "", value: null },
+      ],
+    );
     if ((request.salesFeedbackComment ?? "").trim()) {
       drawSubheading(t.panels.salesFeedback);
       drawParagraph(request.salesFeedbackComment ?? "");
@@ -1227,19 +1359,9 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     }
 
     if (salesAttachments.length) {
-      const rows = salesAttachments.map((att) => [
-        String(att.filename ?? "").trim() || "-",
-        formatAttachmentType(att.type),
-        formatBytes(estimateBase64Bytes(att.url)),
-      ]);
-      const appendixLabel = registerAppendixTable(`${t.panels.salesFollowup} - ${t.panels.salesAttachments}`, {
-        headers: [t.pdf.fileLabel, t.pdf.typeLabel, t.pdf.sizeLabel],
-        rows,
-        colWidths: [90, 55, contentWidth - 12 - 90 - 55],
-        attachments: salesAttachments,
-      });
+      const appendixRef = registerAppendixAttachments("sales", salesAttachments);
       drawSubheading(t.panels.salesAttachments);
-      drawNote(seeAppendixText(appendixLabel));
+      drawNote(seeAppendixText(appendixRef));
     }
 
     endCard();
@@ -1256,197 +1378,111 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       return !(sameStatus && sameUser && noComment);
     });
 
-    beginCard(t.pdf.statusHistoryTitle);
-    const headers = [t.common.status, t.common.date, t.pdf.byLabel, t.pdf.commentLabel];
-    const colWidths = [28, 34, 30, contentWidth - 12 - 28 - 34 - 30];
-
-    const x = margin + 6;
-    const w = contentWidth - 12;
-    const headerH = 8;
-    const padX = 2;
-    const fontSize = 9;
-    const rowPadY = 2.2;
-    const headerFill = hexToRgb(COLORS.headerFill);
-    const zebraFill = hexToRgb(COLORS.zebra);
-    const borderRgb = hexToRgb(COLORS.border);
-    const hdrRgb = hexToRgb(TEXT_GREY);
-
-    const drawHistoryHeader = () => {
-      ensureSpace(headerH);
-      pdf.setFillColor(headerFill.r, headerFill.g, headerFill.b);
-      pdf.rect(x, y, w, headerH, "F");
-      pdf.setDrawColor(borderRgb.r, borderRgb.g, borderRgb.b);
-      pdf.setLineWidth(0.2);
-      pdf.rect(x, y, w, headerH, "S");
-      pdf.setFontSize(fontSize);
-      setFont("bold");
-      pdf.setTextColor(hdrRgb.r, hdrRgb.g, hdrRgb.b);
-      let cx = x;
-      for (let i = 0; i < headers.length; i++) {
-        const cw = colWidths[i];
-        pdf.text(headers[i], cx + padX, y + 5.6);
-        cx += cw;
-      }
-      setFont("normal");
-      pdf.setTextColor(0, 0, 0);
-      y += headerH;
-    };
-
-    drawHistoryHeader();
-
-    for (let i = 0; i < filteredHistory.length; i++) {
-      const entry: any = filteredHistory[i];
+    beginCard(`7. ${String(t.pdf.statusHistoryTitle ?? "Status History")}`);
+    const headers = [
+      String(t.pdf.stageLabel ?? t.common.status ?? "Stage"),
+      String(t.common.date ?? "Date"),
+      String(t.pdf.ownerLabel ?? t.pdf.byLabel ?? "Owner"),
+      String(t.pdf.commentLabel ?? "Comment"),
+    ];
+    const colWidths = [34, 34, 30, contentWidth - 12 - 34 - 34 - 30];
+    const rows = filteredHistory.map((entry: any) => {
       const st = t.statuses[entry.status as keyof typeof t.statuses] || STATUS_CONFIG[entry.status]?.label || entry.status;
       const ts = formatDate(new Date(entry.timestamp), "MMM d, yyyy HH:mm");
-      const by = String(entry.userName || t.pdf.notProvided);
-      const comment = String(entry.comment || t.pdf.notProvided);
+      const owner = String(entry.userName || "");
+      const comment = String(entry.comment || "");
+      return [st, ts, owner, comment];
+    });
 
-      pdf.setFontSize(fontSize);
-      setFont("normal");
-      const cells = [st, ts, by, comment];
-      const cellLines = cells.map((cell, idx) => {
-        const cw = colWidths[idx] - padX * 2;
-        return pdf.splitTextToSize(String(cell ?? ""), Math.max(10, cw)) as string[];
-      });
-      const maxLines = Math.max(1, ...cellLines.map((lines) => lines.length));
-      const rowH = maxLines * lineHeightMm(fontSize) + rowPadY * 2;
-
-      if (y + rowH > pageHeight - bottomMargin) {
+    drawTable({
+      headers,
+      rows,
+      colWidths,
+      onPageBreak: () => {
         pageBreakActiveCard();
-        drawHistoryHeader();
-      }
-
-      if (i % 2 === 1) {
-        pdf.setFillColor(zebraFill.r, zebraFill.g, zebraFill.b);
-        pdf.rect(x, y, w, rowH, "F");
-      }
-      pdf.setDrawColor(borderRgb.r, borderRgb.g, borderRgb.b);
-      pdf.setLineWidth(0.2);
-      pdf.rect(x, y, w, rowH, "S");
-
-      let cx = x;
-      for (let c = 0; c < cells.length; c++) {
-        const cw = colWidths[c];
-        if (c > 0) pdf.line(cx, y, cx, y + rowH);
-        pdf.text(cellLines[c], cx + padX, y + rowPadY + 3.2);
-        cx += cw;
-      }
-      y += rowH;
-    }
-
+      },
+      emptyCellValue: "",
+    });
     endCard();
   }
 
   // Footer (page numbers).
   // Appendix (attachments) pages at the end.
-  if (appendixSections.length) {
+  if (appendixItems.length) {
     addPage();
-    pdf.setFontSize(16);
-    setFont("bold");
-    const [tr, tg, tb] = rgb(COLORS.title);
-    pdf.setTextColor(tr, tg, tb);
-    pdf.text(String(t.pdf.appendixTitle ?? "Appendix"), margin, y);
-    setFont("normal");
-    pdf.setTextColor(0, 0, 0);
-    y += 8;
 
-    const drawAppendixSectionHeader = (label: string, title: string) => {
-      ensureSpace(10);
-      pdf.setFontSize(12);
-      setFont("bold");
+    // Appendix index
+    beginCard(`8. ${String(t.pdf.appendixTitle ?? "Appendix")}`);
+    const headers = [
+      String(t.pdf.appendixIdLabel ?? "Appendix ID"),
+      String(t.pdf.categoryLabel ?? "Category"),
+      String(t.pdf.typeLabel ?? "Type"),
+      String(t.pdf.descriptionLabel ?? t.pdf.fileLabel ?? "Description"),
+      String(t.pdf.byLabel ?? "By"),
+      String(t.common.date ?? "Date"),
+      String(t.pdf.sizeLabel ?? "Size"),
+    ];
+    const colWidths = [14, 26, 24, 44, 20, 28, contentWidth - 12 - 14 - 26 - 24 - 44 - 20 - 28];
+
+    const rows = appendixItems.map((it) => [
+      it.id,
+      it.category,
+      it.typeLabel,
+      it.filename,
+      it.uploadedBy || "",
+      it.uploadedAt ? formatDate(new Date(it.uploadedAt), "MMM d, yyyy HH:mm") : "",
+      it.sizeLabel,
+    ]);
+
+    drawTable({
+      headers,
+      rows,
+      colWidths,
+      onPageBreak: () => {
+        pageBreakActiveCard();
+      },
+      emptyCellValue: "",
+    });
+    endCard();
+
+    // Attachment previews (each starts on its own page).
+    for (const it of appendixItems) {
+      addPage();
+      const extraParts = [
+        it.category,
+        it.typeLabel,
+        it.uploadedBy ? `${String(t.pdf.byLabel ?? "By")}: ${it.uploadedBy}` : "",
+        it.uploadedAt ? `${String(t.common.date ?? "Date")}: ${formatDate(new Date(it.uploadedAt), "MMM d, yyyy HH:mm")}` : "",
+        it.sizeLabel && it.sizeLabel !== "-" ? `${String(t.pdf.sizeLabel ?? "Size")}: ${it.sizeLabel}` : "",
+      ].filter(Boolean);
+      const extra = extraParts.join(" | ");
+      const title = `${String(t.pdf.appendixTitle ?? "Appendix")} ${it.id} - ${it.filename}`;
+      drawAppendixAttachmentHeader(title, extra);
+
+      const preview = await attachmentToPreview(it.attachment);
+      if (preview.kind === "image" && preview.dataUrls?.length) {
+        await drawImageFit(preview.dataUrls[0]);
+        continue;
+      }
+      if (preview.kind === "pdf" && preview.dataUrls?.length) {
+        for (let p = 0; p < preview.dataUrls.length; p++) {
+          if (p > 0) {
+            addPage();
+            const pageTitle = `${String(t.pdf.appendixTitle ?? "Appendix")} ${it.id} - ${it.filename} (PDF ${p + 1}/${preview.dataUrls.length})`;
+            drawAppendixAttachmentHeader(pageTitle, extra);
+          }
+          await drawImageFit(preview.dataUrls[p]);
+        }
+        continue;
+      }
+
+      pdf.setFontSize(10);
+      setFont("normal");
       const [mr, mg, mb] = rgb(COLORS.muted);
       pdf.setTextColor(mr, mg, mb);
-      pdf.text(`${String(t.pdf.appendixTitle ?? "Appendix")} ${label} - ${title}`, margin, y);
+      pdf.text(String(preview.note || "Preview not available."), margin, y);
       pdf.setTextColor(0, 0, 0);
-      setFont("normal");
-      // Divider line
-      const [br, bg, bb] = rgb(COLORS.border);
-      pdf.setDrawColor(br, bg, bb);
-      pdf.setLineWidth(0.3);
-      pdf.line(margin, y + 2, pageWidth - margin, y + 2);
-      y += 7;
-    };
-
-    let isFirstAppendixPreview = true;
-    for (const section of appendixSections) {
-      const atts = Array.isArray(section.attachments) ? section.attachments : [];
-      if (!atts.length) continue;
-
-      // Avoid wasting a mostly-empty "index" page for small attachment groups.
-      // Show an index table only when there are many attachments.
-      const showIndexTable = atts.length >= 4;
-
-      if (showIndexTable) {
-        drawAppendixSectionHeader(section.label, section.title);
-        drawTable({
-          headers: section.headers,
-          rows: section.rows,
-          colWidths: section.colWidths,
-          onPageBreak: () => {
-            addPage();
-            drawAppendixSectionHeader(section.label, section.title);
-          },
-        });
-        y += 6;
-      }
-
-      // Preview the attachment contents (images/PDFs).
-      for (let i = 0; i < atts.length; i++) {
-        const att = atts[i];
-        // If we have no index table, render the first preview on the same page as the "Appendix" title.
-        // Otherwise (or for subsequent items), each preview starts on its own page.
-        if (showIndexTable || !isFirstAppendixPreview) {
-          addPage();
-        }
-        isFirstAppendixPreview = false;
-
-        // Show the section header once if there are multiple items or if we're showing the index table.
-        const hasMultiple = atts.length > 1;
-        if ((hasMultiple || showIndexTable) && i === 0) {
-          drawAppendixSectionHeader(section.label, section.title);
-        }
-
-        const extra = `${formatAttachmentType(att.type)} - ${formatDate(new Date(att.uploadedAt ?? new Date()), "MMM d, yyyy HH:mm")}`;
-        const filename = String(att.filename || "-");
-        const itemLabel = `${section.label}.${i + 1}`;
-        // Reduce redundancy: if the section header is already visible, don't repeat "Appendix" on the item line.
-        const itemTitle =
-          (atts.length > 1 || showIndexTable) && i === 0
-            ? `${itemLabel} - ${filename}`
-            : `${String(t.pdf.appendixTitle ?? "Appendix")} ${itemLabel} - ${filename}`;
-        drawAppendixAttachmentHeader(itemTitle, extra);
-
-        const preview = await attachmentToPreview(att);
-        if (preview.kind === "image" && preview.dataUrls?.length) {
-          await drawImageFit(preview.dataUrls[0]);
-          continue;
-        }
-        if (preview.kind === "pdf" && preview.dataUrls?.length) {
-          for (let p = 0; p < preview.dataUrls.length; p++) {
-            if (p > 0) {
-              addPage();
-              if ((atts.length > 1 || showIndexTable) && i === 0) {
-                drawAppendixSectionHeader(section.label, section.title);
-              }
-              const pageTitle =
-                (atts.length > 1 || showIndexTable) && i === 0
-                  ? `${itemLabel} - ${filename} (PDF ${p + 1}/${preview.dataUrls.length})`
-                  : `${String(t.pdf.appendixTitle ?? "Appendix")} ${itemLabel} - ${filename} (PDF ${p + 1}/${preview.dataUrls.length})`;
-              drawAppendixAttachmentHeader(pageTitle, extra);
-            }
-            await drawImageFit(preview.dataUrls[p]);
-          }
-          continue;
-        }
-
-        pdf.setFontSize(10);
-        setFont("normal");
-        const [mr, mg, mb] = rgb(COLORS.muted);
-        pdf.setTextColor(mr, mg, mb);
-        pdf.text(String(preview.note || "Preview not available."), margin, y);
-        pdf.setTextColor(0, 0, 0);
-        y += 8;
-      }
+      y += 8;
     }
   }
 
@@ -1454,10 +1490,11 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   const pageCount = pdf.getNumberOfPages();
   for (let i = 1; i <= pageCount; i++) {
     pdf.setPage(i);
-    pdf.setFontSize(8);
+    pdf.setFontSize(7.5);
     pdf.setTextColor(150, 150, 150);
     const pageLabel = t.pdf.pageOfLabel.replace("{current}", String(i)).replace("{total}", String(pageCount));
-    pdf.text(`${pageLabel} | ${t.pdf.reportTitle} | ${request.id}`, pageWidth / 2, pageHeight - 6, { align: "center" });
+    const footer = `Monroc | ${String(t.pdf.confidentialityNotice ?? "Internal Use Only")} | ${String(t.pdf.reportTitle)} | ${request.id} | ${pageLabel}`;
+    pdf.text(footer, pageWidth / 2, pageHeight - 6, { align: "center" });
   }
 
   pdf.save(`${request.id}_report.pdf`);
