@@ -33,3 +33,6 @@ dist-ssr
 
 # Local maintenance scripts (keep repo clean)
 deploy/fix-dbmonitor-pg-stat-statements.ps1
+
+# Local temp artifacts
+.tmp/
