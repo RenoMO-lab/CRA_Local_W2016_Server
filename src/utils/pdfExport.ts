@@ -1367,6 +1367,7 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       y += 7;
     };
 
+    let isFirstAppendixPreview = true;
     for (const section of appendixSections) {
       const atts = Array.isArray(section.attachments) ? section.attachments : [];
       if (!atts.length) continue;
@@ -1392,8 +1393,13 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
       // Preview the attachment contents (images/PDFs).
       for (let i = 0; i < atts.length; i++) {
         const att = atts[i];
-        // Start each attachment preview on its own page to keep the appendix readable.
-        addPage();
+        // If we have no index table, render the first preview on the same page as the "Appendix" title.
+        // Otherwise (or for subsequent items), each preview starts on its own page.
+        if (showIndexTable || !isFirstAppendixPreview) {
+          addPage();
+        }
+        isFirstAppendixPreview = false;
+
         // Show the section header once if there are multiple items or if we're showing the index table.
         const hasMultiple = atts.length > 1;
         if ((hasMultiple || showIndexTable) && i === 0) {
