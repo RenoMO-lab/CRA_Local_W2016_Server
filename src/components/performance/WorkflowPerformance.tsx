@@ -963,11 +963,10 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
         </div>
         {(() => {
           const segments = [
-            // Monroc-red monochrome ramp (less "rainbow", still separable)
-            { key: "design", label: t.performance.wipDesign, value: flowOverview.dist.design, icon: <PenTool className="h-3.5 w-3.5" />, color: "hsl(0 84% 60%)" },
-            { key: "costing", label: t.performance.wipCosting, value: flowOverview.dist.costing, icon: <Calculator className="h-3.5 w-3.5" />, color: "hsl(0 84% 54%)" },
-            { key: "sales", label: t.performance.wipSales, value: flowOverview.dist.sales, icon: <Briefcase className="h-3.5 w-3.5" />, color: "hsl(0 84% 48%)" },
-            { key: "gm", label: t.performance.wipGm, value: flowOverview.dist.gm, icon: <UserCheck className="h-3.5 w-3.5" />, color: "hsl(0 84% 42%)" },
+            { key: "design", label: t.performance.wipDesign, value: flowOverview.dist.design, icon: <PenTool className="h-3.5 w-3.5" />, color: "hsl(280, 87%, 60%)" },
+            { key: "costing", label: t.performance.wipCosting, value: flowOverview.dist.costing, icon: <Calculator className="h-3.5 w-3.5" />, color: "hsl(142, 71%, 45%)" },
+            { key: "sales", label: t.performance.wipSales, value: flowOverview.dist.sales, icon: <Briefcase className="h-3.5 w-3.5" />, color: "hsl(38, 92%, 50%)" },
+            { key: "gm", label: t.performance.wipGm, value: flowOverview.dist.gm, icon: <UserCheck className="h-3.5 w-3.5" />, color: "hsl(0, 84%, 60%)" },
           ];
           const total = segments.reduce((s, x) => s + x.value, 0);
 
@@ -975,7 +974,7 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
             <>
               <div className="mt-4">
                 <div className="h-3 rounded-full bg-muted/20 overflow-hidden flex">
-                  {segments.map((seg, idx) => {
+                  {segments.map((seg) => {
                     const pct = total > 0 ? (seg.value / total) * 100 : 0;
                     return (
                       <div
@@ -984,8 +983,6 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                           width: `${pct}%`,
                           backgroundColor: seg.color,
                           opacity: seg.value > 0 ? 0.65 : 0,
-                          borderRight: idx < segments.length - 1 ? "1px solid rgba(255,255,255,0.12)" : undefined,
-                          boxSizing: "border-box",
                         }}
                         title={`${seg.label}: ${seg.value}`}
                       />
