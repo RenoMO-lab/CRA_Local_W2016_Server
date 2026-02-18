@@ -243,7 +243,7 @@ export const translations = {
       avgResponseHours: 'Avg Response (hours)',
 
       // Workflow / section performance (expanded page)
-      kpiSubmitted: 'New submitted',
+      kpiSubmitted: 'Submitted',
       kpiCompleted: 'Completed',
       kpiWip: 'WIP',
       kpiE2eLeadTime: 'End-to-end lead time',
@@ -251,7 +251,7 @@ export const translations = {
       wipTitle: 'Work in progress (WIP)',
       wipDesc: 'Current load by workflow stage (live, not time-filtered).',
       wipDraft: 'Draft',
-      wipIntake: 'Queue',
+      wipIntake: 'To process',
       wipDesign: 'Design',
       wipCosting: 'Costing',
       wipSales: 'Sales',
@@ -1472,7 +1472,7 @@ export const translations = {
       avgResponseHours: 'Réponse moyenne (heures)',
 
       // Performance par étape (page étendue)
-      kpiSubmitted: 'Nouvelles soumissions',
+      kpiSubmitted: 'Soumises',
       kpiCompleted: 'Terminées',
       kpiWip: 'En cours',
       kpiE2eLeadTime: 'Délai bout-en-bout',
@@ -1480,7 +1480,7 @@ export const translations = {
       wipTitle: 'Charge en cours (WIP)',
       wipDesc: 'Charge actuelle par étape (temps réel, non filtré par période).',
       wipDraft: 'Brouillon',
-      wipIntake: 'File',
+      wipIntake: 'À traiter',
       wipDesign: 'Conception',
       wipCosting: 'Costing',
       wipSales: 'Ventes',
@@ -2701,7 +2701,7 @@ export const translations = {
       avgResponseHours: '平均响应（小时）',
 
       // 分段绩效（扩展页面）
-      kpiSubmitted: '新提交',
+      kpiSubmitted: '已提交',
       kpiCompleted: '已完成',
       kpiWip: '进行中',
       kpiE2eLeadTime: '端到端周期',
@@ -2709,7 +2709,7 @@ export const translations = {
       wipTitle: '在制（WIP）',
       wipDesc: '按流程阶段的当前负载（实时，不受时间筛选影响）。',
       wipDraft: '草稿',
-      wipIntake: '队列',
+      wipIntake: '待处理',
       wipDesign: '设计',
       wipCosting: '成本',
       wipSales: '销售',
