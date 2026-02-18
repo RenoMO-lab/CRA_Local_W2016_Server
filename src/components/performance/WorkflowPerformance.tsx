@@ -400,8 +400,6 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
       return ts ? isWithinInterval(ts, range) : false;
     }).length;
 
-    const wipCount = requests.filter((r) => r.status !== "draft" && !COMPLETED_STATUSES.includes(r.status)).length;
-
     const endToEnd = requests
       .map((r) => {
         const history = historyById.get(r.id) ?? [];
@@ -417,15 +415,17 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
     const median = quantile(endToEnd, 0.5);
     const p90 = quantile(endToEnd, 0.9);
 
+    // Live WIP distribution by current status (not time-filtered).
+    // This definition is used both by the WIP KPI and the WIP bar so they always match.
     const dist = {
-      draft: requests.filter((r) => r.status === "draft").length,
       intake: requests.filter((r) => r.status === "submitted" || r.status === "edited").length,
       design: requests.filter((r) => stageDefs.design.wipStatuses.includes(r.status)).length,
       costing: requests.filter((r) => stageDefs.costing.wipStatuses.includes(r.status)).length,
       sales: requests.filter((r) => stageDefs.sales.wipStatuses.includes(r.status)).length,
       gm: requests.filter((r) => stageDefs.gm.wipStatuses.includes(r.status)).length,
-      completed: requests.filter((r) => COMPLETED_STATUSES.includes(r.status)).length,
     };
+
+    const wipCount = dist.intake + dist.design + dist.costing + dist.sales + dist.gm;
 
     return {
       submittedCount,
@@ -797,13 +797,11 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
         </div>
         {(() => {
           const segments = [
-            { key: "draft", label: t.performance.wipDraft, value: flowOverview.dist.draft, icon: <FileEdit className="h-3.5 w-3.5" />, color: "hsl(221, 10%, 55%)" },
             { key: "intake", label: t.performance.wipIntake, value: flowOverview.dist.intake, icon: <Inbox className="h-3.5 w-3.5" />, color: "hsl(221, 83%, 53%)" },
             { key: "design", label: t.performance.wipDesign, value: flowOverview.dist.design, icon: <PenTool className="h-3.5 w-3.5" />, color: "hsl(280, 87%, 60%)" },
             { key: "costing", label: t.performance.wipCosting, value: flowOverview.dist.costing, icon: <Calculator className="h-3.5 w-3.5" />, color: "hsl(142, 71%, 45%)" },
             { key: "sales", label: t.performance.wipSales, value: flowOverview.dist.sales, icon: <Briefcase className="h-3.5 w-3.5" />, color: "hsl(38, 92%, 50%)" },
             { key: "gm", label: t.performance.wipGm, value: flowOverview.dist.gm, icon: <UserCheck className="h-3.5 w-3.5" />, color: "hsl(0, 84%, 60%)" },
-            { key: "completed", label: t.performance.wipCompleted, value: flowOverview.dist.completed, icon: <CheckCircle2 className="h-3.5 w-3.5" />, color: "hsl(142, 71%, 45%)" },
           ];
           const total = segments.reduce((s, x) => s + x.value, 0);
 
@@ -828,7 +826,7 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                 </div>
               </div>
 
-              <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-xs">
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-xs">
                 {segments.map((seg) => (
                   <div key={seg.key} className="flex items-center gap-2 min-w-0">
                     <span
