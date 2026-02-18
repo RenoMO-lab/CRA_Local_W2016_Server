@@ -307,6 +307,22 @@ export const translations = {
       helpSla: 'SLA (Service Level Agreement) threshold in hours used for the SLA met percentage.',
       helpTrend: 'Shows how many items were completed and the average cycle time per interval for the selected period.',
       helpOutliers: 'Slowest completed items for this section in the selected period.',
+
+      // Compact legend (used in section cards)
+      legendTitle: 'KPI legend',
+      legendVolumeTitle: 'Volume',
+      legendCycleTitle: 'Cycle time',
+      legendSlaTitle: 'SLA',
+      legendLoadTitle: 'Current load',
+      legendCompletedDesc: '# finished in the selected period.',
+      legendSamplesDesc: '# items used to compute Median / P90 / SLA.',
+      legendMedianDesc: 'Typical value (50th percentile).',
+      legendP90Desc: '90% finished within this time.',
+      legendSlaMetDesc: '% finished within the SLA threshold.',
+      legendSlaThresholdDesc: 'Threshold (hours) used for SLA met.',
+      legendSlaAcronym: 'SLA = Service Level Agreement.',
+      legendWipNowDesc: '# items currently in this stage.',
+      legendOldestDesc: 'Age of the oldest item in this stage (since it entered).',
     },
 
     // Price List
@@ -1553,6 +1569,22 @@ export const translations = {
       helpSla: "Seuil SLA (accord de niveau de service) en heures utilisé pour le pourcentage 'SLA respecté'.",
       helpTrend: 'Affiche le nombre d’éléments terminés et la durée moyenne par intervalle sur la période.',
       helpOutliers: 'Éléments terminés les plus lents pour cette section sur la période sélectionnée.',
+
+      // Légende compacte (utilisée dans les cartes de section)
+      legendTitle: 'Légende KPI',
+      legendVolumeTitle: 'Volume',
+      legendCycleTitle: 'Cycle',
+      legendSlaTitle: 'SLA',
+      legendLoadTitle: 'Charge actuelle',
+      legendCompletedDesc: '# terminés sur la période sélectionnée.',
+      legendSamplesDesc: '# éléments utilisés pour calculer médiane / P90 / SLA.',
+      legendMedianDesc: 'Valeur typique (50e percentile).',
+      legendP90Desc: '90% terminent dans ce délai.',
+      legendSlaMetDesc: '% terminés dans le seuil SLA.',
+      legendSlaThresholdDesc: 'Seuil (heures) utilisé pour le SLA respecté.',
+      legendSlaAcronym: 'SLA = accord de niveau de service.',
+      legendWipNowDesc: '# éléments actuellement dans cette étape.',
+      legendOldestDesc: "Age de l’élément le plus ancien dans cette étape (depuis l’entrée).",
     },
 
     // Price List
@@ -2799,6 +2831,22 @@ export const translations = {
       helpSla: '用于计算 “SLA 达标” 的 SLA（服务级别协议）小时阈值。',
       helpTrend: '展示所选时间段内各区间的完成数量与平均耗时。',
       helpOutliers: '所选时间段内，该环节完成项目中耗时最长的项。',
+
+      // 紧凑图例（用于环节卡片）
+      legendTitle: 'KPI 说明',
+      legendVolumeTitle: '数量',
+      legendCycleTitle: '周期',
+      legendSlaTitle: 'SLA',
+      legendLoadTitle: '当前负载',
+      legendCompletedDesc: '所选时间段内完成的数量。',
+      legendSamplesDesc: '用于计算中位数 / P90 / SLA 的样本数量。',
+      legendMedianDesc: '典型值（50 分位）。',
+      legendP90Desc: '90% 在该时间内完成。',
+      legendSlaMetDesc: '在 SLA 阈值内完成的百分比。',
+      legendSlaThresholdDesc: '用于计算 SLA 达标的小时阈值。',
+      legendSlaAcronym: 'SLA = 服务级别协议。',
+      legendWipNowDesc: '当前处于该环节的数量。',
+      legendOldestDesc: '该环节最久项目的年龄（自进入起）。',
     },
 
     // Price List

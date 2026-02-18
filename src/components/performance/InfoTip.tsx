@@ -6,9 +6,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 type InfoTipProps = {
   text: React.ReactNode;
   className?: string;
+  contentClassName?: string;
 };
 
-const InfoTip: React.FC<InfoTipProps> = ({ text, className }) => {
+const InfoTip: React.FC<InfoTipProps> = ({ text, className, contentClassName }) => {
   return (
     <Tooltip delayDuration={200}>
       <TooltipTrigger asChild>
@@ -23,7 +24,7 @@ const InfoTip: React.FC<InfoTipProps> = ({ text, className }) => {
           <Info className="h-3.5 w-3.5" />
         </button>
       </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-[280px] text-xs leading-snug">
+      <TooltipContent side="top" className={["max-w-[280px] text-xs leading-snug", contentClassName].filter(Boolean).join(" ")}>
         {text}
       </TooltipContent>
     </Tooltip>
@@ -31,4 +32,3 @@ const InfoTip: React.FC<InfoTipProps> = ({ text, className }) => {
 };
 
 export default InfoTip;
-

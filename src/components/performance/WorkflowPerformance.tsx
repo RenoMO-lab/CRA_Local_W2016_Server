@@ -1017,100 +1017,137 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
           <div className="text-sm font-semibold text-foreground">{t.performance.sectionTitle}</div>
           <div className="text-xs text-muted-foreground">{t.performance.sectionDesc}</div>
         </div>
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {(Object.keys(stageMeta) as StageKey[]).map((key) => {
-            const m = effectiveMetricsByStage[key];
-            const meta = stageMeta[key];
-            const sectionCardHelp = (
-              <div className="space-y-1">
+        {(() => {
+          const sectionCardHelp = (
+            <div className="space-y-3">
+              <div className="text-xs font-semibold text-foreground">{t.performance.legendTitle}</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <span className="font-medium">{t.performance.cardThroughput}:</span> {t.performance.helpThroughput}
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t.performance.legendVolumeTitle}
+                  </div>
+                  <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-1">
+                    <dt className="font-medium text-foreground">{t.performance.cardThroughput}</dt>
+                    <dd className="text-muted-foreground">{t.performance.legendCompletedDesc}</dd>
+                    <dt className="font-medium text-foreground">{t.performance.samplesLabel}</dt>
+                    <dd className="text-muted-foreground">{t.performance.legendSamplesDesc}</dd>
+                  </dl>
                 </div>
+
                 <div>
-                  <span className="font-medium">{t.performance.cardMedian}:</span> {t.performance.helpMedian}
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t.performance.legendCycleTitle}
+                  </div>
+                  <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-1">
+                    <dt className="font-medium text-foreground">{t.performance.cardMedian}</dt>
+                    <dd className="text-muted-foreground">{t.performance.legendMedianDesc}</dd>
+                    <dt className="font-medium text-foreground">{t.performance.cardP90}</dt>
+                    <dd className="text-muted-foreground">{t.performance.legendP90Desc}</dd>
+                  </dl>
                 </div>
+
                 <div>
-                  <span className="font-medium">{t.performance.cardP90}:</span> {t.performance.helpP90}
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t.performance.legendSlaTitle}
+                  </div>
+                  <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-1">
+                    <dt className="font-medium text-foreground">{t.performance.cardSlaMet}</dt>
+                    <dd className="text-muted-foreground">
+                      {t.performance.legendSlaMetDesc} ({slaHours}
+                      {t.performance.hoursUnit})
+                    </dd>
+                    <dt className="font-medium text-foreground">{t.performance.drawerSlaLabel}</dt>
+                    <dd className="text-muted-foreground">
+                      {t.performance.legendSlaThresholdDesc} ({slaHours}
+                      {t.performance.hoursUnit})
+                    </dd>
+                  </dl>
+                  <div className="mt-1 text-[11px] text-muted-foreground">{t.performance.legendSlaAcronym}</div>
                 </div>
+
                 <div>
-                  <span className="font-medium">{t.performance.cardSlaMet}:</span> {t.performance.helpSlaMet}
-                </div>
-                <div>
-                  <span className="font-medium">{t.performance.drawerSlaLabel}:</span> {t.performance.helpSla} ({slaHours}
-                  {t.performance.hoursUnit})
-                </div>
-                <div>
-                  <span className="font-medium">{t.performance.samplesLabel}:</span> {t.performance.helpSamples}
-                </div>
-                <div>
-                  <span className="font-medium">{t.performance.cardWipNow}:</span> {t.performance.helpWipNow}
-                </div>
-                <div>
-                  <span className="font-medium">{t.performance.cardOldest}:</span> {t.performance.helpOldest}
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t.performance.legendLoadTitle}
+                  </div>
+                  <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-1">
+                    <dt className="font-medium text-foreground">{t.performance.cardWipNow}</dt>
+                    <dd className="text-muted-foreground">{t.performance.legendWipNowDesc}</dd>
+                    <dt className="font-medium text-foreground">{t.performance.cardOldest}</dt>
+                    <dd className="text-muted-foreground">{t.performance.legendOldestDesc}</dd>
+                  </dl>
                 </div>
               </div>
-            );
-            return (
-              <button key={key} type="button" onClick={() => openStageDetails(key)} className="text-left">
-                <Card className="p-5 hover:bg-muted/10 transition-colors">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                        <span
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-muted/10"
-                          style={{ color: meta.accent }}
-                        >
-                          {meta.icon}
-                        </span>
-                        <span className="truncate">{meta.title}</span>
-                        <InfoTip text={sectionCardHelp} />
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">{meta.desc}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-muted-foreground">{t.performance.cardThroughput}</div>
-                      <div className="text-lg font-semibold text-foreground">{m.throughput}</div>
-                    </div>
-                  </div>
+            </div>
+          );
 
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <div className="rounded-md border border-border bg-muted/10 p-3">
-                      <div className="text-xs text-muted-foreground">{t.performance.cardMedian}</div>
-                      <div className="mt-1 text-sm font-semibold text-foreground">
-                        {formatHours(m.medianHours)}
-                        {t.performance.hoursUnit}
+          return (
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {(Object.keys(stageMeta) as StageKey[]).map((key) => {
+                const m = effectiveMetricsByStage[key];
+                const meta = stageMeta[key];
+                return (
+                  <button key={key} type="button" onClick={() => openStageDetails(key)} className="text-left">
+                    <Card className="p-5 hover:bg-muted/10 transition-colors">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                            <span
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-muted/10"
+                              style={{ color: meta.accent }}
+                            >
+                              {meta.icon}
+                            </span>
+                            <span className="truncate">{meta.title}</span>
+                            <InfoTip text={sectionCardHelp} contentClassName="max-w-[360px] py-2.5" />
+                          </div>
+                          <div className="mt-1 text-xs text-muted-foreground">{meta.desc}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-muted-foreground">{t.performance.cardThroughput}</div>
+                          <div className="text-lg font-semibold text-foreground">{m.throughput}</div>
+                        </div>
                       </div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {t.performance.cardP90}: {formatHours(m.p90Hours)}
-                        {t.performance.hoursUnit}
-                      </div>
-                    </div>
-                    <div className="rounded-md border border-border bg-muted/10 p-3">
-                      <div className="text-xs text-muted-foreground">{t.performance.cardSlaMet}</div>
-                      <div className="mt-1 text-sm font-semibold text-foreground">{m.slaMetPct}%</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {t.performance.samplesLabel}: {m.samples}
-                      </div>
-                    </div>
-                  </div>
 
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-                    <div>
-                      {t.performance.cardWipNow}: <span className="font-semibold text-foreground">{m.wipNow}</span>
-                    </div>
-                    <div>
-                      {t.performance.cardOldest}:{" "}
-                      <span className="font-semibold text-foreground">
-                        {formatHours(m.oldestWipHours)}
-                        {t.performance.hoursUnit}
-                      </span>
-                    </div>
-                  </div>
-                </Card>
-              </button>
-            );
-          })}
-        </div>
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <div className="rounded-md border border-border bg-muted/10 p-3">
+                          <div className="text-xs text-muted-foreground">{t.performance.cardMedian}</div>
+                          <div className="mt-1 text-sm font-semibold text-foreground">
+                            {formatHours(m.medianHours)}
+                            {t.performance.hoursUnit}
+                          </div>
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {t.performance.cardP90}: {formatHours(m.p90Hours)}
+                            {t.performance.hoursUnit}
+                          </div>
+                        </div>
+                        <div className="rounded-md border border-border bg-muted/10 p-3">
+                          <div className="text-xs text-muted-foreground">{t.performance.cardSlaMet}</div>
+                          <div className="mt-1 text-sm font-semibold text-foreground">{m.slaMetPct}%</div>
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            {t.performance.samplesLabel}: {m.samples}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <div>
+                          {t.performance.cardWipNow}: <span className="font-semibold text-foreground">{m.wipNow}</span>
+                        </div>
+                        <div>
+                          {t.performance.cardOldest}:{" "}
+                          <span className="font-semibold text-foreground">
+                            {formatHours(m.oldestWipHours)}
+                            {t.performance.hoursUnit}
+                          </span>
+                        </div>
+                      </div>
+                    </Card>
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
 
       <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
