@@ -5358,22 +5358,61 @@ export const apiRouter = (() => {
       }
 
       const previousStatus = String(existing.status ?? "");
-      const nowIso = new Date().toISOString();
-      const historyEntry = {
-        id: `h-${Date.now()}`,
-        status: body.status,
-        timestamp: nowIso,
+      const requestedStatus = String(body.status ?? "").trim();
+      const comment = typeof body.comment === "string" ? body.comment.trim() : "";
+      const now = new Date();
+      const nowIso = now.toISOString();
+
+      // Sales resubmission after a GM rejection must include a comment (auditability + context).
+      const historyList = Array.isArray(existing.history) ? existing.history : [];
+      const hasGmRejected = historyList.some((h) => String(h?.status ?? "") === "gm_rejected");
+      if (requestedStatus === "gm_approval_pending" && hasGmRejected && !comment) {
+        res.status(400).json({ error: "Sales comment required when resubmitting after GM rejection" });
+        return;
+      }
+
+      // Workflow rule: a GM rejection returns the request to Sales Follow-up (WIP),
+      // but we still record the `gm_rejected` event in history.
+      const isGmReject = requestedStatus === "gm_rejected";
+      const effectiveStatus = isGmReject ? "sales_followup" : requestedStatus;
+
+      const baseHistoryEntry = {
         userId: body.userId ?? "",
         userName: body.userName ?? "",
-        comment: body.comment,
       };
+      const historyEntries = isGmReject
+        ? [
+            {
+              id: `h-${Date.now()}`,
+              status: "gm_rejected",
+              timestamp: nowIso,
+              ...baseHistoryEntry,
+              comment: comment || undefined,
+            },
+            {
+              id: `h-${Date.now()}-sales`,
+              status: "sales_followup",
+              // Ensure deterministic ordering when timestamps are used for calculations.
+              timestamp: new Date(now.getTime() + 1).toISOString(),
+              ...baseHistoryEntry,
+            },
+          ]
+        : [
+            {
+              id: `h-${Date.now()}`,
+              status: requestedStatus,
+              timestamp: nowIso,
+              ...baseHistoryEntry,
+              comment: comment || undefined,
+            },
+          ];
 
       const updated = normalizeRequestData(
         {
           ...existing,
-          status: body.status,
+          status: effectiveStatus,
           updatedAt: nowIso,
-          history: [...(existing.history ?? []), historyEntry],
+          history: [...historyList, ...historyEntries],
         },
         nowIso
       );
@@ -5387,14 +5426,16 @@ export const apiRouter = (() => {
 
       // Best-effort email notification enqueue (do not block status updates if email config is missing).
       try {
-        const newStatus = String(updated.status ?? "");
-        if (newStatus && newStatus !== previousStatus) {
+        // For GM rejection, email should reflect the rejection, even though the effective status
+        // returns to Sales Follow-up.
+        const emailStatus = isGmReject ? "gm_rejected" : String(updated.status ?? "");
+        if (emailStatus && emailStatus !== previousStatus) {
           const [settings, tokenState] = await Promise.all([
             getM365Settings(pool),
             getM365TokenState(pool),
           ]);
           if (settings.enabled && tokenState.hasRefreshToken) {
-            const to = resolveRecipientsForStatus(settings, newStatus);
+            const to = resolveRecipientsForStatus(settings, emailStatus);
             if (to.length) {
               const link = buildRequestLink(settings.appBaseUrl, requestId);
 
@@ -5403,7 +5444,7 @@ export const apiRouter = (() => {
                 const vars = getNotificationTemplateVars({
                   request: updated,
                   requestId,
-                  status: newStatus,
+                  status: emailStatus,
                   previousStatus,
                   lang,
                   actorName: body.userName ?? "",
@@ -5417,10 +5458,10 @@ export const apiRouter = (() => {
                 const html = renderStatusEmailHtml({
                   request: updated,
                   eventType: "request_status_changed",
-                  newStatus,
+                  newStatus: emailStatus,
                   previousStatus,
                   actorName: body.userName ?? "",
-                  comment: body.comment,
+                  comment,
                   link,
                   dashboardLink: buildDashboardLink(settings.appBaseUrl),
                   logoCid: "monroc-logo",
@@ -5447,7 +5488,7 @@ export const apiRouter = (() => {
         action: "request.status_changed",
         targetType: "request",
         targetId: requestId,
-        metadata: { from: previousStatus, to: updated.status ?? null },
+        metadata: { from: previousStatus, to: requestedStatus || null, effectiveTo: updated.status ?? null },
       });
 
       res.json(updated);

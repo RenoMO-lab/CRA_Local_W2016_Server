@@ -119,6 +119,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   const [salesFeedbackComment, setSalesFeedbackComment] = useState<string>(
     request.salesFeedbackComment || ''
   );
+  const [resubmitCommentError, setResubmitCommentError] = useState<string | null>(null);
   const [salesAttachments, setSalesAttachments] = useState<Attachment[]>(
     Array.isArray(request.salesAttachments) ? request.salesAttachments : []
   );
@@ -384,6 +385,14 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   const handleSubmitForApproval = async () => {
     const payload = buildSalesPayload(true);
     if (!payload) return;
+
+    const wasRejectedByGm = (request.history ?? []).some((entry) => entry.status === 'gm_rejected');
+    if (wasRejectedByGm && salesFeedbackComment.trim().length === 0) {
+      setResubmitCommentError(t.panels.salesResubmitCommentRequired);
+      return;
+    }
+    setResubmitCommentError(null);
+
     await onUpdateSalesData(payload);
     await onUpdateStatus(
       'gm_approval_pending',
@@ -789,11 +798,15 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
             <Label className="text-sm font-medium">{t.panels.salesFeedback}</Label>
             <Textarea
               value={salesFeedbackComment}
-              onChange={(e) => setSalesFeedbackComment(e.target.value)}
+              onChange={(e) => {
+                setSalesFeedbackComment(e.target.value);
+                if (resubmitCommentError) setResubmitCommentError(null);
+              }}
               placeholder={t.panels.salesFeedback}
               rows={4}
               disabled={readOnly}
             />
+            {resubmitCommentError && <p className="text-xs text-destructive">{resubmitCommentError}</p>}
             {!editMode && (
               <Button
                 variant="outline"

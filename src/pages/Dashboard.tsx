@@ -28,7 +28,8 @@ import { CustomerRequest, RequestStatus, STATUS_CONFIG } from '@/types';
 type FilterType = 'all' | RequestStatus | 'in_progress' | 'completed' | 'needs_attention' | 'costing_processed';
 type OwnershipFilter = 'all' | 'mine';
 
-const FINAL_STATUSES: RequestStatus[] = ['gm_approved', 'gm_rejected', 'closed'];
+// Completed means finished/approved/closed. A GM rejection returns to Sales follow-up (WIP).
+const FINAL_STATUSES: RequestStatus[] = ['gm_approved', 'closed'];
 const NEEDS_ATTENTION_STATUSES: RequestStatus[] = ['clarification_needed'];
 const IN_PROGRESS_STATUSES: RequestStatus[] = [
   'submitted',
@@ -40,6 +41,8 @@ const IN_PROGRESS_STATUSES: RequestStatus[] = [
   'costing_complete',
   'sales_followup',
   'gm_approval_pending',
+  // Backward-compat: older requests may have gm_rejected as current status.
+  'gm_rejected',
 ];
 const COSTING_PROCESSED_STATUSES: RequestStatus[] = [
   // "Processed" means costing is completed (or later), not just started.
@@ -47,6 +50,7 @@ const COSTING_PROCESSED_STATUSES: RequestStatus[] = [
   'sales_followup',
   'gm_approval_pending',
   'gm_approved',
+  // Backward-compat: older requests may have gm_rejected as current status.
   'gm_rejected',
 ];
 
