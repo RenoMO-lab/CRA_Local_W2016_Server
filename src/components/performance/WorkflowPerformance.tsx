@@ -12,7 +12,21 @@ import {
   startOfYear,
   subDays,
 } from "date-fns";
-import { Activity, BarChart3, Clock, Layers, ListChecks, Workflow } from "lucide-react";
+import {
+  Activity,
+  BarChart3,
+  Briefcase,
+  Calculator,
+  CheckCircle2,
+  Clock,
+  Inbox,
+  Layers,
+  ListChecks,
+  PenTool,
+  FileEdit,
+  UserCheck,
+  Workflow,
+} from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 
 import { CustomerRequest, RequestStatus } from "@/types";
@@ -100,6 +114,47 @@ const quantile = (values: number[], p: number) => {
 const formatHours = (hours: number) => {
   if (!Number.isFinite(hours)) return "-";
   return `${hours.toFixed(1)}`;
+};
+
+const MiniSparkline: React.FC<{
+  values: number[];
+  color?: string;
+  height?: number;
+  width?: number;
+}> = ({ values, color = "hsl(var(--foreground))", height = 28, width = 120 }) => {
+  const safe = values.filter((v) => Number.isFinite(v));
+  if (safe.length < 2) {
+    return <div style={{ height }} className="w-full" />;
+  }
+
+  const min = Math.min(...safe);
+  const max = Math.max(...safe);
+  const range = max - min || 1;
+
+  const pts = safe.map((v, idx) => {
+    const x = (idx / (safe.length - 1)) * width;
+    const y = height - ((v - min) / range) * height;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  });
+
+  return (
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      preserveAspectRatio="none"
+      className="w-full"
+      style={{ height }}
+    >
+      <polyline
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        points={pts.join(" ")}
+        opacity="0.9"
+      />
+    </svg>
+  );
 };
 
 type HistoryWithTs = {
@@ -463,6 +518,82 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
     return rows;
   }, [historyById, requests, stageDefs, timeRange]);
 
+  const overviewTrends = useMemo(() => {
+    const { start, end, groupBy } = timeRange;
+    const intervals =
+      groupBy === "day"
+        ? eachDayOfInterval({ start, end })
+        : groupBy === "week"
+          ? eachWeekOfInterval({ start, end }, { weekStartsOn: 1 })
+          : eachMonthOfInterval({ start, end });
+
+    const intervalEnd = (date: Date) => {
+      if (groupBy === "day") return new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1);
+      if (groupBy === "week") return new Date(date.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
+      return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59);
+    };
+
+    const submitted: number[] = [];
+    const completed: number[] = [];
+    const wip: number[] = [];
+    const e2eMedian: number[] = [];
+
+    // Precompute end-to-end lead times per request (for median-by-interval).
+    const e2eByEnd: { endAt: Date; hours: number }[] = [];
+    requests.forEach((r) => {
+      const history = historyById.get(r.id) ?? [];
+      const s = findFirstStatusTime(history, SUBMITTED_STATUSES);
+      const e = findFirstStatusTime(history, COMPLETED_STATUSES);
+      if (!s || !e) return;
+      const hours = (+e - +s) / (1000 * 60 * 60);
+      if (hours < 0) return;
+      e2eByEnd.push({ endAt: e, hours });
+    });
+
+    // Compute WIP at each interval end using history state at time.
+    const histories = requests.map((r) => ({ id: r.id, history: historyById.get(r.id) ?? [] }));
+
+    intervals.forEach((d) => {
+      const iEnd = intervalEnd(d);
+
+      // Submitted / Completed counts in interval (by first occurrence).
+      let submittedCount = 0;
+      let completedCount = 0;
+      requests.forEach((r) => {
+        const history = historyById.get(r.id) ?? [];
+        const s = findFirstStatusTime(history, SUBMITTED_STATUSES);
+        if (s && isWithinInterval(s, { start: d, end: iEnd })) submittedCount++;
+        const e = findFirstStatusTime(history, COMPLETED_STATUSES);
+        if (e && isWithinInterval(e, { start: d, end: iEnd })) completedCount++;
+      });
+      submitted.push(submittedCount);
+      completed.push(completedCount);
+
+      // WIP snapshot at interval end.
+      let wipCount = 0;
+      histories.forEach(({ history }) => {
+        if (!history.length) return;
+        let statusAt: RequestStatus | null = null;
+        for (const h of history) {
+          if (+h.ts > +iEnd) break;
+          statusAt = h.status;
+        }
+        if (!statusAt) return;
+        if (statusAt === "draft") return;
+        if (COMPLETED_STATUSES.includes(statusAt)) return;
+        wipCount++;
+      });
+      wip.push(wipCount);
+
+      const intervalValues = e2eByEnd
+        .filter((x) => isWithinInterval(x.endAt, { start: d, end: iEnd }))
+        .map((x) => x.hours);
+      e2eMedian.push(Number(quantile(intervalValues, 0.5).toFixed(1)));
+    });
+
+    return { submitted, completed, wip, e2eMedian };
+  }, [historyById, requests, timeRange]);
+
   const stageMeta = useMemo(() => {
     const meta: Record<
       StageKey,
@@ -575,103 +706,147 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <Card className="p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">{t.performance.kpiSubmitted}</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{flowOverview.submittedCount}</p>
-            </div>
-            <div className="p-2 rounded-md bg-primary/10 text-primary">
-              <BarChart3 className="h-4 w-4" />
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">{t.performance.kpiCompleted}</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{flowOverview.completedCount}</p>
-            </div>
-            <div className="p-2 rounded-md bg-primary/10 text-primary">
-              <ListChecks className="h-4 w-4" />
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">{t.performance.kpiWip}</p>
-              <p className="mt-2 text-2xl font-semibold text-foreground">{flowOverview.wipCount}</p>
-            </div>
-            <div className="p-2 rounded-md bg-primary/10 text-primary">
-              <Layers className="h-4 w-4" />
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-4 col-span-2 lg:col-span-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">{t.performance.kpiE2eLeadTime}</p>
-              <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
-                <div className="text-2xl font-semibold text-foreground">
-                  {formatHours(flowOverview.e2eMedian)}
-                  {t.performance.hoursUnit}
+      <Card className="p-5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/10 border border-border text-primary">
+                    <BarChart3 className="h-4 w-4" />
+                  </span>
+                  <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiSubmitted}</p>
                 </div>
-                <div className="text-sm text-muted-foreground">
-                  {t.performance.kpiE2eP90}: {formatHours(flowOverview.e2eP90)}
-                  {t.performance.hoursUnit}
+                <p className="mt-2 text-3xl font-semibold text-foreground">{flowOverview.submittedCount}</p>
+              </div>
+            </div>
+            <div className="mt-2">
+              <MiniSparkline values={overviewTrends.submitted} color="hsl(0, 84%, 60%)" />
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/10 border border-border text-primary">
+                    <ListChecks className="h-4 w-4" />
+                  </span>
+                  <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiCompleted}</p>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {t.performance.samplesLabel}: {flowOverview.e2eSamples}
+                <p className="mt-2 text-3xl font-semibold text-foreground">{flowOverview.completedCount}</p>
+              </div>
+            </div>
+            <div className="mt-2">
+              <MiniSparkline values={overviewTrends.completed} color="hsl(142, 71%, 45%)" />
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/10 border border-border text-primary">
+                    <Layers className="h-4 w-4" />
+                  </span>
+                  <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiWip}</p>
+                </div>
+                <p className="mt-2 text-3xl font-semibold text-foreground">{flowOverview.wipCount}</p>
+              </div>
+            </div>
+            <div className="mt-2">
+              <MiniSparkline values={overviewTrends.wip} color="hsl(38, 92%, 50%)" />
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/10 border border-border text-primary">
+                    <Clock className="h-4 w-4" />
+                  </span>
+                  <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiE2eLeadTime}</p>
+                </div>
+                <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <div className="text-3xl font-semibold text-foreground">
+                    {formatHours(flowOverview.e2eMedian)}
+                    {t.performance.hoursUnit}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {t.performance.kpiE2eP90}: {formatHours(flowOverview.e2eP90)}
+                    {t.performance.hoursUnit}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {t.performance.samplesLabel}: {flowOverview.e2eSamples}
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="p-2 rounded-md bg-primary/10 text-primary">
-              <Clock className="h-4 w-4" />
+            <div className="mt-2">
+              <MiniSparkline values={overviewTrends.e2eMedian} color="hsl(221, 83%, 53%)" />
             </div>
           </div>
-        </Card>
-      </div>
+        </div>
+      </Card>
 
       <Card className="p-5">
         <div>
           <div className="text-sm font-semibold text-foreground">{t.performance.wipTitle}</div>
           <div className="text-xs text-muted-foreground">{t.performance.wipDesc}</div>
         </div>
-        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 text-sm">
-          <div className="rounded-md border border-border bg-muted/10 p-3">
-            <div className="text-xs text-muted-foreground">{t.performance.wipDraft}</div>
-            <div className="mt-1 text-lg font-semibold">{flowOverview.dist.draft}</div>
-          </div>
-          <div className="rounded-md border border-border bg-muted/10 p-3">
-            <div className="text-xs text-muted-foreground">{t.performance.wipIntake}</div>
-            <div className="mt-1 text-lg font-semibold">{flowOverview.dist.intake}</div>
-          </div>
-          <div className="rounded-md border border-border bg-muted/10 p-3">
-            <div className="text-xs text-muted-foreground">{t.performance.wipDesign}</div>
-            <div className="mt-1 text-lg font-semibold">{flowOverview.dist.design}</div>
-          </div>
-          <div className="rounded-md border border-border bg-muted/10 p-3">
-            <div className="text-xs text-muted-foreground">{t.performance.wipCosting}</div>
-            <div className="mt-1 text-lg font-semibold">{flowOverview.dist.costing}</div>
-          </div>
-          <div className="rounded-md border border-border bg-muted/10 p-3">
-            <div className="text-xs text-muted-foreground">{t.performance.wipSales}</div>
-            <div className="mt-1 text-lg font-semibold">{flowOverview.dist.sales}</div>
-          </div>
-          <div className="rounded-md border border-border bg-muted/10 p-3">
-            <div className="text-xs text-muted-foreground">{t.performance.wipGm}</div>
-            <div className="mt-1 text-lg font-semibold">{flowOverview.dist.gm}</div>
-          </div>
-          <div className="rounded-md border border-border bg-muted/10 p-3">
-            <div className="text-xs text-muted-foreground">{t.performance.wipCompleted}</div>
-            <div className="mt-1 text-lg font-semibold">{flowOverview.dist.completed}</div>
-          </div>
-        </div>
+        {(() => {
+          const segments = [
+            { key: "draft", label: t.performance.wipDraft, value: flowOverview.dist.draft, icon: <FileEdit className="h-3.5 w-3.5" />, color: "hsl(221, 10%, 55%)" },
+            { key: "intake", label: t.performance.wipIntake, value: flowOverview.dist.intake, icon: <Inbox className="h-3.5 w-3.5" />, color: "hsl(221, 83%, 53%)" },
+            { key: "design", label: t.performance.wipDesign, value: flowOverview.dist.design, icon: <PenTool className="h-3.5 w-3.5" />, color: "hsl(280, 87%, 60%)" },
+            { key: "costing", label: t.performance.wipCosting, value: flowOverview.dist.costing, icon: <Calculator className="h-3.5 w-3.5" />, color: "hsl(142, 71%, 45%)" },
+            { key: "sales", label: t.performance.wipSales, value: flowOverview.dist.sales, icon: <Briefcase className="h-3.5 w-3.5" />, color: "hsl(38, 92%, 50%)" },
+            { key: "gm", label: t.performance.wipGm, value: flowOverview.dist.gm, icon: <UserCheck className="h-3.5 w-3.5" />, color: "hsl(0, 84%, 60%)" },
+            { key: "completed", label: t.performance.wipCompleted, value: flowOverview.dist.completed, icon: <CheckCircle2 className="h-3.5 w-3.5" />, color: "hsl(142, 71%, 45%)" },
+          ];
+          const total = segments.reduce((s, x) => s + x.value, 0);
+
+          return (
+            <>
+              <div className="mt-4">
+                <div className="h-3 rounded-full bg-muted/20 overflow-hidden flex">
+                  {segments.map((seg) => {
+                    const pct = total > 0 ? (seg.value / total) * 100 : 0;
+                    return (
+                      <div
+                        key={seg.key}
+                        style={{
+                          width: `${pct}%`,
+                          backgroundColor: seg.color,
+                          opacity: seg.value > 0 ? 0.65 : 0,
+                        }}
+                        title={`${seg.label}: ${seg.value}`}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-xs">
+                {segments.map((seg) => (
+                  <div key={seg.key} className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-muted/10 shrink-0"
+                      style={{ color: seg.color }}
+                    >
+                      {seg.icon}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-muted-foreground truncate">{seg.label}</div>
+                      <div className="font-semibold text-foreground">{seg.value}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          );
+        })()}
       </Card>
 
       <div>
