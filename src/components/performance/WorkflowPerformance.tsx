@@ -730,23 +730,6 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/10 border border-border text-primary">
-                    <ListChecks className="h-4 w-4" />
-                  </span>
-                  <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiCompleted}</p>
-                </div>
-                <p className="mt-2 text-3xl font-semibold text-foreground">{flowOverview.completedCount}</p>
-              </div>
-            </div>
-            <div className="mt-2">
-              <MiniSparkline values={overviewTrends.completed} color="hsl(142, 71%, 45%)" />
-            </div>
-          </div>
-
-          <div className="min-w-0">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/10 border border-border text-primary">
                     <Layers className="h-4 w-4" />
                   </span>
                   <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiWip}</p>
@@ -756,6 +739,23 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
             </div>
             <div className="mt-2">
               <MiniSparkline values={overviewTrends.wip} color="hsl(38, 92%, 50%)" />
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/10 border border-border text-primary">
+                    <ListChecks className="h-4 w-4" />
+                  </span>
+                  <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiCompleted}</p>
+                </div>
+                <p className="mt-2 text-3xl font-semibold text-foreground">{flowOverview.completedCount}</p>
+              </div>
+            </div>
+            <div className="mt-2">
+              <MiniSparkline values={overviewTrends.completed} color="hsl(142, 71%, 45%)" />
             </div>
           </div>
 
