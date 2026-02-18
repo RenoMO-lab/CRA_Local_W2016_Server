@@ -37,6 +37,8 @@ const getStatusIcon = (status: RequestStatus) => {
       return CheckCircle;
     case 'gm_rejected':
       return AlertCircle;
+    case 'cancelled':
+      return AlertCircle;
     case 'closed':
       return Check;
     default:
@@ -59,7 +61,7 @@ const StatusTimeline: React.FC<StatusTimelineProps> = ({ history }) => {
           const statusKey = entry.status as keyof typeof t.statuses;
           const label = t.statuses[statusKey] || config.label;
           const successStatuses: RequestStatus[] = ['gm_approved', 'costing_complete', 'closed'];
-          const dangerStatuses: RequestStatus[] = ['gm_rejected', 'clarification_needed', 'edited'];
+          const dangerStatuses: RequestStatus[] = ['gm_rejected', 'cancelled', 'clarification_needed', 'edited'];
           const toneClass = isLast
             ? successStatuses.includes(entry.status)
               ? 'bg-success/10 text-success'

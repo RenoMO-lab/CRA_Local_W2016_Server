@@ -152,6 +152,7 @@ const FLOW_STATUS_KEYS = [
   'gm_approval_pending',
   'gm_approved',
   'gm_rejected',
+  'cancelled',
   'closed',
 ] as const;
 
@@ -167,6 +168,7 @@ const DEFAULT_FLOW_MAP: M365FlowMap = {
   gm_approval_pending: { sales: true, admin: true },
   gm_approved: { sales: true, admin: true },
   gm_rejected: { sales: true, admin: true },
+  cancelled: { sales: true, admin: true },
   closed: { sales: true },
   edited: { admin: true },
 };

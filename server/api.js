@@ -217,6 +217,8 @@ const resolveRecipientsForStatus = (settings, status) => {
     case "gm_approved":
     case "gm_rejected":
       return [...sales, ...admin];
+    case "cancelled":
+      return [...sales, ...admin];
     case "closed":
       return [...sales];
     default:
@@ -278,7 +280,7 @@ const statusBadgeStyles = (status) => {
   // Outlook dark mode can heavily transform background/text colors.
   // Using a single accent color (instead of a pill) is much more stable.
   const s = String(status ?? "");
-  if (["clarification_needed", "gm_rejected"].includes(s)) {
+  if (["clarification_needed", "gm_rejected", "cancelled"].includes(s)) {
     return { accent: "#DC2626" }; // red
   }
   if (["gm_approved", "costing_complete", "feasibility_confirmed", "closed"].includes(s)) {
@@ -425,6 +427,7 @@ const EMAIL_STRINGS_BY_LANG = {
       gm_approval_pending: "GM Approval Pending",
       gm_approved: "Approved",
       gm_rejected: "Rejected by GM",
+      cancelled: "Cancelled",
       closed: "Closed",
     },
   },
@@ -458,6 +461,7 @@ const EMAIL_STRINGS_BY_LANG = {
       gm_approval_pending: "Approbation DG en attente",
       gm_approved: "Approuve",
       gm_rejected: "Rejete par DG",
+      cancelled: "Annule",
       closed: "Cloture",
     },
   },
@@ -491,6 +495,7 @@ const EMAIL_STRINGS_BY_LANG = {
       gm_approval_pending: "\u603b\u7ecf\u7406\u5ba1\u6279\u4e2d",
       gm_approved: "\u5df2\u6279\u51c6",
       gm_rejected: "\u603b\u7ecf\u7406\u5df2\u62d2\u7edd",
+      cancelled: "\u5df2\u53d6\u6d88",
       closed: "\u5df2\u5173\u95ed",
     },
   },
@@ -5362,6 +5367,12 @@ export const apiRouter = (() => {
       const comment = typeof body.comment === "string" ? body.comment.trim() : "";
       const now = new Date();
       const nowIso = now.toISOString();
+
+      // Cancelling a request must include a reason (auditability + context).
+      if (requestedStatus === "cancelled" && !comment) {
+        res.status(400).json({ error: "Sales comment required when cancelling a request" });
+        return;
+      }
 
       // Sales resubmission after a GM rejection must include a comment (auditability + context).
       const historyList = Array.isArray(existing.history) ? existing.history : [];

@@ -266,31 +266,31 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
 
   const designComplete = Boolean(
     (designEntry && ["feasibility_confirmed", "design_result"].includes(designEntry.status)) ||
-      ["design_result", "in_costing", "costing_complete", "sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status)
+      ["design_result", "in_costing", "costing_complete", "sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "cancelled", "closed"].includes(request.status)
   );
   const costingComplete = Boolean(
     (costingEntry && costingEntry.status === "costing_complete") ||
-      ["costing_complete", "sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status)
+      ["costing_complete", "sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "cancelled", "closed"].includes(request.status)
   );
   const salesSubmittedToGm = Boolean(
     (salesEntry && salesEntry.status === "gm_approval_pending") ||
-      ["gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status)
+      ["gm_approval_pending", "gm_approved", "gm_rejected", "cancelled", "closed"].includes(request.status)
   );
 
   const reachedClarification = Boolean(clarificationEntry || hasClarificationData);
   const reachedDesign = request.status !== "draft";
   const reachedCosting = Boolean(
-    ["in_costing", "costing_complete", "sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status) ||
+    ["in_costing", "costing_complete", "sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "cancelled", "closed"].includes(request.status) ||
       costingEntry ||
       hasCostingData
   );
   const reachedSales = Boolean(
-    ["sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status) ||
+    ["sales_followup", "gm_approval_pending", "gm_approved", "gm_rejected", "cancelled", "closed"].includes(request.status) ||
       salesEntry ||
       hasSalesData
   );
   const reachedGm = Boolean(
-    ["gm_approval_pending", "gm_approved", "gm_rejected", "closed"].includes(request.status) ||
+    ["gm_approval_pending", "gm_approved", "gm_rejected", "cancelled", "closed"].includes(request.status) ||
       gmEntry
   );
 

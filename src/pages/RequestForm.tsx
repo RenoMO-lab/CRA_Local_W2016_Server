@@ -1060,7 +1060,7 @@ const RequestForm: React.FC = () => {
   );
   const isDesignSubmitted = Boolean(
     existingRequest &&
-      ['design_result', 'in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected', 'closed'].includes(existingRequest.status)
+      ['design_result', 'in_costing', 'costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected', 'cancelled', 'closed'].includes(existingRequest.status)
   );
   const hasDesignInfo = Boolean(
     existingRequest &&
@@ -1072,7 +1072,7 @@ const RequestForm: React.FC = () => {
 
   const isCostingSubmitted = Boolean(
     existingRequest &&
-      ['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected', 'closed'].includes(existingRequest.status)
+      ['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected', 'cancelled', 'closed'].includes(existingRequest.status)
   );
   const hasCostingInfo = Boolean(
     existingRequest &&
@@ -1087,7 +1087,7 @@ const RequestForm: React.FC = () => {
 
   const isSalesSubmitted = Boolean(
     existingRequest &&
-      ['gm_approval_pending', 'gm_approved', 'gm_rejected', 'closed'].includes(existingRequest.status)
+      ['gm_approval_pending', 'gm_approved', 'gm_rejected', 'cancelled', 'closed'].includes(existingRequest.status)
   );
   const hasSalesInfo = Boolean(
     existingRequest &&
@@ -1128,7 +1128,7 @@ const RequestForm: React.FC = () => {
     if (status === 'sales_followup') return t.request.roleGm;
     if (status === 'gm_approval_pending') return t.request.roleGm;
     if (status === 'gm_approved' || status === 'gm_rejected') return t.roles.sales;
-    if (status === 'closed') return t.request.workflowComplete;
+    if (status === 'closed' || status === 'cancelled') return t.request.workflowComplete;
     return t.request.nextStepUnknown;
   };
 
@@ -1209,7 +1209,7 @@ const RequestForm: React.FC = () => {
             onUpdateStatus={async (status, comment) => {
               const ok = await handleSalesStatusUpdate(status, comment);
               if (!ok) return;
-              if (['gm_approved', 'gm_rejected', 'closed'].includes(status)) {
+              if (['gm_approved', 'gm_rejected', 'cancelled', 'closed'].includes(status)) {
                 markMyActionComplete(status);
               }
             }}
@@ -1274,7 +1274,7 @@ const RequestForm: React.FC = () => {
                 onUpdateStatus={async (status, comment) => {
                   const ok = await handleSalesStatusUpdate(status, comment);
                   if (!ok) return;
-                  if (['gm_approval_pending', 'gm_approved', 'gm_rejected', 'closed'].includes(status)) {
+                  if (['gm_approval_pending', 'gm_approved', 'gm_rejected', 'cancelled', 'closed'].includes(status)) {
                     markMyActionComplete(status);
                   }
                 }}
@@ -1324,7 +1324,7 @@ const RequestForm: React.FC = () => {
             onUpdateStatus={async (status, comment) => {
               const ok = await handleSalesStatusUpdate(status, comment);
               if (!ok) return;
-              if (['gm_approval_pending', 'gm_approved', 'gm_rejected', 'closed'].includes(status)) {
+              if (['gm_approval_pending', 'gm_approved', 'gm_rejected', 'cancelled', 'closed'].includes(status)) {
                 markMyActionComplete(status);
               }
             }}
@@ -1416,7 +1416,7 @@ const RequestForm: React.FC = () => {
       }
 
       if (canReopenDesignEdits && !myActionsEditMode.design) {
-        const allowEdit = existingRequest.status !== 'closed';
+        const allowEdit = !['closed', 'cancelled'].includes(existingRequest.status);
         return (
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
@@ -1568,7 +1568,7 @@ const RequestForm: React.FC = () => {
       }
 
       if (canReopenCostingEdits && !myActionsEditMode.costing) {
-        const allowEdit = existingRequest.status !== 'closed';
+        const allowEdit = !['closed', 'cancelled'].includes(existingRequest.status);
         return (
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">

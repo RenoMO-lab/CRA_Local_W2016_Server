@@ -14,6 +14,7 @@ export type RequestStatus =
   | 'gm_approval_pending'
   | 'gm_approved'
   | 'gm_rejected'
+  | 'cancelled'
   | 'closed';
 
 export type BrakeType = 'drum' | 'disk' | 'na' | 'As Per ROC Standard';
@@ -264,6 +265,7 @@ export const STATUS_CONFIG: Record<RequestStatus, { label: string; color: string
   gm_approval_pending: { label: 'GM Approval Pending', color: 'text-warning', bgColor: 'bg-warning/10' },
   gm_approved: { label: 'Approved', color: 'text-success', bgColor: 'bg-success/10' },
   gm_rejected: { label: 'Rejected by GM', color: 'text-destructive', bgColor: 'bg-destructive/10' },
+  cancelled: { label: 'Cancelled', color: 'text-destructive', bgColor: 'bg-destructive/10' },
   closed: { label: 'Closed', color: 'text-muted-foreground', bgColor: 'bg-muted' },
 };
 

@@ -7,6 +7,16 @@ import { Attachment, CustomerRequest, RequestStatus, SalesPaymentTerm } from '@/
 import { useLanguage } from '@/context/LanguageContext';
 import { DollarSign, CheckCircle, Loader2, Upload, File, Eye, Download, X, ShieldCheck } from 'lucide-react';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -128,6 +138,9 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [approvalComment, setApprovalComment] = useState<string>('');
+  const [isCancelOpen, setIsCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelReasonError, setCancelReasonError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const parseOptionalNumber = (value: string): number | null => {
@@ -158,6 +171,12 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
     const timeout = window.setTimeout(() => setPreviewAttachment(null), 200);
     return () => window.clearTimeout(timeout);
   }, [isPreviewOpen, previewAttachment]);
+
+  useEffect(() => {
+    if (!isCancelOpen) {
+      setCancelReasonError(null);
+    }
+  }, [isCancelOpen]);
 
   const isImageFile = (filename: string) => {
     const ext = filename.toLowerCase().split('.').pop();
@@ -406,6 +425,21 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
 
   const handleRejectDeal = () => {
     onUpdateStatus('gm_rejected', approvalComment?.trim() || undefined);
+  };
+
+  const canCancelRequest =
+    isSales && ['sales_followup', 'gm_approval_pending', 'gm_rejected'].includes(request.status);
+
+  const handleConfirmCancel = async () => {
+    const reason = cancelReason.trim();
+    if (!reason) {
+      setCancelReasonError(t.panels.cancelReasonRequired);
+      return;
+    }
+    setCancelReasonError(null);
+    await onUpdateStatus('cancelled', reason);
+    setIsCancelOpen(false);
+    setCancelReason('');
   };
 
   const canStartFollowup = forceEnableActions || request.status === 'costing_complete';
@@ -841,6 +875,19 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
               {t.panels.submitForApproval}
             </Button>
           )}
+
+          {canCancelRequest && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsCancelOpen(true)}
+              disabled={isUpdating}
+              className="w-full border-destructive text-destructive hover:bg-destructive/10"
+            >
+              <X size={16} className="mr-2" />
+              {t.panels.cancelRequest}
+            </Button>
+          )}
         </>
       )}
 
@@ -944,12 +991,26 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
       )}
 
       {!showEditor && isSales && request.status === 'gm_approval_pending' && (
-        <Button
-          disabled
-          className="w-full bg-muted/30 text-muted-foreground border border-border"
-        >
-          {t.panels.submittedToGm}
-        </Button>
+        <div className="space-y-3">
+          <Button
+            disabled
+            className="w-full bg-muted/30 text-muted-foreground border border-border"
+          >
+            {t.panels.submittedToGm}
+          </Button>
+          {canCancelRequest && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsCancelOpen(true)}
+              disabled={isUpdating}
+              className="w-full border-destructive text-destructive hover:bg-destructive/10"
+            >
+              <X size={16} className="mr-2" />
+              {t.panels.cancelRequest}
+            </Button>
+          )}
+        </div>
       )}
 
       {canApprove && (
@@ -1016,6 +1077,41 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
           </div>
         </div>
       )}
+
+      <AlertDialog open={isCancelOpen} onOpenChange={setIsCancelOpen}>
+        <AlertDialogContent className="bg-card">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t.panels.cancelRequestConfirmTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{t.panels.cancelRequestConfirmDesc}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">{t.panels.cancelReasonLabel}</Label>
+            <Textarea
+              value={cancelReason}
+              onChange={(e) => {
+                setCancelReason(e.target.value);
+                if (cancelReasonError) setCancelReasonError(null);
+              }}
+              placeholder={t.panels.cancelReasonPlaceholder}
+              rows={4}
+              disabled={isUpdating}
+            />
+            {cancelReasonError && <p className="text-xs text-destructive">{cancelReasonError}</p>}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t.common.back}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleConfirmCancel();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t.panels.confirmCancel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto scrollbar-thin" onInteractOutside={(event) => event.preventDefault()} onEscapeKeyDown={(event) => event.preventDefault()}>
