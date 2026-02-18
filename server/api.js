@@ -4699,6 +4699,184 @@ export const apiRouter = (() => {
     })
   );
 
+  // Server-side performance overview metrics. The UI intentionally polls the lightweight
+  // `/requests/summary` endpoint (which omits `history`), so we compute KPI aggregates here.
+  router.get(
+    "/performance/overview",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const fromRaw = String(req.query.from ?? "").trim();
+      const toRaw = String(req.query.to ?? "").trim();
+      const groupByRaw = String(req.query.groupBy ?? "day").trim();
+
+      const from = new Date(fromRaw);
+      const to = new Date(toRaw);
+      if (!fromRaw || !toRaw || Number.isNaN(+from) || Number.isNaN(+to) || +from > +to) {
+        res.status(400).json({ error: "Invalid query: expected from/to ISO dates (from <= to)" });
+        return;
+      }
+
+      const groupBy = groupByRaw === "week" || groupByRaw === "month" ? groupByRaw : "day";
+      const COMPLETED_STATUSES = new Set(["gm_approved", "gm_rejected", "closed"]);
+      const SUBMITTED_STATUSES = new Set(["submitted"]);
+
+      const quantile = (values, p) => {
+        if (!Array.isArray(values) || values.length === 0) return 0;
+        const sorted = [...values].sort((a, b) => a - b);
+        const idx = (sorted.length - 1) * p;
+        const lo = Math.floor(idx);
+        const hi = Math.ceil(idx);
+        if (lo === hi) return sorted[lo];
+        const w = idx - lo;
+        return sorted[lo] * (1 - w) + sorted[hi] * w;
+      };
+
+      const parseHistory = (raw) => {
+        const history = Array.isArray(raw) ? raw : [];
+        const parsed = history
+          .map((h) => {
+            const status = typeof h?.status === "string" ? h.status : null;
+            const rawTs = h?.timestamp ?? h?.ts ?? h?.time ?? null;
+            const ts = rawTs ? new Date(String(rawTs)) : null;
+            if (!status || !ts || Number.isNaN(+ts)) return null;
+            return { status, ts };
+          })
+          .filter(Boolean)
+          .sort((a, b) => +a.ts - +b.ts);
+        return parsed;
+      };
+
+      const findFirstStatusTime = (history, predicate) => {
+        for (const h of history) {
+          if (predicate(h.status)) return h.ts;
+        }
+        return null;
+      };
+
+      const getStatusAt = (history, at) => {
+        let status = null;
+        for (const h of history) {
+          if (+h.ts > +at) break;
+          status = h.status;
+        }
+        return status;
+      };
+
+      const pool = await getPool();
+      const { rows } = await pool.query("SELECT id, status, data FROM requests");
+
+      const requests = rows.map((row) => {
+        const data = row.data && typeof row.data === "object" ? row.data : {};
+        return {
+          id: String(row.id),
+          status: typeof row.status === "string" ? row.status : String(data?.status ?? ""),
+          history: parseHistory(data?.history),
+        };
+      });
+
+      const inRange = (ts, start, end) => +ts >= +start && +ts <= +end;
+
+      const submittedCount = requests.filter((r) => {
+        const ts = findFirstStatusTime(r.history, (s) => SUBMITTED_STATUSES.has(s));
+        return ts ? inRange(ts, from, to) : false;
+      }).length;
+
+      const completedCount = requests.filter((r) => {
+        const ts = findFirstStatusTime(r.history, (s) => COMPLETED_STATUSES.has(s));
+        return ts ? inRange(ts, from, to) : false;
+      }).length;
+
+      const wipCount = requests.filter((r) => r.status !== "draft" && !COMPLETED_STATUSES.has(r.status)).length;
+
+      const e2eByEnd = [];
+      requests.forEach((r) => {
+        const startAt = findFirstStatusTime(r.history, (s) => SUBMITTED_STATUSES.has(s));
+        const endAt = findFirstStatusTime(r.history, (s) => COMPLETED_STATUSES.has(s));
+        if (!startAt || !endAt) return;
+        const hours = (+endAt - +startAt) / (1000 * 60 * 60);
+        if (hours < 0) return;
+        e2eByEnd.push({ endAt, hours });
+      });
+
+      const e2eValuesInRange = e2eByEnd.filter((x) => inRange(x.endAt, from, to)).map((x) => x.hours);
+      const e2eMedian = Number(quantile(e2eValuesInRange, 0.5).toFixed(1));
+      const e2eP90 = Number(quantile(e2eValuesInRange, 0.9).toFixed(1));
+      const e2eSamples = e2eValuesInRange.length;
+
+      const addMonthsUtc = (date, months) => {
+        const d = new Date(date.getTime());
+        d.setUTCMonth(d.getUTCMonth() + months);
+        return d;
+      };
+
+      const stepNext = (date) => {
+        if (groupBy === "week") return new Date(date.getTime() + 7 * 24 * 60 * 60 * 1000);
+        if (groupBy === "month") return addMonthsUtc(date, 1);
+        return new Date(date.getTime() + 24 * 60 * 60 * 1000);
+      };
+
+      const intervalStarts = [];
+      for (let cursor = new Date(from.getTime()); +cursor <= +to; cursor = stepNext(cursor)) {
+        intervalStarts.push(new Date(cursor.getTime()));
+      }
+
+      const seriesSubmitted = [];
+      const seriesCompleted = [];
+      const seriesWip = [];
+      const seriesE2eMedian = [];
+
+      for (let i = 0; i < intervalStarts.length; i++) {
+        const start = intervalStarts[i];
+        const next = i + 1 < intervalStarts.length ? intervalStarts[i + 1] : null;
+        const end = next ? new Date(next.getTime() - 1) : new Date(to.getTime());
+        if (+end > +to) end.setTime(to.getTime());
+
+        let sCount = 0;
+        let cCount = 0;
+        requests.forEach((r) => {
+          const s = findFirstStatusTime(r.history, (st) => SUBMITTED_STATUSES.has(st));
+          if (s && inRange(s, start, end)) sCount++;
+          const c = findFirstStatusTime(r.history, (st) => COMPLETED_STATUSES.has(st));
+          if (c && inRange(c, start, end)) cCount++;
+        });
+
+        let wipSnap = 0;
+        requests.forEach((r) => {
+          if (!r.history.length) return;
+          const statusAt = getStatusAt(r.history, end);
+          if (!statusAt) return;
+          if (statusAt === "draft") return;
+          if (COMPLETED_STATUSES.has(statusAt)) return;
+          wipSnap++;
+        });
+
+        const intervalE2e = e2eByEnd.filter((x) => inRange(x.endAt, start, end)).map((x) => x.hours);
+
+        seriesSubmitted.push(sCount);
+        seriesCompleted.push(cCount);
+        seriesWip.push(wipSnap);
+        seriesE2eMedian.push(Number(quantile(intervalE2e, 0.5).toFixed(1)));
+      }
+
+      res.json({
+        overview: {
+          submittedCount,
+          wipCount,
+          completedCount,
+          e2eMedian,
+          e2eP90,
+          e2eSamples,
+        },
+        series: {
+          submitted: seriesSubmitted,
+          wip: seriesWip,
+          completed: seriesCompleted,
+          e2eMedian: seriesE2eMedian,
+        },
+      });
+    })
+  );
+
   router.post(
     "/requests",
     asyncHandler(async (req, res) => {

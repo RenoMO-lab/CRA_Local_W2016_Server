@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   eachDayOfInterval,
@@ -272,6 +272,23 @@ type StageMetrics = {
   oldestWipHours: number;
 };
 
+type PerformanceOverviewResponse = {
+  overview: {
+    submittedCount: number;
+    wipCount: number;
+    completedCount: number;
+    e2eMedian: number;
+    e2eP90: number;
+    e2eSamples: number;
+  };
+  series: {
+    submitted: number[];
+    wip: number[];
+    completed: number[];
+    e2eMedian: number[];
+  };
+};
+
 const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ requests }) => {
   const navigate = useNavigate();
   const { t } = useLanguage();
@@ -280,9 +297,36 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
   const [slaHours, setSlaHours] = useState<number>(24);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedStage, setSelectedStage] = useState<StageKey | null>(null);
+  const [overviewApi, setOverviewApi] = useState<PerformanceOverviewResponse | null>(null);
 
   const timeRange = useMemo(() => getTimeRange(period), [period]);
   const range = useMemo(() => ({ start: timeRange.start, end: timeRange.end }), [timeRange.end, timeRange.start]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const run = async () => {
+      try {
+        const qs = new URLSearchParams({
+          from: timeRange.start.toISOString(),
+          to: timeRange.end.toISOString(),
+          groupBy: timeRange.groupBy,
+        });
+        const res = await fetch(`/api/performance/overview?${qs.toString()}`, { signal: controller.signal });
+        if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
+        const data = (await res.json()) as PerformanceOverviewResponse;
+        if (!controller.signal.aborted) setOverviewApi(data);
+      } catch (e) {
+        if (!controller.signal.aborted) {
+          console.warn("Failed to load performance overview:", e);
+          setOverviewApi(null);
+        }
+      }
+    };
+
+    run();
+    return () => controller.abort();
+  }, [timeRange.end, timeRange.groupBy, timeRange.start]);
 
   const historyById = useMemo(() => {
     const map = new Map<string, HistoryWithTs[]>();
@@ -594,6 +638,24 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
     return { submitted, completed, wip, e2eMedian };
   }, [historyById, requests, timeRange]);
 
+  const effectiveFlowOverview = useMemo(() => {
+    if (!overviewApi) return flowOverview;
+    return {
+      ...flowOverview,
+      submittedCount: overviewApi.overview.submittedCount,
+      wipCount: overviewApi.overview.wipCount,
+      completedCount: overviewApi.overview.completedCount,
+      e2eMedian: overviewApi.overview.e2eMedian,
+      e2eP90: overviewApi.overview.e2eP90,
+      e2eSamples: overviewApi.overview.e2eSamples,
+    };
+  }, [flowOverview, overviewApi]);
+
+  const effectiveOverviewTrends = useMemo(() => {
+    if (!overviewApi) return overviewTrends;
+    return overviewApi.series;
+  }, [overviewApi, overviewTrends]);
+
   const stageMeta = useMemo(() => {
     const meta: Record<
       StageKey,
@@ -717,11 +779,11 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                   </span>
                   <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiSubmitted}</p>
                 </div>
-                <p className="mt-2 text-3xl font-semibold text-foreground">{flowOverview.submittedCount}</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">{effectiveFlowOverview.submittedCount}</p>
               </div>
             </div>
             <div className="mt-2">
-              <MiniSparkline values={overviewTrends.submitted} color="hsl(0, 84%, 60%)" />
+              <MiniSparkline values={effectiveOverviewTrends.submitted} color="hsl(0, 84%, 60%)" />
             </div>
           </div>
 
@@ -734,11 +796,11 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                   </span>
                   <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiWip}</p>
                 </div>
-                <p className="mt-2 text-3xl font-semibold text-foreground">{flowOverview.wipCount}</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">{effectiveFlowOverview.wipCount}</p>
               </div>
             </div>
             <div className="mt-2">
-              <MiniSparkline values={overviewTrends.wip} color="hsl(38, 92%, 50%)" />
+              <MiniSparkline values={effectiveOverviewTrends.wip} color="hsl(38, 92%, 50%)" />
             </div>
           </div>
 
@@ -751,11 +813,11 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                   </span>
                   <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiCompleted}</p>
                 </div>
-                <p className="mt-2 text-3xl font-semibold text-foreground">{flowOverview.completedCount}</p>
+                <p className="mt-2 text-3xl font-semibold text-foreground">{effectiveFlowOverview.completedCount}</p>
               </div>
             </div>
             <div className="mt-2">
-              <MiniSparkline values={overviewTrends.completed} color="hsl(142, 71%, 45%)" />
+              <MiniSparkline values={effectiveOverviewTrends.completed} color="hsl(142, 71%, 45%)" />
             </div>
           </div>
 
@@ -770,21 +832,21 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                 </div>
                 <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <div className="text-3xl font-semibold text-foreground">
-                    {formatHours(flowOverview.e2eMedian)}
+                    {formatHours(effectiveFlowOverview.e2eMedian)}
                     {t.performance.hoursUnit}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {t.performance.kpiE2eP90}: {formatHours(flowOverview.e2eP90)}
+                    {t.performance.kpiE2eP90}: {formatHours(effectiveFlowOverview.e2eP90)}
                     {t.performance.hoursUnit}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {t.performance.samplesLabel}: {flowOverview.e2eSamples}
+                    {t.performance.samplesLabel}: {effectiveFlowOverview.e2eSamples}
                   </div>
                 </div>
               </div>
             </div>
             <div className="mt-2">
-              <MiniSparkline values={overviewTrends.e2eMedian} color="hsl(221, 83%, 53%)" />
+              <MiniSparkline values={effectiveOverviewTrends.e2eMedian} color="hsl(221, 83%, 53%)" />
             </div>
           </div>
         </div>
