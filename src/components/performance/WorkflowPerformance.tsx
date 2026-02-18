@@ -1021,6 +1021,35 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
           {(Object.keys(stageMeta) as StageKey[]).map((key) => {
             const m = effectiveMetricsByStage[key];
             const meta = stageMeta[key];
+            const sectionCardHelp = (
+              <div className="space-y-1">
+                <div>
+                  <span className="font-medium">{t.performance.cardThroughput}:</span> {t.performance.helpThroughput}
+                </div>
+                <div>
+                  <span className="font-medium">{t.performance.cardMedian}:</span> {t.performance.helpMedian}
+                </div>
+                <div>
+                  <span className="font-medium">{t.performance.cardP90}:</span> {t.performance.helpP90}
+                </div>
+                <div>
+                  <span className="font-medium">{t.performance.cardSlaMet}:</span> {t.performance.helpSlaMet}
+                </div>
+                <div>
+                  <span className="font-medium">{t.performance.drawerSlaLabel}:</span> {t.performance.helpSla} ({slaHours}
+                  {t.performance.hoursUnit})
+                </div>
+                <div>
+                  <span className="font-medium">{t.performance.samplesLabel}:</span> {t.performance.helpSamples}
+                </div>
+                <div>
+                  <span className="font-medium">{t.performance.cardWipNow}:</span> {t.performance.helpWipNow}
+                </div>
+                <div>
+                  <span className="font-medium">{t.performance.cardOldest}:</span> {t.performance.helpOldest}
+                </div>
+              </div>
+            );
             return (
               <button key={key} type="button" onClick={() => openStageDetails(key)} className="text-left">
                 <Card className="p-5 hover:bg-muted/10 transition-colors">
@@ -1034,67 +1063,43 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                           {meta.icon}
                         </span>
                         <span className="truncate">{meta.title}</span>
+                        <InfoTip text={sectionCardHelp} />
                       </div>
                       <div className="mt-1 text-xs text-muted-foreground">{meta.desc}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs text-muted-foreground inline-flex items-center gap-1 justify-end">
-                        {t.performance.cardThroughput}
-                        <InfoTip text={t.performance.helpThroughput} />
-                      </div>
+                      <div className="text-xs text-muted-foreground">{t.performance.cardThroughput}</div>
                       <div className="text-lg font-semibold text-foreground">{m.throughput}</div>
                     </div>
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <div className="rounded-md border border-border bg-muted/10 p-3">
-                      <div className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                        {t.performance.cardMedian}
-                        <InfoTip text={t.performance.helpMedian} />
-                      </div>
+                      <div className="text-xs text-muted-foreground">{t.performance.cardMedian}</div>
                       <div className="mt-1 text-sm font-semibold text-foreground">
                         {formatHours(m.medianHours)}
                         {t.performance.hoursUnit}
                       </div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1">
-                          {t.performance.cardP90}
-                          <InfoTip text={t.performance.helpP90} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                        </span>
-                        : {formatHours(m.p90Hours)}
+                        {t.performance.cardP90}: {formatHours(m.p90Hours)}
                         {t.performance.hoursUnit}
                       </div>
                     </div>
                     <div className="rounded-md border border-border bg-muted/10 p-3">
-                      <div className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                        {t.performance.cardSlaMet}
-                        <InfoTip text={t.performance.helpSlaMet} />
-                      </div>
+                      <div className="text-xs text-muted-foreground">{t.performance.cardSlaMet}</div>
                       <div className="mt-1 text-sm font-semibold text-foreground">{m.slaMetPct}%</div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1">
-                          {t.performance.samplesLabel}
-                          <InfoTip text={t.performance.helpSamples} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                        </span>
-                        : {m.samples}
+                        {t.performance.samplesLabel}: {m.samples}
                       </div>
                     </div>
                   </div>
 
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <div>
-                      <span className="inline-flex items-center gap-1">
-                        {t.performance.cardWipNow}
-                        <InfoTip text={t.performance.helpWipNow} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                      </span>
-                      : <span className="font-semibold text-foreground">{m.wipNow}</span>
+                      {t.performance.cardWipNow}: <span className="font-semibold text-foreground">{m.wipNow}</span>
                     </div>
                     <div>
-                      <span className="inline-flex items-center gap-1">
-                        {t.performance.cardOldest}
-                        <InfoTip text={t.performance.helpOldest} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                      </span>
-                      :{" "}
+                      {t.performance.cardOldest}:{" "}
                       <span className="font-semibold text-foreground">
                         {formatHours(m.oldestWipHours)}
                         {t.performance.hoursUnit}
