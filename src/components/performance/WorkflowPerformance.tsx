@@ -1133,13 +1133,9 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                     {t.performance.drawerThroughput}
                     <InfoTip text={t.performance.helpThroughput} />
                   </div>
-                  <div className="mt-1 text-2xl font-semibold text-foreground">{selected.throughput}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      {t.performance.samplesLabel}
-                      <InfoTip text={t.performance.helpSamples} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                    </span>
-                    : {selected.samples}
+                  <div className="mt-2 text-3xl font-semibold text-foreground">{selected.throughput}</div>
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    {t.performance.samplesLabel}: <span className="font-semibold text-foreground">{selected.samples}</span>
                   </div>
                 </Card>
                 <Card className="p-4">
@@ -1147,29 +1143,25 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                     {t.performance.drawerCycleTime}
                     <InfoTip text={t.performance.helpCycleTime} />
                   </div>
-                  <div className="mt-1 text-sm font-semibold text-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      {t.performance.drawerMedian}
-                      <InfoTip text={t.performance.helpMedian} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                    </span>
-                    : {formatHours(selected.medianHours)}
-                    {t.performance.hoursUnit}
+                  <div className="mt-2 flex items-baseline justify-between gap-3">
+                    <div className="text-sm font-semibold text-muted-foreground">{t.performance.drawerMedian}</div>
+                    <div className="text-3xl font-semibold text-foreground">
+                      {formatHours(selected.medianHours)}
+                      {t.performance.hoursUnit}
+                    </div>
                   </div>
-                  <div className="mt-1 text-sm font-semibold text-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      {t.performance.drawerP90}
-                      <InfoTip text={t.performance.helpP90} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                    </span>
-                    : {formatHours(selected.p90Hours)}
-                    {t.performance.hoursUnit}
-                  </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      {t.performance.drawerSlaLabel}
-                      <InfoTip text={t.performance.helpSla} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                    </span>
-                    : {slaHours}
-                    {t.performance.hoursUnit} ({selected.slaMetPct}%)
+
+                  <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                    <div>
+                      <span className="font-semibold text-foreground">{t.performance.drawerP90}:</span>{" "}
+                      {formatHours(selected.p90Hours)}
+                      {t.performance.hoursUnit}
+                    </div>
+                    <div className="text-right">
+                      <span className="font-semibold text-foreground">{t.performance.cardSlaMet}:</span>{" "}
+                      {selected.slaMetPct}% ({slaHours}
+                      {t.performance.hoursUnit})
+                    </div>
                   </div>
                 </Card>
               </div>
