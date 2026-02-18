@@ -323,6 +323,10 @@ export const translations = {
       legendSlaAcronym: 'SLA = Service Level Agreement.',
       legendWipNowDesc: '# items currently in this stage.',
       legendOldestDesc: 'Age of the oldest item in this stage (since it entered).',
+
+      // Section card tooltip (minimal)
+      sectionTipMedian: 'Typical cycle time (50th percentile).',
+      sectionTipSla: 'Percent finished within the SLA threshold. SLA = Service Level Agreement.',
     },
 
     // Price List
@@ -1585,6 +1589,10 @@ export const translations = {
       legendSlaAcronym: 'SLA = accord de niveau de service.',
       legendWipNowDesc: '# éléments actuellement dans cette étape.',
       legendOldestDesc: "Age de l’élément le plus ancien dans cette étape (depuis l’entrée).",
+
+      // Info-bulle des cartes de section (minimal)
+      sectionTipMedian: 'Durée typique (50e percentile).',
+      sectionTipSla: 'Pourcentage terminé dans le seuil SLA. SLA = accord de niveau de service.',
     },
 
     // Price List
@@ -2847,6 +2855,10 @@ export const translations = {
       legendSlaAcronym: 'SLA = 服务级别协议。',
       legendWipNowDesc: '当前处于该环节的数量。',
       legendOldestDesc: '该环节最久项目的年龄（自进入起）。',
+
+      // 环节卡片提示（精简）
+      sectionTipMedian: '典型耗时（50 分位）。',
+      sectionTipSla: '在 SLA 阈值内完成的百分比。SLA = 服务级别协议。',
     },
 
     // Price List

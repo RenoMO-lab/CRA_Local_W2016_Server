@@ -1019,63 +1019,17 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
         </div>
         {(() => {
           const sectionCardHelp = (
-            <div className="space-y-3">
-              <div className="text-xs font-semibold text-foreground">{t.performance.legendTitle}</div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t.performance.legendVolumeTitle}
-                  </div>
-                  <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-1">
-                    <dt className="font-medium text-foreground">{t.performance.cardThroughput}</dt>
-                    <dd className="text-muted-foreground">{t.performance.legendCompletedDesc}</dd>
-                    <dt className="font-medium text-foreground">{t.performance.samplesLabel}</dt>
-                    <dd className="text-muted-foreground">{t.performance.legendSamplesDesc}</dd>
-                  </dl>
-                </div>
-
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t.performance.legendCycleTitle}
-                  </div>
-                  <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-1">
-                    <dt className="font-medium text-foreground">{t.performance.cardMedian}</dt>
-                    <dd className="text-muted-foreground">{t.performance.legendMedianDesc}</dd>
-                    <dt className="font-medium text-foreground">{t.performance.cardP90}</dt>
-                    <dd className="text-muted-foreground">{t.performance.legendP90Desc}</dd>
-                  </dl>
-                </div>
-
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t.performance.legendSlaTitle}
-                  </div>
-                  <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-1">
-                    <dt className="font-medium text-foreground">{t.performance.cardSlaMet}</dt>
-                    <dd className="text-muted-foreground">
-                      {t.performance.legendSlaMetDesc} ({slaHours}
-                      {t.performance.hoursUnit})
-                    </dd>
-                    <dt className="font-medium text-foreground">{t.performance.drawerSlaLabel}</dt>
-                    <dd className="text-muted-foreground">
-                      {t.performance.legendSlaThresholdDesc} ({slaHours}
-                      {t.performance.hoursUnit})
-                    </dd>
-                  </dl>
-                  <div className="mt-1 text-[11px] text-muted-foreground">{t.performance.legendSlaAcronym}</div>
-                </div>
-
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t.performance.legendLoadTitle}
-                  </div>
-                  <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-2 gap-y-1">
-                    <dt className="font-medium text-foreground">{t.performance.cardWipNow}</dt>
-                    <dd className="text-muted-foreground">{t.performance.legendWipNowDesc}</dd>
-                    <dt className="font-medium text-foreground">{t.performance.cardOldest}</dt>
-                    <dd className="text-muted-foreground">{t.performance.legendOldestDesc}</dd>
-                  </dl>
-                </div>
+            <div className="space-y-1.5">
+              <div>
+                <span className="font-medium text-foreground">{t.performance.cardMedian}:</span>{" "}
+                <span className="text-muted-foreground">{t.performance.sectionTipMedian}</span>
+              </div>
+              <div>
+                <span className="font-medium text-foreground">{t.performance.cardSlaMet}:</span>{" "}
+                <span className="text-muted-foreground">
+                  {t.performance.sectionTipSla} ({slaHours}
+                  {t.performance.hoursUnit})
+                </span>
               </div>
             </div>
           );
@@ -1098,7 +1052,7 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                               {meta.icon}
                             </span>
                             <span className="truncate">{meta.title}</span>
-                            <InfoTip text={sectionCardHelp} contentClassName="max-w-[360px] py-2.5" />
+                            <InfoTip text={sectionCardHelp} contentClassName="max-w-[320px] py-2.5 text-xs leading-snug" />
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">{meta.desc}</div>
                         </div>
