@@ -32,6 +32,7 @@ import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "rec
 import { CustomerRequest, RequestStatus } from "@/types";
 import { useLanguage } from "@/context/LanguageContext";
 
+import InfoTip from "@/components/performance/InfoTip";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -860,7 +861,10 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                   <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/10 border border-border text-primary">
                     <BarChart3 className="h-4 w-4" />
                   </span>
-                  <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiSubmitted}</p>
+                  <div className="flex items-center gap-1 min-w-0">
+                    <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiSubmitted}</p>
+                    <InfoTip text={t.performance.helpSubmitted} />
+                  </div>
                 </div>
                 <p className="mt-2 text-3xl font-semibold text-foreground">{effectiveFlowOverview.submittedCount}</p>
               </div>
@@ -877,7 +881,10 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                   <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/10 border border-border text-primary">
                     <Layers className="h-4 w-4" />
                   </span>
-                  <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiWip}</p>
+                  <div className="flex items-center gap-1 min-w-0">
+                    <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiWip}</p>
+                    <InfoTip text={t.performance.helpWip} />
+                  </div>
                 </div>
                 <p className="mt-2 text-3xl font-semibold text-foreground">{effectiveFlowOverview.wipCount}</p>
               </div>
@@ -894,7 +901,10 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                   <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/10 border border-border text-primary">
                     <ListChecks className="h-4 w-4" />
                   </span>
-                  <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiCompleted}</p>
+                  <div className="flex items-center gap-1 min-w-0">
+                    <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiCompleted}</p>
+                    <InfoTip text={t.performance.helpCompleted} />
+                  </div>
                 </div>
                 <p className="mt-2 text-3xl font-semibold text-foreground">{effectiveFlowOverview.completedCount}</p>
               </div>
@@ -911,7 +921,10 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                   <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted/10 border border-border text-primary">
                     <Clock className="h-4 w-4" />
                   </span>
-                  <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiE2eLeadTime}</p>
+                  <div className="flex items-center gap-1 min-w-0">
+                    <p className="text-xs font-medium text-muted-foreground truncate">{t.performance.kpiE2eLeadTime}</p>
+                    <InfoTip text={t.performance.helpE2eLeadTime} />
+                  </div>
                 </div>
                 <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <div className="text-3xl font-semibold text-foreground">
@@ -919,11 +932,19 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                     {t.performance.hoursUnit}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {t.performance.kpiE2eP90}: {formatHours(effectiveFlowOverview.e2eP90)}
+                    <span className="inline-flex items-center gap-1">
+                      {t.performance.kpiE2eP90}
+                      <InfoTip text={t.performance.helpP90} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                    </span>
+                    : {formatHours(effectiveFlowOverview.e2eP90)}
                     {t.performance.hoursUnit}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {t.performance.samplesLabel}: {effectiveFlowOverview.e2eSamples}
+                    <span className="inline-flex items-center gap-1">
+                      {t.performance.samplesLabel}
+                      <InfoTip text={t.performance.helpSamples} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                    </span>
+                    : {effectiveFlowOverview.e2eSamples}
                   </div>
                 </div>
               </div>
@@ -1017,38 +1038,63 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                       <div className="mt-1 text-xs text-muted-foreground">{meta.desc}</div>
                     </div>
                     <div className="text-right">
-                      <div className="text-xs text-muted-foreground">{t.performance.cardThroughput}</div>
+                      <div className="text-xs text-muted-foreground inline-flex items-center gap-1 justify-end">
+                        {t.performance.cardThroughput}
+                        <InfoTip text={t.performance.helpThroughput} />
+                      </div>
                       <div className="text-lg font-semibold text-foreground">{m.throughput}</div>
                     </div>
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <div className="rounded-md border border-border bg-muted/10 p-3">
-                      <div className="text-xs text-muted-foreground">{t.performance.cardMedian}</div>
+                      <div className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                        {t.performance.cardMedian}
+                        <InfoTip text={t.performance.helpMedian} />
+                      </div>
                       <div className="mt-1 text-sm font-semibold text-foreground">
                         {formatHours(m.medianHours)}
                         {t.performance.hoursUnit}
                       </div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
-                        {t.performance.cardP90}: {formatHours(m.p90Hours)}
+                        <span className="inline-flex items-center gap-1">
+                          {t.performance.cardP90}
+                          <InfoTip text={t.performance.helpP90} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                        </span>
+                        : {formatHours(m.p90Hours)}
                         {t.performance.hoursUnit}
                       </div>
                     </div>
                     <div className="rounded-md border border-border bg-muted/10 p-3">
-                      <div className="text-xs text-muted-foreground">{t.performance.cardSlaMet}</div>
+                      <div className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                        {t.performance.cardSlaMet}
+                        <InfoTip text={t.performance.helpSlaMet} />
+                      </div>
                       <div className="mt-1 text-sm font-semibold text-foreground">{m.slaMetPct}%</div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
-                        {t.performance.samplesLabel}: {m.samples}
+                        <span className="inline-flex items-center gap-1">
+                          {t.performance.samplesLabel}
+                          <InfoTip text={t.performance.helpSamples} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                        </span>
+                        : {m.samples}
                       </div>
                     </div>
                   </div>
 
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                     <div>
-                      {t.performance.cardWipNow}: <span className="font-semibold text-foreground">{m.wipNow}</span>
+                      <span className="inline-flex items-center gap-1">
+                        {t.performance.cardWipNow}
+                        <InfoTip text={t.performance.helpWipNow} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                      </span>
+                      : <span className="font-semibold text-foreground">{m.wipNow}</span>
                     </div>
                     <div>
-                      {t.performance.cardOldest}:{" "}
+                      <span className="inline-flex items-center gap-1">
+                        {t.performance.cardOldest}
+                        <InfoTip text={t.performance.helpOldest} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                      </span>
+                      :{" "}
                       <span className="font-semibold text-foreground">
                         {formatHours(m.oldestWipHours)}
                         {t.performance.hoursUnit}
@@ -1083,31 +1129,56 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
             <div className="mt-5 space-y-6">
               <div className="grid grid-cols-2 gap-3">
                 <Card className="p-4">
-                  <div className="text-xs text-muted-foreground">{t.performance.drawerThroughput}</div>
+                  <div className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                    {t.performance.drawerThroughput}
+                    <InfoTip text={t.performance.helpThroughput} />
+                  </div>
                   <div className="mt-1 text-2xl font-semibold text-foreground">{selected.throughput}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {t.performance.samplesLabel}: {selected.samples}
+                    <span className="inline-flex items-center gap-1">
+                      {t.performance.samplesLabel}
+                      <InfoTip text={t.performance.helpSamples} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                    </span>
+                    : {selected.samples}
                   </div>
                 </Card>
                 <Card className="p-4">
-                  <div className="text-xs text-muted-foreground">{t.performance.drawerCycleTime}</div>
+                  <div className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                    {t.performance.drawerCycleTime}
+                    <InfoTip text={t.performance.helpCycleTime} />
+                  </div>
                   <div className="mt-1 text-sm font-semibold text-foreground">
-                    {t.performance.drawerMedian}: {formatHours(selected.medianHours)}
+                    <span className="inline-flex items-center gap-1">
+                      {t.performance.drawerMedian}
+                      <InfoTip text={t.performance.helpMedian} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                    </span>
+                    : {formatHours(selected.medianHours)}
                     {t.performance.hoursUnit}
                   </div>
                   <div className="mt-1 text-sm font-semibold text-foreground">
-                    {t.performance.drawerP90}: {formatHours(selected.p90Hours)}
+                    <span className="inline-flex items-center gap-1">
+                      {t.performance.drawerP90}
+                      <InfoTip text={t.performance.helpP90} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                    </span>
+                    : {formatHours(selected.p90Hours)}
                     {t.performance.hoursUnit}
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {t.performance.drawerSlaLabel}: {slaHours}
+                    <span className="inline-flex items-center gap-1">
+                      {t.performance.drawerSlaLabel}
+                      <InfoTip text={t.performance.helpSla} className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                    </span>
+                    : {slaHours}
                     {t.performance.hoursUnit} ({selected.slaMetPct}%)
                   </div>
                 </Card>
               </div>
 
               <div className="bg-card border border-border rounded-xl p-4">
-                <div className="text-sm font-semibold text-foreground">{t.performance.trendTitle}</div>
+                <div className="text-sm font-semibold text-foreground inline-flex items-center gap-1">
+                  {t.performance.trendTitle}
+                  <InfoTip text={t.performance.helpTrend} />
+                </div>
                 <div className="text-xs text-muted-foreground mb-3">{t.performance.trendDesc}</div>
 
                 <ChartContainer config={trendConfig} className="h-[220px] w-full">
@@ -1151,7 +1222,10 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
               <div className="bg-background/30 border border-border rounded-lg overflow-hidden">
                 <div className="flex items-center justify-between gap-3 p-4 border-b border-border">
                   <div>
-                    <p className="text-sm font-semibold text-foreground">{t.performance.outliersTitleGeneric}</p>
+                    <p className="text-sm font-semibold text-foreground inline-flex items-center gap-1">
+                      {t.performance.outliersTitleGeneric}
+                      <InfoTip text={t.performance.helpOutliers} />
+                    </p>
                     <p className="text-xs text-muted-foreground">{t.performance.outliersDescGeneric}</p>
                   </div>
                 </div>

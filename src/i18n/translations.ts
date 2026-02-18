@@ -290,6 +290,23 @@ export const translations = {
       outliersColEnd: 'End',
       peopleTitle: 'People analytics',
       peopleDesc: 'Requests per Sales, replies per Designer, and response time.',
+
+      // KPI help tooltips
+      helpSubmitted: 'Count of requests whose first Submitted event happened in the selected period.',
+      helpWip: 'Requests currently in progress (not Draft, not Completed).',
+      helpCompleted: 'Requests that reached Completed in the selected period (GM Approved or Closed).',
+      helpE2eLeadTime: 'Time from first Submitted to first Completed (GM Approved or Closed), shown as Median and P90.',
+      helpThroughput: 'Number of items completed for this section in the selected period.',
+      helpCycleTime: 'Time between the start and end of this section for completed items in the selected period.',
+      helpMedian: '50th percentile: half of items are faster, half are slower.',
+      helpP90: '90th percentile: 90% of items are faster than this value, 10% are slower.',
+      helpSlaMet: 'Percent of completed items with cycle time less than or equal to the SLA threshold.',
+      helpSamples: 'Number of completed items used to compute the metrics (Median, P90, SLA).',
+      helpWipNow: 'Number of items currently in this workflow section.',
+      helpOldest: 'Age (hours) of the oldest item currently in this section (since it entered this section).',
+      helpSla: 'SLA threshold in hours used for the SLA met percentage.',
+      helpTrend: 'Shows how many items were completed and the average cycle time per interval for the selected period.',
+      helpOutliers: 'Slowest completed items for this section in the selected period.',
     },
 
     // Price List
@@ -1519,6 +1536,23 @@ export const translations = {
       outliersColEnd: 'Fin',
       peopleTitle: 'Analyses par personne',
       peopleDesc: 'Demandes par Ventes, réponses par Conception, et temps de réponse.',
+
+      // KPI help tooltips
+      helpSubmitted: "Nombre de demandes dont le premier statut 'Soumis' est dans la période sélectionnée.",
+      helpWip: 'Demandes actuellement en cours (pas en Brouillon, pas Terminées).',
+      helpCompleted: "Demandes ayant atteint 'Terminé' dans la période (Approuvé GM ou Clôturé).",
+      helpE2eLeadTime: "Durée entre le premier 'Soumis' et le premier 'Terminé' (Approuvé GM ou Clôturé), affichée en médiane et P90.",
+      helpThroughput: 'Nombre d’éléments terminés pour cette section sur la période sélectionnée.',
+      helpCycleTime: 'Durée entre le début et la fin de cette section pour les éléments terminés sur la période.',
+      helpMedian: '50e percentile : la moitié des éléments sont plus rapides, l’autre moitié plus lente.',
+      helpP90: '90e percentile : 90% des éléments sont plus rapides que cette valeur, 10% plus lents.',
+      helpSlaMet: 'Pourcentage des éléments terminés dont la durée est inférieure ou égale au SLA.',
+      helpSamples: 'Nombre d’éléments terminés utilisés pour calculer les métriques (médiane, P90, SLA).',
+      helpWipNow: 'Nombre d’éléments actuellement dans cette section du workflow.',
+      helpOldest: 'Age (heures) de l’élément le plus ancien actuellement dans cette section (depuis son entrée dans la section).',
+      helpSla: "Seuil SLA en heures utilisé pour le pourcentage 'SLA respecté'.",
+      helpTrend: 'Affiche le nombre d’éléments terminés et la durée moyenne par intervalle sur la période.',
+      helpOutliers: 'Éléments terminés les plus lents pour cette section sur la période sélectionnée.',
     },
 
     // Price List
@@ -2748,6 +2782,23 @@ export const translations = {
       outliersColEnd: '结束',
       peopleTitle: '人员分析',
       peopleDesc: '按销售的请求、按设计的回复，以及响应时间。',
+
+      // KPI help tooltips
+      helpSubmitted: '所选时间段内，首次进入“已提交”状态的请求数量。',
+      helpWip: '当前进行中的请求数量（非草稿，且未完成）。',
+      helpCompleted: '所选时间段内达到完成状态的请求数量（GM 已批准或已关闭）。',
+      helpE2eLeadTime: '从首次“已提交”到首次“已完成”（GM 已批准或已关闭）的耗时，显示中位数和 P90。',
+      helpThroughput: '所选时间段内，该环节完成的数量。',
+      helpCycleTime: '所选时间段内，已完成项目在该环节从开始到结束的耗时。',
+      helpMedian: '中位数（50 分位）：一半更快，一半更慢。',
+      helpP90: 'P90（90 分位）：90% 的项目快于该值，10% 慢于该值。',
+      helpSlaMet: '完成项目中，环节耗时小于等于 SLA 阈值的百分比。',
+      helpSamples: '用于计算指标（中位数、P90、SLA）的已完成样本数量。',
+      helpWipNow: '当前处于该流程环节的数量。',
+      helpOldest: '当前在该环节中最久的项目年龄（小时，进入该环节起）。',
+      helpSla: '用于计算 “SLA 达标” 的 SLA 小时阈值。',
+      helpTrend: '展示所选时间段内各区间的完成数量与平均耗时。',
+      helpOutliers: '所选时间段内，该环节完成项目中耗时最长的项。',
     },
 
     // Price List
