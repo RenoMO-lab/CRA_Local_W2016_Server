@@ -6,6 +6,13 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+  eachDayOfInterval,
+  eachMonthOfInterval,
+  eachWeekOfInterval,
+  format,
+  isWithinInterval,
+} from "date-fns";
 import Busboy from "busboy";
 import { getPool, withTransaction } from "./db.js";
 import {
@@ -4876,6 +4883,324 @@ export const apiRouter = (() => {
           e2eMedian: seriesE2eMedian,
         },
       });
+    })
+  );
+
+  // Server-side performance section metrics. Uses DB `history` so it works with the
+  // lightweight `/requests/summary` polling (which omits `history`).
+  router.get(
+    "/performance/sections",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const fromRaw = String(req.query.from ?? "").trim();
+      const toRaw = String(req.query.to ?? "").trim();
+      const groupByRaw = String(req.query.groupBy ?? "day").trim();
+      const slaRaw = String(req.query.slaHours ?? "24").trim();
+
+      const from = new Date(fromRaw);
+      const to = new Date(toRaw);
+      const slaHours = Number(slaRaw);
+      if (!fromRaw || !toRaw || Number.isNaN(+from) || Number.isNaN(+to) || +from > +to) {
+        res.status(400).json({ error: "Invalid query: expected from/to ISO dates (from <= to)" });
+        return;
+      }
+      if (!Number.isFinite(slaHours) || slaHours <= 0) {
+        res.status(400).json({ error: "Invalid query: expected slaHours > 0" });
+        return;
+      }
+
+      const groupBy = groupByRaw === "week" || groupByRaw === "month" ? groupByRaw : "day";
+
+      const COMPLETED_STATUSES = new Set(["gm_approved", "closed"]);
+
+      const quantile = (values, p) => {
+        if (!Array.isArray(values) || values.length === 0) return 0;
+        const sorted = [...values].sort((a, b) => a - b);
+        const idx = (sorted.length - 1) * p;
+        const lo = Math.floor(idx);
+        const hi = Math.ceil(idx);
+        if (lo === hi) return sorted[lo];
+        const w = idx - lo;
+        return sorted[lo] * (1 - w) + sorted[hi] * w;
+      };
+
+      const parseHistory = (raw) => {
+        const history = Array.isArray(raw) ? raw : [];
+        const parsed = history
+          .map((h) => {
+            const status = typeof h?.status === "string" ? h.status : null;
+            const rawTs = h?.timestamp ?? h?.ts ?? h?.time ?? null;
+            const ts = rawTs ? new Date(String(rawTs)) : null;
+            if (!status || !ts || Number.isNaN(+ts)) return null;
+            const userName = typeof h?.userName === "string" ? h.userName : undefined;
+            return { status, ts, userName };
+          })
+          .filter(Boolean)
+          .sort((a, b) => +a.ts - +b.ts);
+        return parsed;
+      };
+
+      const findFirstStatusTime = (history, statuses) => {
+        for (const h of history) {
+          if (statuses.includes(h.status)) return h.ts;
+        }
+        return null;
+      };
+
+      const findFirstStatusTimeAfter = (history, after, statuses) => {
+        for (const h of history) {
+          if (+h.ts < +after) continue;
+          if (!statuses.includes(h.status)) continue;
+          return { ts: h.ts, by: h.userName };
+        }
+        return null;
+      };
+
+      const stageEntryTimeForCurrentRun = (history, wipStatuses, now) => {
+        if (!history.length) return null;
+        const wip = new Set(wipStatuses);
+        // Find the last event at/under now.
+        let idx = history.length - 1;
+        while (idx >= 0 && +history[idx].ts > +now) idx--;
+        if (idx < 0) return null;
+
+        let entry = history[idx].ts;
+        for (let i = idx; i >= 0; i--) {
+          if (!wip.has(history[i].status)) break;
+          entry = history[i].ts;
+        }
+        return entry;
+      };
+
+      const computeStageCycles = (requests, stage, range) => {
+        const cycles = [];
+        requests.forEach((r) => {
+          const history = r.history ?? [];
+          const stageStart = findFirstStatusTime(history, stage.startStatuses);
+          if (!stageStart) return;
+          const endHit = findFirstStatusTimeAfter(history, stageStart, stage.endStatuses);
+          if (!endHit) return;
+          if (!isWithinInterval(endHit.ts, range)) return;
+          const diffHours = (+endHit.ts - +stageStart) / (1000 * 60 * 60);
+          if (diffHours < 0) return;
+          cycles.push({
+            requestId: r.id,
+            clientName: r.clientName || "-",
+            startAt: stageStart,
+            endAt: endHit.ts,
+            hours: Number(diffHours.toFixed(1)),
+            endBy: endHit.by,
+          });
+        });
+        cycles.sort((a, b) => b.hours - a.hours);
+        return cycles;
+      };
+
+      const computeClarificationCycles = (requests, range) => {
+        const cycles = [];
+        requests.forEach((r) => {
+          const history = r.history ?? [];
+          for (let i = 0; i < history.length; i++) {
+            const h = history[i];
+            if (h.status !== "clarification_needed") continue;
+            const startAt = h.ts;
+            let endAt = null;
+            let endBy = undefined;
+            for (let j = i + 1; j < history.length; j++) {
+              const next = history[j];
+              if (next.status === "clarification_needed") continue;
+              endAt = next.ts;
+              endBy = next.userName;
+              break;
+            }
+            if (!endAt) continue;
+            if (!isWithinInterval(endAt, range)) continue;
+            const diffHours = (+endAt - +startAt) / (1000 * 60 * 60);
+            if (diffHours < 0) continue;
+            cycles.push({
+              requestId: r.id,
+              clientName: r.clientName || "-",
+              startAt,
+              endAt,
+              hours: Number(diffHours.toFixed(1)),
+              endBy,
+            });
+          }
+        });
+        cycles.sort((a, b) => b.hours - a.hours);
+        return cycles;
+      };
+
+      const pool = await getPool();
+      const { rows } = await pool.query("SELECT id, status, data FROM requests");
+      const requests = rows.map((row) => {
+        const data = row.data && typeof row.data === "object" ? row.data : {};
+        return {
+          id: String(row.id),
+          status: typeof row.status === "string" ? row.status : String(data?.status ?? ""),
+          clientName: typeof data?.clientName === "string" ? data.clientName : "",
+          history: parseHistory(data?.history),
+        };
+      });
+
+      const range = { start: from, end: to };
+      const now = new Date();
+
+      const stageDefs = {
+        design: {
+          key: "design",
+          wipStatuses: ["submitted", "edited", "under_review", "clarification_needed", "feasibility_confirmed"],
+          startStatuses: ["submitted"],
+          endStatuses: ["design_result"],
+        },
+        costing: {
+          key: "costing",
+          wipStatuses: ["design_result", "in_costing"],
+          startStatuses: ["design_result", "in_costing"],
+          endStatuses: ["costing_complete"],
+        },
+        sales: {
+          key: "sales",
+          wipStatuses: ["costing_complete", "sales_followup", "gm_rejected"],
+          startStatuses: ["costing_complete", "sales_followup", "gm_rejected"],
+          endStatuses: ["gm_approval_pending"],
+        },
+        gm: {
+          key: "gm",
+          wipStatuses: ["gm_approval_pending"],
+          startStatuses: ["gm_approval_pending"],
+          endStatuses: ["gm_approved", "closed"],
+        },
+      };
+
+      const buildStageMetrics = (key, stage, cycles) => {
+        const values = cycles.map((c) => c.hours);
+        const median = quantile(values, 0.5);
+        const p90 = quantile(values, 0.9);
+        const met = values.length
+          ? Math.round((values.filter((v) => v <= slaHours).length / values.length) * 100)
+          : 0;
+
+        const wipNow = requests.filter((r) => stage.wipStatuses.includes(r.status)).length;
+        const ages = requests
+          .filter((r) => stage.wipStatuses.includes(r.status))
+          .map((r) => {
+            const entry = stageEntryTimeForCurrentRun(r.history ?? [], stage.wipStatuses, now);
+            if (!entry) return null;
+            const ageH = (+now - +entry) / (1000 * 60 * 60);
+            return Number.isFinite(ageH) && ageH >= 0 ? ageH : null;
+          })
+          .filter((v) => v !== null);
+        const oldest = ages.length ? Math.max(...ages) : 0;
+
+        return {
+          throughput: cycles.length,
+          medianHours: Number(median.toFixed(1)),
+          p90Hours: Number(p90.toFixed(1)),
+          slaMetPct: met,
+          samples: values.length,
+          cycles: cycles.slice(0, 10).map((c) => ({
+            requestId: c.requestId,
+            clientName: c.clientName,
+            startAt: c.startAt.toISOString(),
+            endAt: c.endAt.toISOString(),
+            hours: c.hours,
+            endBy: c.endBy,
+          })),
+          wipNow,
+          oldestWipHours: Number(oldest.toFixed(1)),
+        };
+      };
+
+      const designCycles = computeStageCycles(requests, stageDefs.design, range);
+      const costingCycles = computeStageCycles(requests, stageDefs.costing, range);
+      const salesCycles = computeStageCycles(requests, stageDefs.sales, range);
+      const gmCycles = computeStageCycles(requests, stageDefs.gm, range);
+      const clarificationCycles = computeClarificationCycles(requests, range);
+
+      const metricsByStage = {
+        design: buildStageMetrics("design", stageDefs.design, designCycles),
+        costing: buildStageMetrics("costing", stageDefs.costing, costingCycles),
+        sales: buildStageMetrics("sales", stageDefs.sales, salesCycles),
+        gm: buildStageMetrics("gm", stageDefs.gm, gmCycles),
+        clarification: buildStageMetrics("clarification", { wipStatuses: ["clarification_needed"] }, clarificationCycles),
+      };
+
+      const { start, end } = range;
+      const intervals =
+        groupBy === "day"
+          ? eachDayOfInterval({ start, end })
+          : groupBy === "week"
+            ? eachWeekOfInterval({ start, end }, { weekStartsOn: 1 })
+            : eachMonthOfInterval({ start, end });
+
+      const intervalLabel = (date) => (groupBy === "month" ? format(date, "MMM yyyy") : format(date, "MMM dd"));
+      const intervalEnd = (date) => {
+        if (groupBy === "day") return new Date(date.getTime() + 24 * 60 * 60 * 1000 - 1);
+        if (groupBy === "week") return new Date(date.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
+        return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59);
+      };
+
+      const pickIntervalStart = (ts) => {
+        for (const d of intervals) {
+          if (isWithinInterval(ts, { start: d, end: intervalEnd(d) })) return d;
+        }
+        return null;
+      };
+
+      const intervalData = intervals.map((d) => ({
+        date: intervalLabel(d),
+        designCount: 0,
+        designAvg: 0,
+        costingCount: 0,
+        costingAvg: 0,
+        salesCount: 0,
+        salesAvg: 0,
+        gmCount: 0,
+        gmAvg: 0,
+        clarificationCount: 0,
+        clarificationAvg: 0,
+      }));
+
+      const addCyclesToIntervals = (key, cycles) => {
+        const perLabel = {};
+        intervalData.forEach((r) => (perLabel[r.date] = []));
+        cycles.forEach((c) => {
+          const d = pickIntervalStart(c.endAt);
+          if (!d) return;
+          const label = intervalLabel(d);
+          if (!perLabel[label]) perLabel[label] = [];
+          perLabel[label].push(c.hours);
+        });
+        intervalData.forEach((row) => {
+          const values = perLabel[row.date] || [];
+          const avg = values.length ? values.reduce((s, v) => s + v, 0) / values.length : 0;
+          if (key === "design") {
+            row.designCount = values.length;
+            row.designAvg = Number(avg.toFixed(1));
+          } else if (key === "costing") {
+            row.costingCount = values.length;
+            row.costingAvg = Number(avg.toFixed(1));
+          } else if (key === "sales") {
+            row.salesCount = values.length;
+            row.salesAvg = Number(avg.toFixed(1));
+          } else if (key === "gm") {
+            row.gmCount = values.length;
+            row.gmAvg = Number(avg.toFixed(1));
+          } else if (key === "clarification") {
+            row.clarificationCount = values.length;
+            row.clarificationAvg = Number(avg.toFixed(1));
+          }
+        });
+      };
+
+      addCyclesToIntervals("design", designCycles);
+      addCyclesToIntervals("costing", costingCycles);
+      addCyclesToIntervals("sales", salesCycles);
+      addCyclesToIntervals("gm", gmCycles);
+      addCyclesToIntervals("clarification", clarificationCycles);
+
+      res.json({ metricsByStage, intervalData });
     })
   );
 

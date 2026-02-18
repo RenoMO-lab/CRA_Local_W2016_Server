@@ -274,6 +274,23 @@ type StageMetrics = {
   oldestWipHours: number;
 };
 
+type PerformanceSectionsResponse = {
+  metricsByStage: Record<
+    StageKey,
+    Omit<StageMetrics, "cycles"> & {
+      cycles: Array<{
+        requestId: string;
+        clientName: string;
+        startAt: string;
+        endAt: string;
+        hours: number;
+        endBy?: string;
+      }>;
+    }
+  >;
+  intervalData: Array<Record<string, any>>;
+};
+
 type PerformanceOverviewResponse = {
   overview: {
     submittedCount: number;
@@ -300,6 +317,10 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [selectedStage, setSelectedStage] = useState<StageKey | null>(null);
   const [overviewApi, setOverviewApi] = useState<PerformanceOverviewResponse | null>(null);
+  const [sectionsApi, setSectionsApi] = useState<{
+    metricsByStage: Record<StageKey, StageMetrics>;
+    intervalData: Array<Record<string, any>>;
+  } | null>(null);
 
   const timeRange = useMemo(() => getTimeRange(period), [period]);
   const range = useMemo(() => ({ start: timeRange.start, end: timeRange.end }), [timeRange.end, timeRange.start]);
@@ -330,6 +351,55 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
     return () => controller.abort();
   }, [timeRange.end, timeRange.groupBy, timeRange.start]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const run = async () => {
+      try {
+        const qs = new URLSearchParams({
+          from: timeRange.start.toISOString(),
+          to: timeRange.end.toISOString(),
+          groupBy: timeRange.groupBy,
+          slaHours: String(slaHours),
+        });
+        const res = await fetch(`/api/performance/sections?${qs.toString()}`, { signal: controller.signal });
+        if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
+        const raw = (await res.json()) as PerformanceSectionsResponse;
+
+        const metricsByStage = (Object.keys(raw.metricsByStage) as StageKey[]).reduce(
+          (acc, key) => {
+            const m = raw.metricsByStage[key];
+            acc[key] = {
+              ...m,
+              cycles: (m.cycles || []).map((c) => ({
+                requestId: c.requestId,
+                clientName: c.clientName,
+                startAt: new Date(c.startAt),
+                endAt: new Date(c.endAt),
+                hours: c.hours,
+                endBy: c.endBy,
+              })),
+            };
+            return acc;
+          },
+          {} as Record<StageKey, StageMetrics>
+        );
+
+        if (!controller.signal.aborted) {
+          setSectionsApi({ metricsByStage, intervalData: raw.intervalData || [] });
+        }
+      } catch (e) {
+        if (!controller.signal.aborted) {
+          console.warn("Failed to load performance sections:", e);
+          setSectionsApi(null);
+        }
+      }
+    };
+
+    run();
+    return () => controller.abort();
+  }, [slaHours, timeRange.end, timeRange.groupBy, timeRange.start]);
+
   const historyById = useMemo(() => {
     const map = new Map<string, HistoryWithTs[]>();
     requests.forEach((r) => {
@@ -358,14 +428,14 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
         key: "costing",
         // Design completed -> Costing stage (may sit in design_result before "in_costing").
         wipStatuses: ["design_result", "in_costing"],
-        startStatuses: ["in_costing"],
+        startStatuses: ["design_result", "in_costing"],
         endStatuses: ["costing_complete"],
       },
       sales: {
         key: "sales",
         // Costing completed -> Sales follow-up. GM rejected returns to Sales.
         wipStatuses: ["costing_complete", "sales_followup", "gm_rejected"],
-        startStatuses: ["sales_followup"],
+        startStatuses: ["costing_complete", "sales_followup", "gm_rejected"],
         endStatuses: ["gm_approval_pending"],
       },
       gm: {
@@ -398,6 +468,7 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
     const p90 = quantile(values, 0.9);
     const met = values.length ? Math.round((values.filter((v) => v <= slaHours).length / values.length) * 100) : 0;
 
+    const wipNow = requests.filter((r) => def.wipStatuses.includes(r.status)).length;
     const wipItems = requests
       .filter((r) => def.wipStatuses.includes(r.status))
       .map((r) => {
@@ -420,7 +491,7 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
       slaMetPct: met,
       samples: values.length,
       cycles: cycles.slice(0, 10),
-      wipNow: wipItems.length,
+      wipNow,
       oldestWipHours: Number(oldest.toFixed(1)),
     };
   };
@@ -565,6 +636,14 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
 
     return rows;
   }, [historyById, requests, stageDefs, timeRange]);
+
+  const effectiveMetricsByStage = useMemo(() => {
+    return sectionsApi?.metricsByStage ?? metricsByStage;
+  }, [metricsByStage, sectionsApi]);
+
+  const effectiveIntervalData = useMemo(() => {
+    return sectionsApi?.intervalData ?? intervalData;
+  }, [intervalData, sectionsApi]);
 
   const overviewTrends = useMemo(() => {
     const { start, end, groupBy } = timeRange;
@@ -721,7 +800,7 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
     setDetailsOpen(true);
   };
 
-  const selected = selectedStage ? metricsByStage[selectedStage] : null;
+  const selected = selectedStage ? effectiveMetricsByStage[selectedStage] : null;
   const selectedMeta = selectedStage ? stageMeta[selectedStage] : null;
 
   const trendConfig = useMemo((): ChartConfig => {
@@ -919,7 +998,7 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
         </div>
         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {(Object.keys(stageMeta) as StageKey[]).map((key) => {
-            const m = metricsByStage[key];
+            const m = effectiveMetricsByStage[key];
             const meta = stageMeta[key];
             return (
               <button key={key} type="button" onClick={() => openStageDetails(key)} className="text-left">
@@ -1032,7 +1111,7 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
                 <div className="text-xs text-muted-foreground mb-3">{t.performance.trendDesc}</div>
 
                 <ChartContainer config={trendConfig} className="h-[220px] w-full">
-                  <BarChart data={intervalData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                  <BarChart data={effectiveIntervalData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                     <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
                     <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} allowDecimals={false} width={30} />
@@ -1048,7 +1127,7 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
 
                 <div className="mt-4">
                   <ChartContainer config={trendConfig} className="h-[220px] w-full">
-                    <LineChart data={intervalData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                    <LineChart data={effectiveIntervalData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border/50" />
                       <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
                       <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} width={40} />
