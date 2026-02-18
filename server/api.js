@@ -4717,7 +4717,9 @@ export const apiRouter = (() => {
       }
 
       const groupBy = groupByRaw === "week" || groupByRaw === "month" ? groupByRaw : "day";
-      const COMPLETED_STATUSES = new Set(["gm_approved", "gm_rejected", "closed"]);
+      // "Completed" means finished/approved/closed. A GM rejection is not completed:
+      // it returns to Sales follow-up per business process.
+      const COMPLETED_STATUSES = new Set(["gm_approved", "closed"]);
       const SUBMITTED_STATUSES = new Set(["submitted"]);
 
       const quantile = (values, p) => {

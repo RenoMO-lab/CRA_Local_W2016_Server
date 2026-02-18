@@ -61,7 +61,9 @@ import {
 
 type TimePeriod = "day" | "week" | "month" | "last30" | "last90" | "year";
 
-const COMPLETED_STATUSES: RequestStatus[] = ["gm_approved", "gm_rejected", "closed"];
+// "Completed" means finished/approved/closed. A GM rejection is not completed:
+// it returns to Sales follow-up per business process.
+const COMPLETED_STATUSES: RequestStatus[] = ["gm_approved", "closed"];
 const SUBMITTED_STATUSES: RequestStatus[] = ["submitted"];
 
 type StageKey = "design" | "costing" | "sales" | "gm" | "clarification";
@@ -347,19 +349,22 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
     () => ({
       design: {
         key: "design",
-        wipStatuses: ["under_review", "clarification_needed", "feasibility_confirmed", "design_result"],
+        // "Submitted" starts the Design stage (includes initial queueing).
+        wipStatuses: ["submitted", "edited", "under_review", "clarification_needed", "feasibility_confirmed"],
         startStatuses: SUBMITTED_STATUSES,
         endStatuses: ["design_result"],
       },
       costing: {
         key: "costing",
-        wipStatuses: ["in_costing"],
+        // Design completed -> Costing stage (may sit in design_result before "in_costing").
+        wipStatuses: ["design_result", "in_costing"],
         startStatuses: ["in_costing"],
         endStatuses: ["costing_complete"],
       },
       sales: {
         key: "sales",
-        wipStatuses: ["sales_followup"],
+        // Costing completed -> Sales follow-up. GM rejected returns to Sales.
+        wipStatuses: ["costing_complete", "sales_followup", "gm_rejected"],
         startStatuses: ["sales_followup"],
         endStatuses: ["gm_approval_pending"],
       },
@@ -444,6 +449,7 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
       return ts ? isWithinInterval(ts, range) : false;
     }).length;
 
+    // WIP = anything submitted/in-flight but not completed.
     const wipCount = requests.filter((r) => r.status !== "draft" && !COMPLETED_STATUSES.includes(r.status)).length;
 
     const endToEnd = requests
@@ -461,14 +467,12 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
     const median = quantile(endToEnd, 0.5);
     const p90 = quantile(endToEnd, 0.9);
 
+    // Breakdown must be consistent with WIP: only show WIP buckets (no Draft / no Completed).
     const dist = {
-      draft: requests.filter((r) => r.status === "draft").length,
-      intake: requests.filter((r) => r.status === "submitted" || r.status === "edited").length,
       design: requests.filter((r) => stageDefs.design.wipStatuses.includes(r.status)).length,
       costing: requests.filter((r) => stageDefs.costing.wipStatuses.includes(r.status)).length,
       sales: requests.filter((r) => stageDefs.sales.wipStatuses.includes(r.status)).length,
       gm: requests.filter((r) => stageDefs.gm.wipStatuses.includes(r.status)).length,
-      completed: requests.filter((r) => COMPLETED_STATUSES.includes(r.status)).length,
     };
 
     return {
@@ -859,13 +863,10 @@ const WorkflowPerformance: React.FC<{ requests: CustomerRequest[] }> = ({ reques
         </div>
         {(() => {
           const segments = [
-            { key: "draft", label: t.performance.wipDraft, value: flowOverview.dist.draft, icon: <FileEdit className="h-3.5 w-3.5" />, color: "hsl(221, 10%, 55%)" },
-            { key: "intake", label: t.performance.wipIntake, value: flowOverview.dist.intake, icon: <Inbox className="h-3.5 w-3.5" />, color: "hsl(221, 83%, 53%)" },
             { key: "design", label: t.performance.wipDesign, value: flowOverview.dist.design, icon: <PenTool className="h-3.5 w-3.5" />, color: "hsl(280, 87%, 60%)" },
             { key: "costing", label: t.performance.wipCosting, value: flowOverview.dist.costing, icon: <Calculator className="h-3.5 w-3.5" />, color: "hsl(142, 71%, 45%)" },
             { key: "sales", label: t.performance.wipSales, value: flowOverview.dist.sales, icon: <Briefcase className="h-3.5 w-3.5" />, color: "hsl(38, 92%, 50%)" },
             { key: "gm", label: t.performance.wipGm, value: flowOverview.dist.gm, icon: <UserCheck className="h-3.5 w-3.5" />, color: "hsl(0, 84%, 60%)" },
-            { key: "completed", label: t.performance.wipCompleted, value: flowOverview.dist.completed, icon: <CheckCircle2 className="h-3.5 w-3.5" />, color: "hsl(142, 71%, 45%)" },
           ];
           const total = segments.reduce((s, x) => s + x.value, 0);
 
