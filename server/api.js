@@ -1013,8 +1013,9 @@ const renderAccessProvisionEmailHtml = ({ userName, loginEmail, temporaryPasswor
                             </tr>
                           </table>
                         </center>
-                        <div style="margin-top:12px; font-size:11px; color:#6B7280; line-height:16px;">
-                          ${escapeHtml(i18n.provisionedByPrefix)} ${safeSender}${safeNowUtc ? ` ${escapeHtml(i18n.provisionedOnPrefix)} ${safeNowUtc}` : ""}.
+                        <div style="margin-top:12px; font-size:11px; color:#6B7280; line-height:16px; text-align:center; word-break:break-word;">
+                          <div>${escapeHtml(i18n.provisionedByPrefix)} ${safeSender}</div>
+                          ${safeNowUtc ? `<div style="margin-top:2px;">${escapeHtml(i18n.provisionedOnPrefix)} ${safeNowUtc}</div>` : ""}
                         </div>
                       </td>
                     </tr>
