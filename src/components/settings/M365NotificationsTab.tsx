@@ -217,17 +217,16 @@ export default function M365NotificationsTab(props: any) {
                   <SelectItem value="m365-recipients">{t.settings.m365RecipientsTitle}</SelectItem>
                   <SelectItem value="m365-routing">{t.settings.m365FlowTitle}</SelectItem>
                   <SelectItem value="m365-templates">{t.settings.m365TemplatesTitle}</SelectItem>
-                  <SelectItem value="m365-test">{t.settings.m365TestEmail}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
           <div className="flex w-full flex-col sm:flex-row gap-3 lg:w-auto lg:justify-end">
-            <Button size="lg" className="w-full sm:w-auto sm:min-w-48" onClick={saveM365Settings} disabled={hasM365Error || isM365Loading}>
+            <Button size="sm" className="h-10 w-full px-4 sm:w-auto sm:min-w-36" onClick={saveM365Settings} disabled={hasM365Error || isM365Loading}>
               {t.settings.saveChanges}
             </Button>
-            <Button size="lg" className="w-full sm:w-auto sm:min-w-48" variant="outline" onClick={loadM365Info} disabled={isM365Loading}>
+            <Button size="sm" className="h-10 w-full px-4 sm:w-auto sm:min-w-36" variant="outline" onClick={loadM365Info} disabled={isM365Loading}>
               <span className={cn('mr-2 inline-flex', isM365Loading ? 'animate-spin' : '')}>
                 <RefreshCw size={16} />
               </span>
@@ -366,6 +365,22 @@ export default function M365NotificationsTab(props: any) {
                   <Button variant="outline" onClick={disconnectM365}>
                     {t.settings.m365Disconnect}
                   </Button>
+                </div>
+
+                <div className="border-t border-border pt-4 space-y-3">
+                  <div className="text-sm font-semibold text-foreground">{t.settings.m365TestEmail}</div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                    <div className="md:col-span-2 space-y-2">
+                      <Label htmlFor="m365-test-to">{t.settings.m365ToEmail}</Label>
+                      <Input id="m365-test-to" value={m365TestEmail} onChange={(e) => setM365TestEmail(e.target.value)} placeholder="someone@company.com" />
+                    </div>
+                    <Button className="h-10 md:h-9" onClick={sendM365TestEmail} disabled={!m365Info?.connection?.hasRefreshToken}>
+                      {t.settings.m365SendTest}
+                    </Button>
+                  </div>
+                  {!m365Info?.connection?.hasRefreshToken ? (
+                    <p className="text-xs text-muted-foreground">{t.settings.m365TestEmailHint}</p>
+                  ) : null}
                 </div>
               </section>
 
@@ -604,21 +619,6 @@ export default function M365NotificationsTab(props: any) {
                 </div>
               </section>
 
-            <section id="m365-test" className="scroll-mt-28 md:scroll-mt-32 rounded-xl border border-border bg-muted/10 p-4 space-y-3">
-                <div className="text-sm font-semibold text-foreground">{t.settings.m365TestEmail}</div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                  <div className="md:col-span-2 space-y-2">
-                    <Label htmlFor="m365-test-to">{t.settings.m365ToEmail}</Label>
-                    <Input id="m365-test-to" value={m365TestEmail} onChange={(e) => setM365TestEmail(e.target.value)} placeholder="someone@company.com" />
-                  </div>
-                  <Button onClick={sendM365TestEmail} disabled={!m365Info?.connection?.hasRefreshToken}>
-                    {t.settings.m365SendTest}
-                  </Button>
-                </div>
-                {!m365Info?.connection?.hasRefreshToken ? (
-                  <p className="text-xs text-muted-foreground">{t.settings.m365TestEmailHint}</p>
-                ) : null}
-              </section>
           </div>
         )}
       </div>
