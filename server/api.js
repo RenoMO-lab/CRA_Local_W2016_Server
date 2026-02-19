@@ -812,7 +812,18 @@ const renderStatusEmailHtml = ({ request, eventType, newStatus, previousStatus, 
                               </tr>
                             </table>
 
-                            ${openRequestHref ? `<div style="margin-top:14px; font-size:11px; color:#6B7280; line-height:16px;">${escapeHtml(i18n.linkFallbackPrefix)} <a href="${openRequestHref}" style="color:#2563EB; text-decoration:underline; word-break:break-all;">${openRequestHref}</a></div>` : ""}
+                            ${openRequestHref ? `
+                              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:14px;">
+                                <tr>
+                                  <td align="center" style="font-size:11px; color:#6B7280; line-height:16px; text-align:center;">
+                                    <div>${escapeHtml(i18n.linkFallbackPrefix)}</div>
+                                    <div style="margin-top:4px;">
+                                      <a href="${openRequestHref}" style="color:#2563EB; text-decoration:underline; word-break:break-all; overflow-wrap:anywhere;">${openRequestHref}</a>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </table>
+                            ` : ""}
                           </td>
                         </tr>
                       </table>
