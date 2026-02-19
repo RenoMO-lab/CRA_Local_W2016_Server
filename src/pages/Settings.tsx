@@ -3569,69 +3569,71 @@ const Settings: React.FC = () => {
               </div>
 
             <Dialog open={isDbBackupSetupOpen} onOpenChange={setIsDbBackupSetupOpen}>
-              <DialogContent className="sm:max-w-xl">
-                <DialogHeader>
+              <DialogContent className="bg-card sm:max-w-xl max-h-[92vh] overflow-hidden p-0 flex flex-col">
+                <DialogHeader className="shrink-0 border-b border-border/60 px-6 pt-6 pb-4 pr-12">
                   <DialogTitle>{t.settings.backupSetupDialogTitle}</DialogTitle>
                   <DialogDescription>
                     {t.settings.backupSetupDialogDesc}
                   </DialogDescription>
                 </DialogHeader>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label>{t.settings.backupAdminHost}</Label>
-                    <Input value={dbBackupSetupForm.adminHost} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminHost: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t.settings.backupAdminPort}</Label>
-                    <Input type="number" value={dbBackupSetupForm.adminPort} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminPort: Number(e.target.value || 5432) }))} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t.settings.backupAdminDatabase}</Label>
-                    <Input value={dbBackupSetupForm.adminDatabase} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminDatabase: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t.settings.backupAdminUser}</Label>
-                    <Input value={dbBackupSetupForm.adminUser} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminUser: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1 md:col-span-2">
-                    <Label>{t.settings.backupAdminPassword}</Label>
-                    <Input type="password" value={dbBackupSetupForm.adminPassword} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminPassword: e.target.value }))} />
-                  </div>
+                <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label>{t.settings.backupAdminHost}</Label>
+                      <Input value={dbBackupSetupForm.adminHost} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminHost: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>{t.settings.backupAdminPort}</Label>
+                      <Input type="number" value={dbBackupSetupForm.adminPort} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminPort: Number(e.target.value || 5432) }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>{t.settings.backupAdminDatabase}</Label>
+                      <Input value={dbBackupSetupForm.adminDatabase} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminDatabase: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>{t.settings.backupAdminUser}</Label>
+                      <Input value={dbBackupSetupForm.adminUser} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminUser: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <Label>{t.settings.backupAdminPassword}</Label>
+                      <Input type="password" value={dbBackupSetupForm.adminPassword} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, adminPassword: e.target.value }))} />
+                    </div>
 
-                  <div className="space-y-1">
-                    <Label>{t.settings.backupHost}</Label>
-                    <Input value={dbBackupSetupForm.backupHost} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupHost: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t.settings.backupPort}</Label>
-                    <Input type="number" value={dbBackupSetupForm.backupPort} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupPort: Number(e.target.value || 5432) }))} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t.settings.backupDatabase}</Label>
-                    <Input value={dbBackupSetupForm.backupDatabase} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupDatabase: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t.settings.backupUser}</Label>
-                    <Input value={dbBackupSetupForm.backupUser} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupUser: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1 md:col-span-2">
-                    <Label>{t.settings.backupUserPassword}</Label>
-                    <Input type="password" value={dbBackupSetupForm.backupPassword} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupPassword: e.target.value }))} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t.settings.backupScheduleHour}</Label>
-                    <Input type="number" min={0} max={23} value={dbBackupSetupForm.scheduleHour} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, scheduleHour: Number(e.target.value || 1) }))} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>{t.settings.backupScheduleMinute}</Label>
-                    <Input type="number" min={0} max={59} value={dbBackupSetupForm.scheduleMinute} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, scheduleMinute: Number(e.target.value || 0) }))} />
-                  </div>
-                  <div className="md:col-span-2 flex items-center justify-between rounded-md border border-border px-3 py-2">
-                    <span className="text-sm text-muted-foreground">{t.settings.backupEnableDaily}</span>
-                    <Switch checked={dbBackupSetupForm.enabled} onCheckedChange={(checked) => setDbBackupSetupForm((p) => ({ ...p, enabled: checked }))} />
+                    <div className="space-y-1">
+                      <Label>{t.settings.backupHost}</Label>
+                      <Input value={dbBackupSetupForm.backupHost} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupHost: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>{t.settings.backupPort}</Label>
+                      <Input type="number" value={dbBackupSetupForm.backupPort} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupPort: Number(e.target.value || 5432) }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>{t.settings.backupDatabase}</Label>
+                      <Input value={dbBackupSetupForm.backupDatabase} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupDatabase: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>{t.settings.backupUser}</Label>
+                      <Input value={dbBackupSetupForm.backupUser} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupUser: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <Label>{t.settings.backupUserPassword}</Label>
+                      <Input type="password" value={dbBackupSetupForm.backupPassword} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupPassword: e.target.value }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>{t.settings.backupScheduleHour}</Label>
+                      <Input type="number" min={0} max={23} value={dbBackupSetupForm.scheduleHour} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, scheduleHour: Number(e.target.value || 1) }))} />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>{t.settings.backupScheduleMinute}</Label>
+                      <Input type="number" min={0} max={59} value={dbBackupSetupForm.scheduleMinute} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, scheduleMinute: Number(e.target.value || 0) }))} />
+                    </div>
+                    <div className="md:col-span-2 flex items-center justify-between rounded-md border border-border px-3 py-2">
+                      <span className="text-sm text-muted-foreground">{t.settings.backupEnableDaily}</span>
+                      <Switch checked={dbBackupSetupForm.enabled} onCheckedChange={(checked) => setDbBackupSetupForm((p) => ({ ...p, enabled: checked }))} />
+                    </div>
                   </div>
                 </div>
-                <DialogFooter>
+                <DialogFooter className="shrink-0 border-t border-border/60 px-6 py-4">
                   <Button variant="outline" onClick={() => setIsDbBackupSetupOpen(false)} disabled={isDbBackupSetupSaving}>
                     {t.common.cancel}
                   </Button>
