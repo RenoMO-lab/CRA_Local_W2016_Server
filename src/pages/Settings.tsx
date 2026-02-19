@@ -862,7 +862,7 @@ const Settings: React.FC = () => {
     return out;
   };
 
-  const isValidEmailUi = (value: string) => /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(value ?? '').trim());
+  const isValidEmailUi = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value ?? '').trim());
 
   const getFlowValue = (status: string, role: M365RoleKey) => {
     const map = (m365Info?.settings?.flowMap ?? DEFAULT_FLOW_MAP) as M365FlowMap;

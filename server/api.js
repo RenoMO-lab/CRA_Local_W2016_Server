@@ -177,6 +177,40 @@ const buildPublicAssetLink = (baseUrl, assetPath) => {
   return `${base}/${pathPart}`;
 };
 
+const RECIPIENT_FIELD_BY_ROLE = Object.freeze({
+  sales: "recipients_sales",
+  design: "recipients_design",
+  costing: "recipients_costing",
+  admin: "recipients_admin",
+});
+
+const autoAddM365RecipientForRole = async (pool, { role, email }) => {
+  const normalizedRole = String(role ?? "").trim().toLowerCase();
+  const targetEmail = String(email ?? "").trim();
+  const field = RECIPIENT_FIELD_BY_ROLE[normalizedRole];
+  if (!field || !targetEmail) return { added: false, reason: "invalid_input" };
+
+  try {
+    const { rows } = await pool.query(`SELECT ${field} AS recipients FROM m365_mail_settings WHERE id = 1 LIMIT 1`);
+    if (!rows?.length) return { added: false, reason: "settings_missing" };
+
+    const existing = parseEmailList(rows[0]?.recipients);
+    if (existing.some((v) => String(v ?? "").trim().toLowerCase() === targetEmail.toLowerCase())) {
+      return { added: false, reason: "already_present" };
+    }
+
+    existing.push(targetEmail);
+    await pool.query(`UPDATE m365_mail_settings SET ${field} = $1, updated_at = now() WHERE id = 1`, [
+      existing.join("; "),
+    ]);
+    return { added: true };
+  } catch (e) {
+    // Best effort only: never block user creation if M365 settings table is unavailable.
+    console.error("Failed to auto-add M365 recipient for new user:", e?.message ?? e);
+    return { added: false, reason: "error" };
+  }
+};
+
 const resolveRecipientsForStatus = (settings, status) => {
   const sales = parseEmailList(settings.recipientsSales);
   const design = parseEmailList(settings.recipientsDesign);
@@ -2991,11 +3025,20 @@ export const apiRouter = (() => {
               [id, parsed.value.name, parsed.value.email, parsed.value.role, passwordHash]
             ));
           }
+          const m365AutoRecipient = await autoAddM365RecipientForRole(pool, {
+            role: parsed.value.role,
+            email: parsed.value.email,
+          });
           await writeAuditLogBestEffort(pool, req, {
             action: "admin.user_created",
             targetType: "user",
             targetId: id,
-            metadata: { email: parsed.value.email, role: parsed.value.role, name: parsed.value.name },
+            metadata: {
+              email: parsed.value.email,
+              role: parsed.value.role,
+              name: parsed.value.name,
+              m365RecipientAutoAdded: Boolean(m365AutoRecipient?.added),
+            },
           });
           res.status(201).json(mapUserRow(rows[0]));
         } catch (error) {
@@ -3225,6 +3268,7 @@ export const apiRouter = (() => {
       const pool = await getPool();
       let created = 0;
       let updated = 0;
+      const createdUsers = [];
 
       await withTransaction(pool, async (client) => {
         for (const user of normalized) {
@@ -3252,9 +3296,14 @@ export const apiRouter = (() => {
               [randomUUID(), user.name, user.email, user.role, makePasswordHash(user.password)]
             );
             created += 1;
+            createdUsers.push({ email: user.email, role: user.role });
           }
         }
       });
+
+      for (const user of createdUsers) {
+        await autoAddM365RecipientForRole(pool, user);
+      }
 
       res.json({ created, updated, total: created + updated });
     })
