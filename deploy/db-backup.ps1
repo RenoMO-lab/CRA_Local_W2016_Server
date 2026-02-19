@@ -64,7 +64,7 @@ function Resolve-Executable {
 
 function Get-BackupPrefixFromName {
   param([string]$Name)
-  $n = String($Name)
+  $n = [string]$Name
   if ($n -match '^(?<p>[A-Za-z0-9._-]+)\.dump$') { return $matches['p'] }
   if ($n -match '^(?<p>[A-Za-z0-9._-]+)_globals\.sql$') { return $matches['p'] }
   if ($n -match '^(?<p>[A-Za-z0-9._-]+)_manifest\.json$') { return $matches['p'] }
