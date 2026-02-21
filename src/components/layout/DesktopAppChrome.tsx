@@ -509,7 +509,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       </div>
 
       <Dialog open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen}>
-        <DialogContent className="max-w-2xl p-0 gap-0">
+        <DialogContent hideCloseButton className="max-w-2xl p-0 gap-0">
           <DialogTitle className="sr-only">Command palette</DialogTitle>
           <div className="border-b border-border p-3">
             <Input

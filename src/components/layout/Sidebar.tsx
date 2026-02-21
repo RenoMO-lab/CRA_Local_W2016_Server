@@ -204,17 +204,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResiz
       className="fixed left-0 top-14 bottom-8 z-40 bg-sidebar transition-[width] duration-200 flex-col hidden md:flex border-r border-sidebar-border"
       style={{ width: sidebarWidth, background: 'var(--gradient-sidebar)' }}
     >
-      {isCollapsed ? (
-        <button
-          type="button"
-          onClick={onToggle}
-          className="w-full flex justify-center p-2 text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-          aria-label={t.common.openMenu}
-        >
-          <ChevronRight size={18} />
-        </button>
-      ) : null}
-
       <nav className={cn('flex-1 overflow-y-auto scrollbar-thin', sidebarPadding)}>
         <div className="space-y-1">
           {filteredNavItems.map((item) => {
