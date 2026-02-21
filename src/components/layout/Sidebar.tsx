@@ -71,8 +71,12 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResiz
   }, [isSettingsActive, location.search]);
 
   useEffect(() => {
-    if (isSettingsActive) setAdminOpen(true);
-  }, [isSettingsActive]);
+    if (isSettingsActive) {
+      setAdminOpen(true);
+      return;
+    }
+    setAdminOpen(false);
+  }, [isSettingsActive, location.pathname]);
 
   useEffect(() => {
     if (themeCloseTimerRef.current !== null) {

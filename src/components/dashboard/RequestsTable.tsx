@@ -81,6 +81,15 @@ interface RowContextMenuState {
   request: CustomerRequest;
 }
 
+interface RowActionItem {
+  key: string;
+  label: string;
+  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  onSelect: () => void | Promise<void>;
+  separatorBefore?: boolean;
+  destructive?: boolean;
+}
+
 const PRIORITY_OPTIONS: Array<{ value: RequestPriority; label: string }> = [
   { value: 'low', label: 'Low' },
   { value: 'normal', label: 'Normal' },
@@ -294,6 +303,63 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
       setSaveState('error', String((error as Error)?.message ?? 'Failed to save priority'));
       toast.error('Failed to update priority');
     }
+  };
+
+  const getDesktopRowActions = (request: CustomerRequest): RowActionItem[] => {
+    const actions: RowActionItem[] = [
+      {
+        key: 'view',
+        label: t.table.view,
+        icon: Eye,
+        onSelect: () => handleView(request.id),
+      },
+      ...(canEditRoute
+        ? [
+            {
+              key: 'edit',
+              label: t.table.edit,
+              icon: Edit,
+              onSelect: () => handleEdit(request.id),
+            } as RowActionItem,
+          ]
+        : []),
+      {
+        key: 'duplicate',
+        label: 'Duplicate',
+        onSelect: () => handleDuplicate(request.id),
+      },
+      {
+        key: 'export-row',
+        label: 'Export row',
+        icon: Download,
+        onSelect: () => handleExportRow(request),
+      },
+      {
+        key: 'copy-id',
+        label: 'Copy ID',
+        icon: Copy,
+        onSelect: () => handleCopyId(request.id),
+      },
+      {
+        key: 'download-pdf',
+        label: t.table.download,
+        icon: Download,
+        onSelect: () => handleOpenPdfDialog(request),
+      },
+    ];
+
+    if (canDelete() && onDelete) {
+      actions.push({
+        key: 'delete',
+        label: t.table.delete,
+        icon: Trash2,
+        onSelect: () => setPendingDeleteId(request.id),
+        separatorBefore: true,
+        destructive: true,
+      });
+    }
+
+    return actions;
   };
 
   const sortedRequests = useMemo(() => {
@@ -623,43 +689,23 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-44 bg-card border border-border shadow-lg">
-                        <DropdownMenuItem onClick={() => handleView(request.id)} className="cursor-pointer">
-                          <Eye size={14} className="mr-2" />
-                          {t.table.view}
-                        </DropdownMenuItem>
-                        {canEditRoute ? (
-                          <DropdownMenuItem onClick={() => handleEdit(request.id)} className="cursor-pointer">
-                            <Edit size={14} className="mr-2" />
-                            {t.table.edit}
-                          </DropdownMenuItem>
-                        ) : null}
-                        <DropdownMenuItem onClick={() => handleDuplicate(request.id)} className="cursor-pointer">
-                          Duplicate
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleExportRow(request)} className="cursor-pointer">
-                          <Download size={14} className="mr-2" />
-                          Export row
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleCopyId(request.id)} className="cursor-pointer">
-                          <Copy size={14} className="mr-2" />
-                          Copy ID
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleOpenPdfDialog(request)} className="cursor-pointer">
-                          <Download size={14} className="mr-2" />
-                          {t.table.download}
-                        </DropdownMenuItem>
-                        {canDelete() && onDelete ? (
-                          <>
-                            <DropdownMenuSeparator />
+                        {getDesktopRowActions(request).map((action) => (
+                          <React.Fragment key={action.key}>
+                            {action.separatorBefore ? <DropdownMenuSeparator /> : null}
                             <DropdownMenuItem
-                              onClick={() => setPendingDeleteId(request.id)}
-                              className="cursor-pointer text-destructive focus:text-destructive"
+                              onClick={() => {
+                                void action.onSelect();
+                              }}
+                              className={cn(
+                                'cursor-pointer',
+                                action.destructive && 'text-destructive focus:text-destructive'
+                              )}
                             >
-                              <Trash2 size={14} className="mr-2" />
-                              {t.table.delete}
+                              {action.icon ? <action.icon size={14} className="mr-2" /> : null}
+                              {action.label}
                             </DropdownMenuItem>
-                          </>
-                        ) : null}
+                          </React.Fragment>
+                        ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -676,46 +722,25 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
           style={{ left: rowContextMenu.x, top: rowContextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
-          <button
-            type="button"
-            className="w-full text-left px-3 py-2 text-sm hover:bg-accent"
-            onClick={() => {
-              handleView(rowContextMenu.request.id);
-              setRowContextMenu(null);
-            }}
-          >
-            Open
-          </button>
-          <button
-            type="button"
-            className="w-full text-left px-3 py-2 text-sm hover:bg-accent"
-            onClick={() => {
-              handleDuplicate(rowContextMenu.request.id);
-              setRowContextMenu(null);
-            }}
-          >
-            Duplicate
-          </button>
-          <button
-            type="button"
-            className="w-full text-left px-3 py-2 text-sm hover:bg-accent"
-            onClick={() => {
-              handleExportRow(rowContextMenu.request);
-              setRowContextMenu(null);
-            }}
-          >
-            Export row
-          </button>
-          <button
-            type="button"
-            className="w-full text-left px-3 py-2 text-sm hover:bg-accent"
-            onClick={async () => {
-              await handleCopyId(rowContextMenu.request.id);
-              setRowContextMenu(null);
-            }}
-          >
-            Copy ID
-          </button>
+          {getDesktopRowActions(rowContextMenu.request).map((action) => (
+            <React.Fragment key={`ctx-${action.key}`}>
+              {action.separatorBefore ? <div className="my-1 border-t border-border" /> : null}
+              <button
+                type="button"
+                className={cn(
+                  'w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center',
+                  action.destructive && 'text-destructive'
+                )}
+                onClick={() => {
+                  void action.onSelect();
+                  setRowContextMenu(null);
+                }}
+              >
+                {action.icon ? <action.icon size={14} className="mr-2" /> : null}
+                {action.label}
+              </button>
+            </React.Fragment>
+          ))}
         </div>
       ) : null}
 
