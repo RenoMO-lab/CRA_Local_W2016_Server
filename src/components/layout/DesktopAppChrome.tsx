@@ -360,128 +360,132 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   return (
     <>
-      <div className="hidden md:block fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/95 backdrop-blur">
-        <div className="h-10 px-4 flex items-center">
-          <div className="flex items-center gap-3 min-w-0">
-            <img src="/monroc-favicon.png?v=5" alt="ROC" className="h-5 w-5 object-contain" />
-            <span className="text-sm font-semibold tracking-tight text-foreground whitespace-nowrap">CRA</span>
-            <span className="text-sm font-semibold tracking-tight text-foreground truncate">{t.branding.customerRequestAnalysis}</span>
+      <div className="hidden md:flex fixed top-0 left-0 right-0 z-50 h-14 px-4 border-b border-border bg-background items-center gap-3 whitespace-nowrap">
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-8 w-8 shrink-0"
+          onClick={onToggleSidebar}
+          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        >
+          {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </Button>
+
+        <div className="flex items-center gap-3 min-w-0 shrink">
+          <img src="/monroc-favicon.png?v=5" alt="ROC" className="h-9 w-9 object-contain shrink-0" />
+        </div>
+
+        <div className="min-w-0 flex items-center gap-1 text-sm text-muted-foreground overflow-hidden max-w-[420px] xl:max-w-[560px]">
+          {context.breadcrumb.map((crumb, index) => (
+            <React.Fragment key={`${crumb}-${index}`}>
+              {crumb.to && index < context.breadcrumb.length - 1 ? (
+                <button
+                  type="button"
+                  className="hover:text-foreground transition-colors truncate max-w-[110px] lg:max-w-[150px]"
+                  onClick={() => navigate(crumb.to as string)}
+                >
+                  {crumb.label}
+                </button>
+              ) : (
+                <span
+                  className={cn(
+                    'truncate max-w-[110px] lg:max-w-[150px]',
+                    index === context.breadcrumb.length - 1 && 'text-foreground font-medium'
+                  )}
+                >
+                  {crumb.label}
+                </span>
+              )}
+              {index < context.breadcrumb.length - 1 ? <ChevronRight className="h-3.5 w-3.5 shrink-0" /> : null}
+            </React.Fragment>
+          ))}
+        </div>
+
+        <div className="flex-1 min-w-0" />
+
+        <div className="min-w-0 shrink-0">
+          <div className="relative w-full min-w-[220px] max-w-[420px] transition-[max-width] duration-200 ease-out focus-within:max-w-[500px]">
+            <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+            <Input
+              ref={searchInputRef}
+              value={globalSearchQuery}
+              onChange={(event) => setGlobalSearchQuery(event.target.value)}
+              placeholder="Search request ID / client / country..."
+              className="h-8 pl-9 pr-20"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setPaletteQuery(globalSearchQuery);
+                setCommandPaletteOpen(true);
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+            >
+              <Command className="h-3 w-3" />
+              K
+            </button>
           </div>
         </div>
-        <div className="h-12 px-4 border-t border-border/70 flex items-center gap-3">
+
+        <div className="flex items-center gap-2 shrink-0">
+          <Button
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => navigate('/requests/new')}
+            aria-label={t.nav.newRequest}
+            title={t.nav.newRequest}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
           <Button
             variant="outline"
             size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={onToggleSidebar}
-            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="h-8 w-8"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            aria-label="Refresh"
+            title="Refresh"
           >
-            {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
           </Button>
-
-          <div className="flex items-center gap-1 text-sm text-muted-foreground min-w-[220px]">
-            {context.breadcrumb.map((crumb, index) => (
-              <React.Fragment key={`${crumb}-${index}`}>
-                {crumb.to && index < context.breadcrumb.length - 1 ? (
-                  <button
-                    type="button"
-                    className="hover:text-foreground transition-colors"
-                    onClick={() => navigate(crumb.to as string)}
-                  >
-                    {crumb.label}
-                  </button>
-                ) : (
-                  <span className={cn(index === context.breadcrumb.length - 1 && 'text-foreground font-medium')}>{crumb.label}</span>
-                )}
-                {index < context.breadcrumb.length - 1 ? <ChevronRight className="h-3.5 w-3.5" /> : null}
-              </React.Fragment>
-            ))}
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <div className="relative w-full max-w-[420px] transition-[max-width] duration-200 ease-out focus-within:max-w-[620px]">
-              <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-              <Input
-                ref={searchInputRef}
-                value={globalSearchQuery}
-                onChange={(event) => setGlobalSearchQuery(event.target.value)}
-                placeholder="Search request ID / client / country..."
-                className="h-8 pl-9 pr-20"
-              />
-              <button
-                type="button"
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 relative"
+            onClick={() => setNotificationsOpen(true)}
+            aria-label="Notifications"
+            title="Notifications"
+          >
+            <Bell className="h-4 w-4" />
+            {unreadCount > 0 ? (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] leading-4 text-center">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            ) : null}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="h-8 w-8">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem
                 onClick={() => {
                   setPaletteQuery(globalSearchQuery);
                   setCommandPaletteOpen(true);
                 }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 rounded border border-border bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
               >
-                <Command className="h-3 w-3" />
-                K
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Button
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => navigate('/requests/new')}
-              aria-label={t.nav.newRequest}
-              title={t.nav.newRequest}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              aria-label="Refresh"
-              title="Refresh"
-            >
-              <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 relative"
-              onClick={() => setNotificationsOpen(true)}
-              aria-label="Notifications"
-              title="Notifications"
-            >
-              <Bell className="h-4 w-4" />
-              {unreadCount > 0 ? (
-                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] leading-4 text-center">
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </span>
-              ) : null}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" className="h-8 w-8">
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem
-                  onClick={() => {
-                    setPaletteQuery(globalSearchQuery);
-                    setCommandPaletteOpen(true);
-                  }}
-                >
-                  Open command palette
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuRadioGroup value={density} onValueChange={(value) => setDensity(value as 'compact' | 'comfortable')}>
-                  <DropdownMenuRadioItem value="compact">Compact density</DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="comfortable">Comfortable density</DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+                Open command palette
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={density} onValueChange={(value) => setDensity(value as 'compact' | 'comfortable')}>
+                <DropdownMenuRadioItem value="compact">Compact density</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="comfortable">Comfortable density</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

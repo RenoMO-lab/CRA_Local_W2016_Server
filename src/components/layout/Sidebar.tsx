@@ -4,7 +4,6 @@ import {
   BarChart3,
   Check,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   Database,
   FileText,
@@ -174,7 +173,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResiz
     window.addEventListener('mouseup', onMouseUp);
   };
 
-  const sidebarPadding = density === 'compact' ? 'p-2' : 'p-3';
+  const sidebarPadding = density === 'compact' ? 'pt-2 px-2 pb-2' : 'pt-3 px-3 pb-3';
   const sectionPadding = density === 'compact' ? 'px-2 py-2' : 'px-3 py-3';
   const navItemPadding = density === 'compact' ? 'px-3 py-2' : 'px-3 py-2.5';
   const sidebarWidth = isCollapsed ? 64 : width;
@@ -202,36 +201,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResiz
 
   return (
     <aside
-      className="fixed left-0 top-0 z-40 h-screen pb-8 bg-sidebar transition-[width] duration-200 flex-col hidden md:flex border-r border-sidebar-border"
+      className="fixed left-0 top-14 bottom-8 z-40 bg-sidebar transition-[width] duration-200 flex-col hidden md:flex border-r border-sidebar-border"
       style={{ width: sidebarWidth, background: 'var(--gradient-sidebar)' }}
     >
-      <div className={cn('border-b border-sidebar-border', isCollapsed ? 'p-3' : 'p-4')}>
-        <div className={cn('flex', isCollapsed ? 'justify-center' : 'items-start justify-between')}>
-          <div className={cn('flex', isCollapsed ? 'justify-center' : 'items-center gap-3')}>
-            <img
-              src="/monroc-favicon.png?v=5"
-              alt="Monroc"
-              className={cn('transition-all duration-200 ease-in-out flex-shrink-0 object-contain', isCollapsed ? 'h-10 w-10' : 'h-14 w-14')}
-            />
-            {!isCollapsed ? (
-              <div className="flex flex-col">
-                <span className="font-bold text-sidebar-foreground text-lg leading-tight tracking-tight">CRA</span>
-                <span className="text-[10px] text-sidebar-muted leading-tight">{t.branding.customerRequestAnalysis}</span>
-              </div>
-            ) : null}
-          </div>
-          {!isCollapsed ? (
-            <button
-              type="button"
-              onClick={onToggle}
-              className="p-1.5 rounded-lg text-sidebar-muted hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors flex-shrink-0"
-            >
-              <ChevronLeft size={18} />
-            </button>
-          ) : null}
-        </div>
-      </div>
-
       {isCollapsed ? (
         <button
           type="button"

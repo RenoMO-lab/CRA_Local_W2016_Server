@@ -48,8 +48,8 @@ const MainLayout: React.FC = () => {
       <main 
         className={cn(
           'min-h-screen transition-all duration-300',
-          'md:pt-[96px] md:pb-10 md:ml-[var(--cra-sidebar-width)]',
-          density === 'compact' ? 'p-3 sm:p-4 md:px-4 md:pb-4' : 'p-3 sm:p-4 md:px-6 md:pb-6'
+          'md:pt-[64px] md:pb-12 md:ml-[var(--cra-sidebar-width)]',
+          density === 'compact' ? 'p-3 sm:p-4 md:px-4' : 'p-3 sm:p-4 md:px-6'
         )}
       >
         <div className="w-full animate-fade-in pb-20 md:pb-0 transition-all duration-300">

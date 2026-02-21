@@ -2715,7 +2715,7 @@ const RequestForm: React.FC = () => {
       </div>
 
       {/* Action Bar */}
-      <div className="fixed md:sticky bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t border-border py-3 md:py-4 px-3 md:px-6 z-50 md:-mx-6 md:mt-8">
+      <div className="fixed md:sticky bottom-0 md:bottom-8 left-0 right-0 bg-background/95 backdrop-blur border-t border-border py-3 md:py-4 px-3 md:px-6 z-40 md:-mx-6 md:mt-8">
         <div className="flex items-center justify-between max-w-7xl mx-auto gap-2 flex-wrap">
           <Button
             type="button"
