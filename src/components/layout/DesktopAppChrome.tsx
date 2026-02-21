@@ -360,52 +360,48 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   return (
     <>
-      <div className="hidden md:flex fixed top-0 left-0 right-0 z-50 h-14 px-4 border-b border-border bg-background items-center gap-3 whitespace-nowrap">
-        <Button
-          variant="outline"
-          size="icon"
-          className="h-8 w-8 shrink-0"
-          onClick={onToggleSidebar}
-          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-        </Button>
-
-        <div className="flex items-center gap-3 min-w-0 shrink">
+      <div className="hidden md:grid fixed top-0 left-0 right-0 z-50 h-14 px-4 border-b border-border bg-background items-center gap-3 whitespace-nowrap grid-cols-[minmax(0,1fr)_minmax(220px,420px)_auto]">
+        <div className="min-w-0 flex items-center gap-3 overflow-hidden">
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={onToggleSidebar}
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </Button>
           <img src="/monroc-favicon.png?v=5" alt="ROC" className="h-9 w-9 object-contain shrink-0" />
+          <div className="min-w-0 flex items-center gap-1 text-sm text-muted-foreground overflow-hidden">
+            {context.breadcrumb.map((crumb, index) => (
+              <React.Fragment key={`${crumb.label}-${index}`}>
+                {crumb.to && index < context.breadcrumb.length - 1 ? (
+                  <button
+                    type="button"
+                    className="hover:text-foreground transition-colors truncate max-w-[110px] lg:max-w-[150px]"
+                    onClick={() => navigate(crumb.to as string)}
+                  >
+                    {crumb.label}
+                  </button>
+                ) : (
+                  <span
+                    className={cn(
+                      'truncate max-w-[110px] lg:max-w-[150px]',
+                      index === context.breadcrumb.length - 1 && 'text-foreground font-medium'
+                    )}
+                  >
+                    {crumb.label}
+                  </span>
+                )}
+                {index < context.breadcrumb.length - 1 ? <ChevronRight className="h-3.5 w-3.5 shrink-0" /> : null}
+              </React.Fragment>
+            ))}
+          </div>
         </div>
 
-        <div className="min-w-0 flex items-center gap-1 text-sm text-muted-foreground overflow-hidden max-w-[420px] xl:max-w-[560px]">
-          {context.breadcrumb.map((crumb, index) => (
-            <React.Fragment key={`${crumb}-${index}`}>
-              {crumb.to && index < context.breadcrumb.length - 1 ? (
-                <button
-                  type="button"
-                  className="hover:text-foreground transition-colors truncate max-w-[110px] lg:max-w-[150px]"
-                  onClick={() => navigate(crumb.to as string)}
-                >
-                  {crumb.label}
-                </button>
-              ) : (
-                <span
-                  className={cn(
-                    'truncate max-w-[110px] lg:max-w-[150px]',
-                    index === context.breadcrumb.length - 1 && 'text-foreground font-medium'
-                  )}
-                >
-                  {crumb.label}
-                </span>
-              )}
-              {index < context.breadcrumb.length - 1 ? <ChevronRight className="h-3.5 w-3.5 shrink-0" /> : null}
-            </React.Fragment>
-          ))}
-        </div>
-
-        <div className="flex-1 min-w-0" />
-
-        <div className="min-w-0 shrink-0">
-          <div className="relative w-full min-w-[220px] max-w-[420px] transition-[max-width] duration-200 ease-out focus-within:max-w-[500px]">
+        <div className="min-w-0 justify-self-end w-full">
+          <div className="relative w-full min-w-[220px] max-w-[360px] transition-[max-width] duration-200 ease-out focus-within:max-w-[420px]">
             <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
             <Input
               ref={searchInputRef}
