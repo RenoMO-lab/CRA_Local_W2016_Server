@@ -209,16 +209,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   );
 
   const filteredPaletteRequests = useMemo(() => {
-    const q = paletteQuery.trim().toLowerCase();
-    if (!q) return searchResults.slice(0, 8);
-    return searchResults
-      .filter((item) =>
-        [item.id, item.clientName, item.applicationVehicle, item.country].some((value) =>
-          String(value ?? '').toLowerCase().includes(q)
-        )
-      )
-      .slice(0, 8);
-  }, [paletteQuery, searchResults]);
+    return searchResults.slice(0, 8);
+  }, [searchResults]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -407,7 +399,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
               ref={searchInputRef}
               value={globalSearchQuery}
               onChange={(event) => setGlobalSearchQuery(event.target.value)}
-              placeholder="Search request ID / client / country..."
+              placeholder="Search all request fields..."
               className="h-8 pl-9 pr-20"
             />
             <button

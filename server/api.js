@@ -158,6 +158,14 @@ const humanizeStatus = (status) =>
     .replace(/\s+/g, " ")
     .replace(/\b\w/g, (m) => m.toUpperCase());
 
+const normalizeSearchToken = (value) =>
+  String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+
 const buildRequestLink = (baseUrl, requestId) => {
   const base = String(baseUrl ?? "").trim().replace(/\/+$/, "");
   if (!base) return "";
@@ -690,6 +698,45 @@ const EMAIL_STRINGS_BY_LANG = {
       closed: "\u5df2\u5173\u95ed",
     },
   },
+};
+
+const STATUS_SEARCH_ALIASES = (() => {
+  const map = new Map();
+
+  const addAlias = (statusCode, alias) => {
+    const code = String(statusCode ?? "").trim();
+    const token = normalizeSearchToken(alias);
+    if (!code || !token) return;
+    if (!map.has(code)) map.set(code, new Set());
+    map.get(code).add(token);
+  };
+
+  for (const bucket of Object.values(EMAIL_STRINGS_BY_LANG)) {
+    const statusLabels = bucket?.statusLabels && typeof bucket.statusLabels === "object" ? bucket.statusLabels : {};
+    for (const [statusCode, label] of Object.entries(statusLabels)) {
+      addAlias(statusCode, statusCode);
+      addAlias(statusCode, humanizeStatus(statusCode));
+      addAlias(statusCode, label);
+    }
+  }
+
+  return map;
+})();
+
+const resolveStatusSearchCodes = (query) => {
+  const normalizedQuery = normalizeSearchToken(query);
+  if (!normalizedQuery) return [];
+
+  const matches = [];
+  for (const [statusCode, aliases] of STATUS_SEARCH_ALIASES.entries()) {
+    for (const alias of aliases) {
+      if (alias.includes(normalizedQuery)) {
+        matches.push(statusCode);
+        break;
+      }
+    }
+  }
+  return matches;
 };
 
 const getEmailStrings = (lang) => {
@@ -2763,6 +2810,7 @@ export const apiRouter = (() => {
 
       const pool = await getPool();
       const like = `%${q.replace(/\s+/g, " ")}%`;
+      const statusMatches = resolveStatusSearchCodes(q);
       const { rows } = await pool.query(
         `
         SELECT
@@ -2777,13 +2825,16 @@ export const apiRouter = (() => {
         FROM requests
         WHERE
           id ILIKE $1
+          OR COALESCE(status, '') ILIKE $1
+          OR COALESCE(data::text, '') ILIKE $1
           OR COALESCE(data->>'clientName', '') ILIKE $1
           OR COALESCE(data->>'applicationVehicle', '') ILIKE $1
           OR COALESCE(data->>'country', '') ILIKE $1
+          OR (cardinality($2::text[]) > 0 AND status = ANY($2::text[]))
         ORDER BY updated_at DESC
-        LIMIT $2
+        LIMIT $3
         `,
-        [like, limit]
+        [like, statusMatches, limit]
       );
 
       res.json(
