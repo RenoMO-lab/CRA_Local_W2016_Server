@@ -254,6 +254,10 @@ const RequestForm: React.FC = () => {
   const designResultRequestIdRef = useRef<string | null>(null);
   const duplicatePrefilledRef = useRef<string | null>(null);
   const autosaveInFlightRef = useRef(false);
+  const draftAnchorIdRef = useRef<string | null>(null);
+  const draftCreatePromiseRef = useRef<Promise<CustomerRequest> | null>(null);
+  const latestPendingPayloadRef = useRef<Partial<CustomerRequest> | null>(null);
+  const activeCreateSessionRef = useRef<string | null>(null);
   const [hasPendingAutosave, setHasPendingAutosave] = useState(false);
 
   useEffect(() => {
@@ -293,6 +297,41 @@ const RequestForm: React.FC = () => {
       cancelled = true;
     };
   }, [duplicateOfId, getRequestByIdAsync, isCreateMode, setSaveState, t.request.error, t.request.requestNotFoundDesc, toast]);
+
+  useEffect(() => {
+    if (existingRequest?.id) {
+      draftAnchorIdRef.current = existingRequest.id;
+      return;
+    }
+
+    if (!isCreateMode) {
+      draftAnchorIdRef.current = null;
+      draftCreatePromiseRef.current = null;
+      latestPendingPayloadRef.current = null;
+    }
+  }, [existingRequest?.id, isCreateMode]);
+
+  useEffect(() => {
+    if (!isCreateMode) {
+      activeCreateSessionRef.current = null;
+      return;
+    }
+
+    const sessionKey = `${location.pathname}|${location.search}`;
+    if (activeCreateSessionRef.current === sessionKey) return;
+    activeCreateSessionRef.current = sessionKey;
+    draftAnchorIdRef.current = null;
+    draftCreatePromiseRef.current = null;
+    latestPendingPayloadRef.current = null;
+  }, [isCreateMode, location.pathname, location.search]);
+
+  useEffect(() => {
+    return () => {
+      draftAnchorIdRef.current = null;
+      draftCreatePromiseRef.current = null;
+      latestPendingPayloadRef.current = null;
+    };
+  }, []);
 
   const openDesignPreview = (attachment: Attachment) => {
     setDesignPreviewAttachment(attachment);
@@ -569,31 +608,39 @@ const RequestForm: React.FC = () => {
       setSaveState('saving');
 
       try {
-        if (isCreateMode) {
-          const created = await createRequest(
-            prepareRequestPayload({
-              ...(formData as Partial<CustomerRequest>),
-              status: 'draft',
-            }) as any
-          );
-          if (cancelled) return;
-          setSaveState('saved');
-          navigate(`/requests/${created.id}/edit`, { replace: true });
-          return;
-        }
+        const draftPayload = prepareRequestPayload({
+          ...(formData as Partial<CustomerRequest>),
+          status: 'draft',
+        });
+        latestPendingPayloadRef.current = draftPayload;
 
-        if (existingRequest) {
-          const updatesWithoutStatus: Partial<CustomerRequest> = {
-            ...prepareRequestPayload(formData),
-          };
-          delete updatesWithoutStatus.status;
-          await updateRequest(existingRequest.id, {
-            ...updatesWithoutStatus,
+        const targetId = getWritableRequestId();
+        if (targetId) {
+          await updateRequest(targetId, {
+            ...withoutStatus(draftPayload),
             historyEvent: 'edited',
           });
           if (cancelled) return;
           setSaveState('saved');
+          return;
         }
+
+        const createSnapshot = JSON.stringify(draftPayload);
+        const createdId = await ensureDraftAnchor(formData as Partial<CustomerRequest>);
+        if (cancelled) return;
+
+        const latestPayload = latestPendingPayloadRef.current ?? draftPayload;
+        if (JSON.stringify(latestPayload) !== createSnapshot) {
+          await updateRequest(createdId, {
+            ...withoutStatus(latestPayload),
+            historyEvent: 'edited',
+          });
+          if (cancelled) return;
+        }
+
+        setSaveState('saved');
+        navigate(`/requests/${createdId}/edit`, { replace: true });
+        return;
       } catch (error) {
         if (cancelled) return;
         setSaveState('error', String((error as Error)?.message ?? 'Autosave failed'));
@@ -613,7 +660,7 @@ const RequestForm: React.FC = () => {
     };
   }, [
     createRequest,
-    existingRequest,
+    existingRequest?.id,
     formData,
     hasPendingAutosave,
     isCreateMode,
@@ -967,42 +1014,72 @@ const RequestForm: React.FC = () => {
     };
   };
 
+  const withoutStatus = (payload: Partial<CustomerRequest>): Partial<CustomerRequest> => {
+    const updates = { ...payload };
+    delete updates.status;
+    return updates;
+  };
+
+  const getWritableRequestId = () => existingRequest?.id ?? draftAnchorIdRef.current ?? null;
+
+  const ensureDraftAnchor = async (baseData: Partial<CustomerRequest>) => {
+    const existingId = getWritableRequestId();
+    if (existingId) return existingId;
+
+    if (!draftCreatePromiseRef.current) {
+      const createPayload = prepareRequestPayload({
+        ...baseData,
+        status: 'draft',
+      });
+      latestPendingPayloadRef.current = createPayload;
+      draftCreatePromiseRef.current = createRequest(createPayload as any)
+        .then((created) => {
+          draftAnchorIdRef.current = created.id;
+          return created;
+        })
+        .finally(() => {
+          draftCreatePromiseRef.current = null;
+        });
+    }
+
+    const created = await draftCreatePromiseRef.current;
+    draftAnchorIdRef.current = created.id;
+    return created.id;
+  };
+
   const handleSaveDraft = async () => {
     setIsSaving(true);
     setSaveState('saving');
     
     try {
       await new Promise(resolve => setTimeout(resolve, 500));
-      
-      if (isCreateMode) {
-        const newRequest = await createRequest(
-          prepareRequestPayload({
-            ...formData as any,
-            status: 'draft',
-          }) as any
-        );
-        toast({
-          title: t.request.draftSaved,
-          description: `${t.dashboard.requests} ${newRequest.id} ${t.request.draftSavedDesc}`,
-        });
-        setHasPendingAutosave(false);
-        setSaveState('saved');
-        navigate(`/requests/${newRequest.id}/edit`);
-      } else if (existingRequest) {
-        const updatesWithoutStatus: Partial<CustomerRequest> = {
-          ...prepareRequestPayload(formData),
-        };
-        delete updatesWithoutStatus.status;
-        await updateRequest(existingRequest.id, {
-          ...updatesWithoutStatus,
+
+      const draftPayload = prepareRequestPayload({
+        ...formData as any,
+        status: 'draft',
+      });
+      latestPendingPayloadRef.current = draftPayload;
+      const createSnapshot = JSON.stringify(draftPayload);
+      const hadWritableId = Boolean(getWritableRequestId());
+
+      const targetId = getWritableRequestId() ?? await ensureDraftAnchor(formData as Partial<CustomerRequest>);
+      const latestPayload = latestPendingPayloadRef.current ?? draftPayload;
+      if (JSON.stringify(latestPayload) !== createSnapshot || hadWritableId) {
+        await updateRequest(targetId, {
+          ...withoutStatus(latestPayload),
           historyEvent: 'edited',
         });
-        toast({
-          title: t.request.draftSaved,
-          description: t.request.draftSavedDesc,
-        });
-        setHasPendingAutosave(false);
-        setSaveState('saved');
+      }
+
+      toast({
+        title: t.request.draftSaved,
+        description: `${t.dashboard.requests} ${targetId} ${t.request.draftSavedDesc}`,
+      });
+      setHasPendingAutosave(false);
+      setSaveState('saved');
+
+      if (isCreateMode) {
+        navigate(`/requests/${targetId}/edit`);
       }
     } catch (error) {
       setSaveState('error', String((error as Error)?.message ?? 'Failed to save draft'));
@@ -1045,15 +1122,19 @@ const RequestForm: React.FC = () => {
       if (isCreateMode) {
         // Show confirmation promptly to avoid a stuck UI if the response is slow.
         showSubmitConfirmation();
-        const newRequest = await createRequest(
+        const writableId = getWritableRequestId() ?? await ensureDraftAnchor(formData as Partial<CustomerRequest>);
+        await updateRequest(
+          writableId,
           prepareRequestPayload({
             ...formData as any,
             status: 'submitted',
-          }) as any
+          })
         );
+        await updateStatus(writableId, 'submitted');
+        setFormData((prev) => ({ ...prev, status: 'submitted' }));
         toast({
           title: t.request.requestSubmitted,
-          description: `${t.dashboard.requests} ${newRequest.id} ${t.request.requestSubmittedDesc}`,
+          description: `${t.dashboard.requests} ${writableId} ${t.request.requestSubmittedDesc}`,
         });
         setHasPendingAutosave(false);
         setSaveState('saved');
