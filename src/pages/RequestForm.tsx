@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRequests } from '@/context/RequestContext';
 import { useAdminSettings } from '@/context/AdminSettingsContext';
 import { useLanguage } from '@/context/LanguageContext';
+import { useAppShell } from '@/context/AppShellContext';
 import { useToast } from '@/hooks/use-toast';
 import { Attachment, CustomerRequest, FormMode, RequestStatus, RequestProduct, SalesPaymentTerm } from '@/types';
 import SectionGeneralInfo from '@/components/request/SectionGeneralInfo';
@@ -150,13 +151,47 @@ const getInitialFormData = (): Partial<CustomerRequest> => ({
   environmentOther: '',
   products: [getInitialProduct()],
   status: 'draft',
+  priority: 'normal',
 });
+
+const buildDuplicateDraftFromRequest = (source: CustomerRequest): Partial<CustomerRequest> => {
+  const duplicated: Partial<CustomerRequest> = {
+    ...source,
+    status: 'draft',
+    priority: source.priority ?? 'normal',
+    products: normalizeProducts(source).map((product) => ({
+      ...product,
+      attachments: [],
+    })),
+    attachments: [],
+    designResultAttachments: [],
+    costingAttachments: [],
+    salesAttachments: [],
+    history: [],
+    designNotes: '',
+    designResultComments: '',
+    clarificationComment: '',
+    clarificationResponse: '',
+    costingNotes: '',
+    acceptanceMessage: '',
+    salesFeedbackComment: '',
+  };
+
+  delete (duplicated as any).id;
+  delete (duplicated as any).createdAt;
+  delete (duplicated as any).updatedAt;
+  delete (duplicated as any).createdBy;
+  delete (duplicated as any).createdByName;
+
+  return duplicated;
+};
 
 const RequestForm: React.FC = () => {
   const { id } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { setSaveState } = useAppShell();
   const { getRequestById, getRequestByIdAsync, createRequest, updateRequest, updateStatus, notifyRequest, isLoading } = useRequests();
   const { t } = useLanguage();
   const {
@@ -184,6 +219,10 @@ const RequestForm: React.FC = () => {
   const isEditMode = location.pathname.includes('/edit');
   const isViewMode = id && !isEditMode;
   const isCreateMode = !id;
+  const duplicateOfId = useMemo(() => {
+    const raw = new URLSearchParams(location.search).get('duplicateOf');
+    return String(raw ?? '').trim();
+  }, [location.search]);
 
   const existingRequest = id ? getRequestById(id) : undefined;
 
@@ -213,6 +252,47 @@ const RequestForm: React.FC = () => {
   const [isDesignPreviewOpen, setIsDesignPreviewOpen] = useState(false);
   const submitRedirectRef = useRef<number | null>(null);
   const designResultRequestIdRef = useRef<string | null>(null);
+  const duplicatePrefilledRef = useRef<string | null>(null);
+  const autosaveInFlightRef = useRef(false);
+  const [hasPendingAutosave, setHasPendingAutosave] = useState(false);
+
+  useEffect(() => {
+    if (!isCreateMode) {
+      duplicatePrefilledRef.current = null;
+      return;
+    }
+
+    if (!duplicateOfId) {
+      duplicatePrefilledRef.current = null;
+      return;
+    }
+
+    if (duplicatePrefilledRef.current === duplicateOfId) return;
+    duplicatePrefilledRef.current = duplicateOfId;
+
+    let cancelled = false;
+    void (async () => {
+      const source = await getRequestByIdAsync(duplicateOfId);
+      if (!source || cancelled) {
+        if (!cancelled) {
+          toast({
+            title: t.request.error,
+            description: t.request.requestNotFoundDesc,
+            variant: 'destructive',
+          });
+        }
+        return;
+      }
+      setFormData(buildDuplicateDraftFromRequest(source));
+      setErrors({});
+      setHasPendingAutosave(false);
+      setSaveState('idle');
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [duplicateOfId, getRequestByIdAsync, isCreateMode, setSaveState, t.request.error, t.request.requestNotFoundDesc, toast]);
 
   const openDesignPreview = (attachment: Attachment) => {
     setDesignPreviewAttachment(attachment);
@@ -231,6 +311,8 @@ const RequestForm: React.FC = () => {
         setFormData(getInitialFormData());
         setLoadedRequestId(null);
         setLoadedRequestVersion(null);
+        setHasPendingAutosave(false);
+        setSaveState('idle');
       }
       return;
     }
@@ -249,8 +331,10 @@ const RequestForm: React.FC = () => {
       setFormData({ ...existingRequest, products: normalizeProducts(existingRequest) });
       setLoadedRequestId(existingRequest.id);
       setLoadedRequestVersion(versionKey);
+      setHasPendingAutosave(false);
+      setSaveState('idle');
     }
-  }, [existingRequest, loadedRequestId, loadedRequestVersion, isViewMode]);
+  }, [existingRequest, loadedRequestId, loadedRequestVersion, isViewMode, setSaveState]);
 
   useEffect(() => {
     if (!existingRequest) {
@@ -472,6 +556,80 @@ const RequestForm: React.FC = () => {
     setIsDesignPanelCollapsed(shouldCollapseDesignPanel);
   }, [shouldCollapseDesignPanel, existingRequest?.id]);
 
+  useEffect(() => {
+    if (!hasPendingAutosave) return;
+    if (!isEditable || isReadOnly) return;
+    if (isSaving || isSubmitting || isUpdating) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      if (autosaveInFlightRef.current || cancelled) return;
+      autosaveInFlightRef.current = true;
+      setHasPendingAutosave(false);
+      setSaveState('saving');
+
+      try {
+        if (isCreateMode) {
+          const created = await createRequest(
+            prepareRequestPayload({
+              ...(formData as Partial<CustomerRequest>),
+              status: 'draft',
+            }) as any
+          );
+          if (cancelled) return;
+          setSaveState('saved');
+          navigate(`/requests/${created.id}/edit`, { replace: true });
+          return;
+        }
+
+        if (existingRequest) {
+          const updatesWithoutStatus: Partial<CustomerRequest> = {
+            ...prepareRequestPayload(formData),
+          };
+          delete updatesWithoutStatus.status;
+          await updateRequest(existingRequest.id, {
+            ...updatesWithoutStatus,
+            historyEvent: 'edited',
+          });
+          if (cancelled) return;
+          setSaveState('saved');
+        }
+      } catch (error) {
+        if (cancelled) return;
+        setSaveState('error', String((error as Error)?.message ?? 'Autosave failed'));
+        toast({
+          title: t.request.error,
+          description: t.request.failedSaveDraft,
+          variant: 'destructive',
+        });
+      } finally {
+        autosaveInFlightRef.current = false;
+      }
+    }, isCreateMode ? 850 : 1100);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    createRequest,
+    existingRequest,
+    formData,
+    hasPendingAutosave,
+    isCreateMode,
+    isEditable,
+    isReadOnly,
+    isSaving,
+    isSubmitting,
+    isUpdating,
+    navigate,
+    setSaveState,
+    t.request.error,
+    t.request.failedSaveDraft,
+    toast,
+    updateRequest,
+  ]);
+
   // If we have an ID but no request found, redirect to dashboard
   if (id && isLoading && !existingRequest) {
     return (
@@ -511,8 +669,14 @@ const RequestForm: React.FC = () => {
     );
   }
 
+  const markFormDirty = () => {
+    if (!isEditable || isReadOnly) return;
+    setHasPendingAutosave(true);
+  };
+
   const handleChange = (field: keyof CustomerRequest, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    markFormDirty();
     // Clear error when field is changed
     if (errors[field]) {
       setErrors(prev => {
@@ -532,6 +696,7 @@ const RequestForm: React.FC = () => {
       products[index] = { ...products[index], [field]: value };
       return { ...prev, products };
     });
+    markFormDirty();
 
     const errorKey = `product_${index}_${String(field)}`;
     if (errors[errorKey]) {
@@ -551,6 +716,7 @@ const RequestForm: React.FC = () => {
       ...prev,
       products: [...(prev.products ?? []), nextProduct],
     }));
+    markFormDirty();
     setCurrentProductIndex(products.length);
   };
 
@@ -562,6 +728,7 @@ const RequestForm: React.FC = () => {
       products.splice(index, 1);
       return { ...prev, products: products.length ? products : [getInitialProduct()] };
     });
+    markFormDirty();
     setCurrentProductIndex((prevIndex) => {
       if (prevIndex > index) return prevIndex - 1;
       if (prevIndex === index) return Math.min(index, nextLength - 1);
@@ -802,6 +969,7 @@ const RequestForm: React.FC = () => {
 
   const handleSaveDraft = async () => {
     setIsSaving(true);
+    setSaveState('saving');
     
     try {
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -817,6 +985,8 @@ const RequestForm: React.FC = () => {
           title: t.request.draftSaved,
           description: `${t.dashboard.requests} ${newRequest.id} ${t.request.draftSavedDesc}`,
         });
+        setHasPendingAutosave(false);
+        setSaveState('saved');
         navigate(`/requests/${newRequest.id}/edit`);
       } else if (existingRequest) {
         const updatesWithoutStatus: Partial<CustomerRequest> = {
@@ -831,8 +1001,11 @@ const RequestForm: React.FC = () => {
           title: t.request.draftSaved,
           description: t.request.draftSavedDesc,
         });
+        setHasPendingAutosave(false);
+        setSaveState('saved');
       }
     } catch (error) {
+      setSaveState('error', String((error as Error)?.message ?? 'Failed to save draft'));
       toast({
         title: t.request.error,
         description: t.request.failedSaveDraft,
@@ -864,6 +1037,7 @@ const RequestForm: React.FC = () => {
     }
 
     setIsSubmitting(true);
+    setSaveState('saving');
     
     try {
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -881,6 +1055,8 @@ const RequestForm: React.FC = () => {
           title: t.request.requestSubmitted,
           description: `${t.dashboard.requests} ${newRequest.id} ${t.request.requestSubmittedDesc}`,
         });
+        setHasPendingAutosave(false);
+        setSaveState('saved');
       } else if (existingRequest) {
         const isResubmission =
           existingRequest.status === 'draft' || existingRequest.status === 'clarification_needed';
@@ -893,6 +1069,8 @@ const RequestForm: React.FC = () => {
             title: t.request.requestSubmitted,
             description: t.request.requestSubmittedDesc,
           });
+          setHasPendingAutosave(false);
+          setSaveState('saved');
           showSubmitConfirmation();
         } else {
           const updatesWithoutStatus: Partial<CustomerRequest> = {
@@ -907,6 +1085,8 @@ const RequestForm: React.FC = () => {
             title: t.request.statusUpdated,
             description: t.request.draftSavedDesc,
           });
+          setHasPendingAutosave(false);
+          setSaveState('saved');
         }
       }
     } catch (error) {
@@ -922,6 +1102,7 @@ const RequestForm: React.FC = () => {
         description: `${t.request.failedSubmit}${error instanceof Error && error.message ? ` (${error.message})` : ''}`,
         variant: 'destructive',
       });
+      setSaveState('error', String((error as Error)?.message ?? 'Failed to submit request'));
     } finally {
       setIsSubmitting(false);
     }

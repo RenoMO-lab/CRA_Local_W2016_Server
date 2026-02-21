@@ -15,6 +15,10 @@ type RequestNotifyPayload = {
 interface RequestContextType {
   requests: CustomerRequest[];
   isLoading: boolean;
+  lastSyncAt: Date | null;
+  syncState: 'idle' | 'refreshing' | 'error';
+  syncError: string | null;
+  refreshRequests: () => Promise<void>;
   getRequestById: (id: string) => CustomerRequest | undefined;
   getRequestByIdAsync: (id: string) => Promise<CustomerRequest | undefined>;
   createRequest: (request: Omit<CustomerRequest, 'id' | 'createdAt' | 'updatedAt' | 'history' | 'createdBy' | 'createdByName'>) => Promise<CustomerRequest>;
@@ -122,6 +126,10 @@ const reviveRequest = (r: any): CustomerRequest => {
 
   return {
     ...r,
+    priority:
+      r?.priority === 'low' || r?.priority === 'normal' || r?.priority === 'high' || r?.priority === 'urgent'
+        ? r.priority
+        : 'normal',
     products: normalizedProducts,
     createdAt: r?.createdAt ? new Date(r.createdAt) : new Date(),
     updatedAt: r?.updatedAt ? new Date(r.updatedAt) : new Date(),
@@ -194,9 +202,14 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const { user } = useAuth();
   const [requests, setRequests] = useState<StoredRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
+  const [syncState, setSyncState] = useState<'idle' | 'refreshing' | 'error'>('idle');
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const refreshRequests = useCallback(async () => {
     setIsLoading(true);
+    setSyncState('refreshing');
+    setSyncError(null);
     try {
       // Use a lightweight endpoint for dashboard polling; fetch full request only on-demand.
       const data = await fetchJson<CustomerRequest[]>(`${API_BASE}/summary`);
@@ -227,9 +240,13 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const extras = prev.filter((r) => isFullRequest(r) && !summaryIds.has(r.id));
         return extras.length ? [...merged, ...extras] : merged;
       });
+      setLastSyncAt(new Date());
+      setSyncState('idle');
     } catch (e) {
       console.error('Failed to load requests:', e);
       setRequests([]);
+      setSyncError(String((e as any)?.message ?? e));
+      setSyncState('error');
     } finally {
       setIsLoading(false);
     }
@@ -309,6 +326,9 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const revived = markFullRequest(reviveRequest(created));
     setRequests(prev => [...prev, revived]);
+    setLastSyncAt(new Date());
+    setSyncError(null);
+    setSyncState('idle');
     return revived;
   }, [user]);
 
@@ -326,6 +346,9 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const revived = markFullRequest(reviveRequest(updated));
     setRequests(prev => prev.map(r => (r.id === id ? revived : r)));
+    setLastSyncAt(new Date());
+    setSyncError(null);
+    setSyncState('idle');
   }, [user]);
 
   const updateStatus = useCallback(async (id: string, status: RequestStatus, comment?: string) => {
@@ -342,6 +365,9 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const revived = markFullRequest(reviveRequest(updated));
     setRequests(prev => prev.map(r => (r.id === id ? revived : r)));
+    setLastSyncAt(new Date());
+    setSyncError(null);
+    setSyncState('idle');
   }, [user]);
 
   const notifyRequest = useCallback(async (id: string, payload?: RequestNotifyPayload) => {
@@ -359,12 +385,19 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const deleteRequest = useCallback(async (id: string) => {
     await fetch(`${API_BASE}/${id}`, { method: 'DELETE' });
     setRequests(prev => prev.filter(r => r.id !== id));
+    setLastSyncAt(new Date());
+    setSyncError(null);
+    setSyncState('idle');
   }, []);
 
   return (
     <RequestContext.Provider value={{
       requests,
       isLoading,
+      lastSyncAt,
+      syncState,
+      syncError,
+      refreshRequests,
       getRequestById,
       getRequestByIdAsync,
       createRequest,

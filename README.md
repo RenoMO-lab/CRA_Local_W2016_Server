@@ -47,6 +47,7 @@ Environment variables:
 HOST=0.0.0.0
 PORT=3000
 VITE_API_PROXY=http://localhost:3000
+APP_ENV_LABEL=Test
 # Option A (recommended)
 DATABASE_URL=postgres://cra_app:password@localhost:5432/cra_local
 
@@ -69,6 +70,7 @@ BOOTSTRAP_ADMIN_PASSWORD=123#56Rt9
 
 Notes:
 - Do not commit `.env`.
+- `APP_ENV_LABEL` is optional. If omitted, UI falls back to `Production` when `NODE_ENV=production`, otherwise `Test`.
 - `DB_INSTANCE` is optional for named instances.
 - Use `DB_TRUST_CERT=true` for local dev only.
 

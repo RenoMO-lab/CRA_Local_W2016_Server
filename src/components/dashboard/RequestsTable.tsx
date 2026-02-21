@@ -1,18 +1,32 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { Eye, Edit, Trash2, MoreHorizontal, Download } from 'lucide-react';
-import { CustomerRequest, UserRole, RequestProduct, AXLE_LOCATIONS, ARTICULATION_TYPES, CONFIGURATION_TYPES } from '@/types';
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Copy,
+  Download,
+  Edit,
+  Eye,
+  MoreHorizontal,
+  Trash2,
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+import {
+  CustomerRequest,
+  UserRole,
+  RequestProduct,
+  AXLE_LOCATIONS,
+  ARTICULATION_TYPES,
+  CONFIGURATION_TYPES,
+  RequestPriority,
+} from '@/types';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
 import RequestReviewDrawer from '@/components/dashboard/RequestReviewDrawer';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,14 +34,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import {
   AlertDialog,
@@ -39,19 +46,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useLanguage } from '@/context/LanguageContext';
 import { useRequests } from '@/context/RequestContext';
+import { useAppShell } from '@/context/AppShellContext';
 import { Language } from '@/i18n/translations';
-import { toast } from 'sonner';
 
 interface RequestsTableProps {
   requests: CustomerRequest[];
@@ -59,16 +59,110 @@ interface RequestsTableProps {
   onDelete?: (id: string) => void;
 }
 
+type SortDirection = 'asc' | 'desc';
+type SortKey =
+  | 'id'
+  | 'priority'
+  | 'status'
+  | 'clientName'
+  | 'applicationVehicle'
+  | 'country'
+  | 'createdByName'
+  | 'createdAt';
+
+interface SortRule {
+  key: SortKey;
+  direction: SortDirection;
+}
+
+interface RowContextMenuState {
+  x: number;
+  y: number;
+  request: CustomerRequest;
+}
+
+const PRIORITY_OPTIONS: Array<{ value: RequestPriority; label: string }> = [
+  { value: 'low', label: 'Low' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'high', label: 'High' },
+  { value: 'urgent', label: 'Urgent' },
+];
+
+const PRIORITY_WEIGHT: Record<RequestPriority, number> = {
+  low: 1,
+  normal: 2,
+  high: 3,
+  urgent: 4,
+};
+
+const toPriority = (value?: string): RequestPriority => {
+  if (value === 'low' || value === 'normal' || value === 'high' || value === 'urgent') return value;
+  return 'normal';
+};
+
+const nextSortDirection = (direction?: SortDirection) => {
+  if (!direction) return 'asc';
+  if (direction === 'asc') return 'desc';
+  return null;
+};
+
+const downloadTextFile = (filename: string, content: string, mimeType: string) => {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
+
+const buildRowCsv = (request: CustomerRequest) => {
+  const header = ['id', 'priority', 'status', 'clientName', 'applicationVehicle', 'country', 'createdByName', 'createdAt', 'updatedAt'];
+  const values = [
+    request.id,
+    toPriority(request.priority),
+    request.status,
+    request.clientName,
+    request.applicationVehicle,
+    request.country,
+    request.createdByName,
+    request.createdAt instanceof Date ? request.createdAt.toISOString() : String(request.createdAt ?? ''),
+    request.updatedAt instanceof Date ? request.updatedAt.toISOString() : String(request.updatedAt ?? ''),
+  ];
+  const escapeCsv = (raw: unknown) => {
+    const text = String(raw ?? '');
+    if (!text.includes(',') && !text.includes('"') && !text.includes('\n')) return text;
+    return `"${text.replace(/"/g, '""')}"`;
+  };
+  return `${header.join(',')}\n${values.map(escapeCsv).join(',')}`;
+};
+
+const compareString = (left: string, right: string, direction: SortDirection) => {
+  const result = left.localeCompare(right, undefined, { sensitivity: 'base' });
+  return direction === 'asc' ? result : -result;
+};
+
+const compareNumber = (left: number, right: number, direction: SortDirection) => {
+  const result = left - right;
+  return direction === 'asc' ? result : -result;
+};
+
 const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDelete }) => {
   const navigate = useNavigate();
   const { t, translateOption, language } = useLanguage();
-  const { getRequestByIdAsync } = useRequests();
+  const { density, setSaveState } = useAppShell();
+  const { getRequestByIdAsync, updateRequest } = useRequests();
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pdfLanguage, setPdfLanguage] = useState<Language>(language);
   const [pendingPdfRequest, setPendingPdfRequest] = useState<CustomerRequest | null>(null);
   const [isPdfDialogOpen, setIsPdfDialogOpen] = useState(false);
   const [reviewRequestId, setReviewRequestId] = useState<string | null>(null);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const [sortRules, setSortRules] = useState<SortRule[]>([]);
+  const [rowContextMenu, setRowContextMenu] = useState<RowContextMenuState | null>(null);
+  const quickReviewTimerRef = useRef<number | null>(null);
 
   const getPrimaryProduct = (request: CustomerRequest): Partial<RequestProduct> => {
     if (request.products && request.products.length) {
@@ -87,51 +181,45 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
   const getProductTypeLabel = (product: Partial<RequestProduct>) => {
     const parts: string[] = [];
     const excludedValues = ['n/a', 'na', '-', ''];
-    
+
     const addPart = (value: string | undefined) => {
       if (value && !excludedValues.includes(value.toLowerCase().trim())) {
         parts.push(translateOption(value));
       }
     };
-    
-    // Axle Location
+
     if (product.axleLocation) {
       if (product.axleLocation === 'other' && product.axleLocationOther) {
         addPart(product.axleLocationOther);
       } else {
-        const found = AXLE_LOCATIONS.find(p => p.value === product.axleLocation);
+        const found = AXLE_LOCATIONS.find((item) => item.value === product.axleLocation);
         addPart(found ? found.label : String(product.axleLocation));
       }
     }
-    
-    // Articulation Type
+
     if (product.articulationType) {
       if (product.articulationType === 'other' && product.articulationTypeOther) {
         addPart(product.articulationTypeOther);
       } else {
-        const found = ARTICULATION_TYPES.find(p => p.value === product.articulationType);
+        const found = ARTICULATION_TYPES.find((item) => item.value === product.articulationType);
         addPart(found ? found.label : String(product.articulationType));
       }
     }
-    
-    // Configuration Type
+
     if (product.configurationType) {
       if (product.configurationType === 'other' && product.configurationTypeOther) {
         addPart(product.configurationTypeOther);
       } else {
-        const found = CONFIGURATION_TYPES.find(p => p.value === product.configurationType);
+        const found = CONFIGURATION_TYPES.find((item) => item.value === product.configurationType);
         addPart(found ? found.label : String(product.configurationType));
       }
     }
-    
+
     return parts.length > 0 ? parts.join(' / ') : '-';
   };
 
   const canEditRoute = userRole === 'admin';
-
-  const canDelete = (request: CustomerRequest) => {
-    return userRole === 'admin';
-  };
+  const canDelete = () => userRole === 'admin';
 
   const handleQuickReview = (id: string) => {
     setReviewRequestId(id);
@@ -146,9 +234,33 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
     navigate(`/requests/${id}/edit`);
   };
 
+  const handleDuplicate = (id: string) => {
+    navigate(`/requests/new?duplicateOf=${encodeURIComponent(id)}`);
+  };
+
+  const handleExportRow = (request: CustomerRequest) => {
+    const csv = buildRowCsv(request);
+    downloadTextFile(`cra-request-${request.id}.csv`, csv, 'text/csv;charset=utf-8');
+    toast.success(`Exported ${request.id}`);
+  };
+
+  const handleCopyId = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(id);
+      toast.success(`Copied ${id}`);
+    } catch {
+      toast.error('Copy failed');
+    }
+  };
+
+  const handleOpenPdfDialog = (request: CustomerRequest) => {
+    setPendingPdfRequest(request);
+    setPdfLanguage(language);
+    setIsPdfDialogOpen(true);
+  };
+
   const handleDownloadPDF = async (request: CustomerRequest, lang: Language) => {
     try {
-      // Dashboard rows come from `/api/requests/summary` (lightweight). Fetch full details for PDF.
       const fullRequest = await getRequestByIdAsync(request.id);
       const { generateRequestPDF } = await import('@/utils/pdfExport');
       await generateRequestPDF(fullRequest ?? request, lang);
@@ -157,12 +269,6 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
       console.error('Failed to generate PDF:', error);
       toast.error(t.common.pdfDownloadFailed);
     }
-  };
-
-  const handleOpenPdfDialog = (request: CustomerRequest) => {
-    setPendingPdfRequest(request);
-    setPdfLanguage(language);
-    setIsPdfDialogOpen(true);
   };
 
   const handleConfirmPdfDownload = async () => {
@@ -178,6 +284,148 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
     setPendingDeleteId(null);
   };
 
+  const handlePriorityChange = async (requestId: string, priority: RequestPriority) => {
+    try {
+      setSaveState('saving');
+      await updateRequest(requestId, { priority, historyEvent: 'edited' });
+      setSaveState('saved');
+      toast.success('Priority updated');
+    } catch (error) {
+      setSaveState('error', String((error as Error)?.message ?? 'Failed to save priority'));
+      toast.error('Failed to update priority');
+    }
+  };
+
+  const sortedRequests = useMemo(() => {
+    if (!sortRules.length) return requests;
+    const sorted = [...requests];
+    sorted.sort((left, right) => {
+      for (const rule of sortRules) {
+        let result = 0;
+        switch (rule.key) {
+          case 'id':
+            result = compareString(left.id, right.id, rule.direction);
+            break;
+          case 'priority':
+            result = compareNumber(PRIORITY_WEIGHT[toPriority(left.priority)], PRIORITY_WEIGHT[toPriority(right.priority)], rule.direction);
+            break;
+          case 'status':
+            result = compareString(left.status, right.status, rule.direction);
+            break;
+          case 'clientName':
+            result = compareString(left.clientName ?? '', right.clientName ?? '', rule.direction);
+            break;
+          case 'applicationVehicle':
+            result = compareString(left.applicationVehicle ?? '', right.applicationVehicle ?? '', rule.direction);
+            break;
+          case 'country':
+            result = compareString(left.country ?? '', right.country ?? '', rule.direction);
+            break;
+          case 'createdByName':
+            result = compareString(left.createdByName ?? '', right.createdByName ?? '', rule.direction);
+            break;
+          case 'createdAt':
+            result = compareNumber(new Date(left.createdAt).getTime(), new Date(right.createdAt).getTime(), rule.direction);
+            break;
+          default:
+            result = 0;
+        }
+        if (result !== 0) return result;
+      }
+      return 0;
+    });
+    return sorted;
+  }, [requests, sortRules]);
+
+  const updateSort = (key: SortKey, append: boolean) => {
+    setSortRules((previous) => {
+      const existing = previous.find((rule) => rule.key === key);
+      const nextDirection = nextSortDirection(existing?.direction);
+      if (!append) {
+        if (!nextDirection) return [];
+        return [{ key, direction: nextDirection }];
+      }
+      const withoutCurrent = previous.filter((rule) => rule.key !== key);
+      if (!nextDirection) return withoutCurrent;
+      return [...withoutCurrent, { key, direction: nextDirection }];
+    });
+  };
+
+  const sortIcon = (key: SortKey) => {
+    const current = sortRules.find((rule) => rule.key === key);
+    if (!current) return <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />;
+    return current.direction === 'asc' ? (
+      <ArrowUp className="h-3.5 w-3.5 text-primary" />
+    ) : (
+      <ArrowDown className="h-3.5 w-3.5 text-primary" />
+    );
+  };
+
+  const sortOrderBadge = (key: SortKey) => {
+    const index = sortRules.findIndex((rule) => rule.key === key);
+    if (index < 0 || sortRules.length < 2) return null;
+    return <span className="text-[10px] text-primary border border-primary/30 rounded px-1">{index + 1}</span>;
+  };
+
+  const openRowContextMenu = (event: React.MouseEvent, request: CustomerRequest) => {
+    event.preventDefault();
+    setRowContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      request,
+    });
+  };
+
+  useEffect(() => {
+    if (!rowContextMenu) return undefined;
+    const close = () => setRowContextMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [rowContextMenu]);
+
+  useEffect(() => {
+    return () => {
+      if (quickReviewTimerRef.current) {
+        window.clearTimeout(quickReviewTimerRef.current);
+      }
+    };
+  }, []);
+
+  const onRowClick = (requestId: string) => {
+    if (quickReviewTimerRef.current) window.clearTimeout(quickReviewTimerRef.current);
+    quickReviewTimerRef.current = window.setTimeout(() => {
+      handleQuickReview(requestId);
+    }, 180);
+  };
+
+  const onRowDoubleClick = (requestId: string) => {
+    if (quickReviewTimerRef.current) {
+      window.clearTimeout(quickReviewTimerRef.current);
+      quickReviewTimerRef.current = null;
+    }
+    handleView(requestId);
+  };
+
+  const renderSortableHead = (label: string, key: SortKey) => (
+    <TableHead className="font-semibold">
+      <button
+        type="button"
+        className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+        onClick={(event) => updateSort(key, event.shiftKey)}
+      >
+        <span>{label}</span>
+        {sortIcon(key)}
+        {sortOrderBadge(key)}
+      </button>
+    </TableHead>
+  );
+
   if (requests.length === 0) {
     return (
       <div className="text-center py-12 bg-card rounded-lg border border-border">
@@ -189,10 +437,10 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
   return (
     <div className="bg-card rounded-lg border border-border overflow-hidden shadow-sm">
       <div className="md:hidden divide-y divide-border">
-        {requests.map((request) => (
+        {sortedRequests.map((request) => (
           <div
             key={request.id}
-            className="p-4 space-y-3 cursor-pointer transition-colors hover:bg-muted/20"
+            className={cn('space-y-3 cursor-pointer transition-colors hover:bg-muted/20', density === 'compact' ? 'p-3' : 'p-4')}
             onClick={() => handleQuickReview(request.id)}
             role="button"
             tabIndex={0}
@@ -225,12 +473,10 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                 <span className="font-medium text-right">{translateOption(request.country)}</span>
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">{t.table.productType}</span>
-                <span className="font-medium text-right">{getProductTypeLabel(getPrimaryProduct(request))}</span>
-              </div>
-              <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">{t.table.created}</span>
-                <span className="font-medium text-right">{format(new Date(request.createdAt), 'MMM d, yyyy')}</span>
+                <span className="text-muted-foreground">Priority</span>
+                <span className="font-medium text-right">
+                  {PRIORITY_OPTIONS.find((option) => option.value === toPriority(request.priority))?.label ?? 'Normal'}
+                </span>
               </div>
             </div>
 
@@ -239,17 +485,44 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                 <Eye size={14} className="mr-2" />
                 {t.table.view}
               </Button>
-              {canEditRoute && (
-                <Button size="sm" variant="outline" onClick={() => handleEdit(request.id)}>
-                  <Edit size={14} className="mr-2" />
-                  {t.table.edit}
-                </Button>
-              )}
-              {canDelete(request) && onDelete && (
-                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => onDelete(request.id)}>
-                  <Trash2 size={14} />
-                </Button>
-              )}
+              <Button size="sm" variant="outline" onClick={() => handleDuplicate(request.id)}>
+                Duplicate
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                    <MoreHorizontal size={16} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44 bg-card border border-border shadow-lg">
+                  {canEditRoute ? (
+                    <DropdownMenuItem onClick={() => handleEdit(request.id)}>
+                      <Edit size={14} className="mr-2" />
+                      {t.table.edit}
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuItem onClick={() => handleOpenPdfDialog(request)}>
+                    <Download size={14} className="mr-2" />
+                    {t.table.download}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleCopyId(request.id)}>
+                    <Copy size={14} className="mr-2" />
+                    Copy ID
+                  </DropdownMenuItem>
+                  {canDelete() && onDelete ? (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => setPendingDeleteId(request.id)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <Trash2 size={14} className="mr-2" />
+                        {t.table.delete}
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         ))}
@@ -259,47 +532,79 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
-              <TableHead className="font-semibold">{t.table.requestId}</TableHead>
-              <TableHead className="font-semibold">{t.table.clientName}</TableHead>
-              <TableHead className="font-semibold">{t.table.application}</TableHead>
-              <TableHead className="font-semibold">{t.table.country}</TableHead>
+              {renderSortableHead(t.table.requestId, 'id')}
+              {renderSortableHead('Priority', 'priority')}
+              {renderSortableHead(t.table.status, 'status')}
+              {renderSortableHead(t.table.clientName, 'clientName')}
+              {renderSortableHead(t.table.application, 'applicationVehicle')}
+              {renderSortableHead(t.table.country, 'country')}
               <TableHead className="font-semibold">{t.table.productType}</TableHead>
-              <TableHead className="font-semibold">{t.table.createdBy}</TableHead>
-              <TableHead className="font-semibold">{t.table.created}</TableHead>
-              <TableHead className="font-semibold">{t.table.status}</TableHead>
+              {renderSortableHead(t.table.createdBy, 'createdByName')}
+              {renderSortableHead(t.table.created, 'createdAt')}
               <TableHead className="text-right font-semibold">{t.table.actions}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {requests.map((request, index) => (
-            <TableRow 
-              key={request.id}
-              className={cn(
-                "cursor-pointer transition-colors hover:bg-muted/30",
-                index % 2 === 0 ? "bg-card" : "bg-muted/10"
-              )}
-              style={{ animationDelay: `${index * 50}ms` }}
-              onClick={() => handleQuickReview(request.id)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  handleQuickReview(request.id);
-                }
-              }}
-            >
-                <TableCell className="font-medium text-primary">{request.id}</TableCell>
-                <TableCell className="max-w-[200px] truncate">{request.clientName}</TableCell>
-                <TableCell className="max-w-[200px] truncate">{translateOption(request.applicationVehicle)}</TableCell>
-                <TableCell>{translateOption(request.country)}</TableCell>
-                <TableCell>{getProductTypeLabel(getPrimaryProduct(request))}</TableCell>
-                <TableCell>{request.createdByName}</TableCell>
-                <TableCell>{format(new Date(request.createdAt), 'MMM d, yyyy')}</TableCell>
-                <TableCell>
+            {sortedRequests.map((request, index) => (
+              <TableRow
+                key={request.id}
+                className={cn(
+                  'cursor-pointer transition-colors hover:bg-muted/30',
+                  index % 2 === 0 ? 'bg-card' : 'bg-muted/10',
+                  density === 'compact' ? 'h-10' : 'h-12'
+                )}
+                style={{ animationDelay: `${index * 40}ms` }}
+                onClick={() => onRowClick(request.id)}
+                onDoubleClick={() => onRowDoubleClick(request.id)}
+                onContextMenu={(event) => openRowContextMenu(event, request)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    handleQuickReview(request.id);
+                  }
+                }}
+              >
+                <TableCell className={cn('font-medium text-primary', density === 'compact' ? 'py-1.5' : 'py-2')}>{request.id}</TableCell>
+                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')} onClick={(event) => event.stopPropagation()}>
+                    <Select
+                      value={toPriority(request.priority)}
+                      onValueChange={(value) => handlePriorityChange(request.id, value as RequestPriority)}
+                    >
+                      <SelectTrigger
+                        className={cn(
+                          'w-[104px] rounded-full border-border/70 bg-muted/25 text-foreground shadow-none transition-colors hover:bg-muted/45 focus:ring-0 focus:ring-offset-0',
+                          density === 'compact' ? 'h-7 px-2.5 text-xs' : 'h-8 px-3 text-sm'
+                        )}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-card border border-border shadow-lg">
+                        {PRIORITY_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value} className="focus:bg-muted focus:text-foreground">
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>
                   <StatusBadge status={request.status} />
                 </TableCell>
-                <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+                <TableCell className={cn('max-w-[180px] truncate', density === 'compact' ? 'py-1.5' : 'py-2')}>{request.clientName}</TableCell>
+                <TableCell className={cn('max-w-[180px] truncate', density === 'compact' ? 'py-1.5' : 'py-2')}>
+                  {translateOption(request.applicationVehicle)}
+                </TableCell>
+                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>{translateOption(request.country)}</TableCell>
+                <TableCell className={cn('max-w-[220px] truncate', density === 'compact' ? 'py-1.5' : 'py-2')}>
+                  {getProductTypeLabel(getPrimaryProduct(request))}
+                </TableCell>
+                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>{request.createdByName}</TableCell>
+                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>
+                  {format(new Date(request.createdAt), 'MMM d, yyyy')}
+                </TableCell>
+                <TableCell className={cn('text-right', density === 'compact' ? 'py-1.5' : 'py-2')} onClick={(event) => event.stopPropagation()}>
                   <div className="flex items-center justify-end gap-2">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -307,30 +612,44 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                           <MoreHorizontal size={16} />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40 bg-card border border-border shadow-lg">
+                      <DropdownMenuContent align="end" className="w-44 bg-card border border-border shadow-lg">
                         <DropdownMenuItem onClick={() => handleView(request.id)} className="cursor-pointer">
                           <Eye size={14} className="mr-2" />
                           {t.table.view}
                         </DropdownMenuItem>
-                        {canEditRoute && (
+                        {canEditRoute ? (
                           <DropdownMenuItem onClick={() => handleEdit(request.id)} className="cursor-pointer">
                             <Edit size={14} className="mr-2" />
                             {t.table.edit}
                           </DropdownMenuItem>
-                        )}
+                        ) : null}
+                        <DropdownMenuItem onClick={() => handleDuplicate(request.id)} className="cursor-pointer">
+                          Duplicate
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleExportRow(request)} className="cursor-pointer">
+                          <Download size={14} className="mr-2" />
+                          Export row
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleCopyId(request.id)} className="cursor-pointer">
+                          <Copy size={14} className="mr-2" />
+                          Copy ID
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleOpenPdfDialog(request)} className="cursor-pointer">
                           <Download size={14} className="mr-2" />
                           {t.table.download}
                         </DropdownMenuItem>
-                        {canDelete(request) && onDelete && (
-                          <DropdownMenuItem
-                            onClick={() => setPendingDeleteId(request.id)}
-                            className="cursor-pointer text-destructive focus:text-destructive"
-                          >
-                            <Trash2 size={14} className="mr-2" />
-                            {t.table.delete}
-                          </DropdownMenuItem>
-                        )}
+                        {canDelete() && onDelete ? (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setPendingDeleteId(request.id)}
+                              className="cursor-pointer text-destructive focus:text-destructive"
+                            >
+                              <Trash2 size={14} className="mr-2" />
+                              {t.table.delete}
+                            </DropdownMenuItem>
+                          </>
+                        ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -341,13 +660,60 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
         </Table>
       </div>
 
+      {rowContextMenu ? (
+        <div
+          className="fixed z-[100] min-w-[180px] bg-popover border border-border rounded-md shadow-xl py-1"
+          style={{ left: rowContextMenu.x, top: rowContextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-accent"
+            onClick={() => {
+              handleView(rowContextMenu.request.id);
+              setRowContextMenu(null);
+            }}
+          >
+            Open
+          </button>
+          <button
+            type="button"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-accent"
+            onClick={() => {
+              handleDuplicate(rowContextMenu.request.id);
+              setRowContextMenu(null);
+            }}
+          >
+            Duplicate
+          </button>
+          <button
+            type="button"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-accent"
+            onClick={() => {
+              handleExportRow(rowContextMenu.request);
+              setRowContextMenu(null);
+            }}
+          >
+            Export row
+          </button>
+          <button
+            type="button"
+            className="w-full text-left px-3 py-2 text-sm hover:bg-accent"
+            onClick={async () => {
+              await handleCopyId(rowContextMenu.request.id);
+              setRowContextMenu(null);
+            }}
+          >
+            Copy ID
+          </button>
+        </div>
+      ) : null}
+
       <AlertDialog open={!!pendingDeleteId} onOpenChange={(open) => !open && setPendingDeleteId(null)}>
         <AlertDialogContent className="bg-card">
           <AlertDialogHeader>
             <AlertDialogTitle>{t.table.deleteConfirm}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t.table.deleteDesc}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{t.table.deleteDesc}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t.common.cancel}</AlertDialogCancel>
@@ -381,9 +747,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
             <Button variant="outline" onClick={() => setIsPdfDialogOpen(false)}>
               {t.common.cancel}
             </Button>
-            <Button onClick={handleConfirmPdfDownload}>
-              {t.table.download}
-            </Button>
+            <Button onClick={handleConfirmPdfDownload}>{t.table.download}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

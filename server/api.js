@@ -260,6 +260,163 @@ const resolveRecipientsForStatus = (settings, status) => {
   }
 };
 
+const IN_APP_ROLES_BY_STATUS = Object.freeze({
+  submitted: ["design"],
+  under_review: ["design"],
+  clarification_needed: ["sales"],
+  feasibility_confirmed: ["costing"],
+  design_result: ["costing"],
+  in_costing: ["costing"],
+  costing_complete: ["sales"],
+  sales_followup: ["sales"],
+  gm_approval_pending: ["admin"],
+  gm_approved: ["sales"],
+  gm_rejected: ["sales"],
+  cancelled: ["sales"],
+  closed: ["sales"],
+});
+
+const resolveInAppRolesForStatus = (status) => {
+  const key = String(status ?? "").trim();
+  const roles = IN_APP_ROLES_BY_STATUS[key];
+  if (!Array.isArray(roles)) return [];
+  return roles.filter((role) => role === "sales" || role === "design" || role === "costing" || role === "admin");
+};
+
+const buildInAppNotificationText = ({ eventType, request, requestId, status, previousStatus, actorName }) => {
+  const displayId = String(requestId ?? "").trim() || String(request?.id ?? "").trim() || "Request";
+  const clientName = String(request?.clientName ?? "").trim();
+  const actor = String(actorName ?? "").trim();
+  const statusLabel = humanizeStatus(status || request?.status || "");
+  const previousLabel = humanizeStatus(previousStatus || "");
+
+  if (eventType === "request_created") {
+    return {
+      title: `New request ${displayId}`,
+      body: clientName
+        ? `${clientName} submitted and moved to ${statusLabel || "workflow"}.`
+        : `Submitted and moved to ${statusLabel || "workflow"}.`,
+    };
+  }
+
+  if (statusLabel && previousLabel && statusLabel !== previousLabel) {
+    return {
+      title: `${displayId} moved to ${statusLabel}`,
+      body: actor
+        ? `${actor} changed status from ${previousLabel} to ${statusLabel}.`
+        : `Status changed from ${previousLabel} to ${statusLabel}.`,
+    };
+  }
+
+  if (statusLabel) {
+    return {
+      title: `${displayId} updated`,
+      body: actor ? `${actor} updated request in ${statusLabel}.` : `Request updated in ${statusLabel}.`,
+    };
+  }
+
+  return {
+    title: `${displayId} updated`,
+    body: actor ? `${actor} updated this request.` : "Request updated.",
+  };
+};
+
+const encodeNotificationsCursor = (createdAt, id) => {
+  const ts = String(createdAt ?? "").trim();
+  const rawId = String(id ?? "").trim();
+  if (!ts || !rawId) return null;
+  return Buffer.from(`${ts}|${rawId}`, "utf8").toString("base64url");
+};
+
+const decodeNotificationsCursor = (value) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  try {
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    const [createdAt, id] = decoded.split("|");
+    const ts = String(createdAt ?? "").trim();
+    const rawId = String(id ?? "").trim();
+    if (!ts || !rawId) return null;
+    const parsed = new Date(ts);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return { createdAt: parsed.toISOString(), id: rawId };
+  } catch {
+    return null;
+  }
+};
+
+const mapAppNotificationRow = (row) => ({
+  id: String(row?.id ?? ""),
+  type: String(row?.notification_type ?? ""),
+  title: String(row?.title ?? ""),
+  body: String(row?.body ?? ""),
+  requestId: row?.request_id ? String(row.request_id) : null,
+  payload: safeJson(row?.payload_json),
+  isRead: row?.is_read === true,
+  createdAt: row?.created_at ?? null,
+  readAt: row?.read_at ?? null,
+});
+
+const enqueueInAppNotifications = async (
+  pool,
+  { request, requestId, status, previousStatus, eventType, actorUserId, actorName, comment }
+) => {
+  const roles = resolveInAppRolesForStatus(status || request?.status || "");
+  if (!roles.length) return 0;
+
+  const actorId = String(actorUserId ?? "").trim();
+  const { rows: recipients } = await pool.query(
+    `
+    SELECT id
+      FROM app_users
+     WHERE is_active = true
+       AND role = ANY($1::text[])
+       AND ($2 = '' OR id <> $2)
+    `,
+    [roles, actorId]
+  );
+
+  if (!recipients?.length) return 0;
+
+  const text = buildInAppNotificationText({
+    eventType,
+    request,
+    requestId,
+    status,
+    previousStatus,
+    actorName,
+  });
+
+  const payload = {
+    requestId: String(requestId ?? request?.id ?? "").trim() || null,
+    status: String(status ?? request?.status ?? "").trim() || null,
+    previousStatus: String(previousStatus ?? "").trim() || null,
+    eventType: String(eventType ?? "request_status_changed"),
+    actorName: String(actorName ?? "").trim() || null,
+    comment: typeof comment === "string" && comment.trim() ? comment.trim() : null,
+  };
+
+  for (const row of recipients) {
+    await pool.query(
+      `
+      INSERT INTO app_notifications (id, user_id, notification_type, title, body, request_id, payload_json)
+      VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+      `,
+      [
+        randomUUID(),
+        String(row.id),
+        String(eventType || "request_status_changed"),
+        text.title,
+        text.body,
+        payload.requestId,
+        JSON.stringify(payload),
+      ]
+    );
+  }
+
+  return recipients.length;
+};
+
 const groupRecipientsByPreferredLanguage = async (pool, emails) => {
   const list = Array.isArray(emails) ? emails : [];
   const deduped = [];
@@ -1396,6 +1553,14 @@ const parseOptionalFiniteNumber = (value) => {
   return null;
 };
 
+const normalizeRequestPriority = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "low" || normalized === "normal" || normalized === "high" || normalized === "urgent") {
+    return normalized;
+  }
+  return "normal";
+};
+
 const normalizeRequestData = (data, nowIso) => {
   const history = Array.isArray(data.history) ? data.history : [];
   const attachments = Array.isArray(data.attachments) ? data.attachments : [];
@@ -1420,6 +1585,7 @@ const normalizeRequestData = (data, nowIso) => {
   return {
     ...data,
     history,
+    priority: normalizeRequestPriority(data.priority),
     attachments,
     designResultComments: typeof data.designResultComments === "string" ? data.designResultComments : "",
     designResultAttachments,
@@ -2318,6 +2484,7 @@ const requestSummarySelect =
   "data->>'clientName' as \"clientName\", " +
   "data->>'applicationVehicle' as \"applicationVehicle\", " +
   "data->>'country' as \"country\", " +
+  "data->>'priority' as \"priority\", " +
   "data->>'createdBy' as \"createdBy\", " +
   "data->>'createdByName' as \"createdByName\" " +
   "FROM requests ORDER BY updated_at DESC";
@@ -2419,6 +2586,220 @@ export const apiRouter = (() => {
     }
     next();
   };
+
+  router.get(
+    "/app-shell-status",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const [dbState, buildInfo, gitInfo] = await Promise.all([
+        Promise.resolve(getDbMonitorState()),
+        readBuildInfo(),
+        getGitInfo(),
+      ]);
+
+      const envFromConfig = String(process.env.APP_ENV_LABEL ?? "").trim();
+      const nodeEnv = String(process.env.NODE_ENV ?? "").trim().toLowerCase();
+      const environmentLabel = envFromConfig || (nodeEnv === "production" ? "Production" : "Test");
+      const buildHash = String(buildInfo?.hash || gitInfo?.hash || "").trim();
+      const buildBuiltAt = String(buildInfo?.builtAt || "").trim();
+
+      res.json({
+        environment: {
+          label: environmentLabel,
+          nodeEnv: nodeEnv || "development",
+        },
+        db: {
+          health: dbState?.health?.status ?? "unknown",
+          healthLabel: dbState?.health?.label ?? "Unknown",
+          lastRefreshedAt:
+            dbState?.lastRefreshedAt ??
+            dbState?.snapshot?.collectedAt ??
+            null,
+        },
+        build: {
+          hash: buildHash,
+          builtAt: buildBuiltAt,
+        },
+        serverTime: new Date().toISOString(),
+      });
+    })
+  );
+
+  router.get(
+    "/notifications",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const userId = String(req.authUser?.id ?? "").trim();
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+
+      const unreadOnly = String(req.query.unreadOnly ?? "").trim().toLowerCase() === "true";
+      const limitRaw = Number.parseInt(String(req.query.limit ?? "20"), 10);
+      const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 20;
+      const cursor = decodeNotificationsCursor(req.query.cursor);
+
+      const pool = await getPool();
+      const { rows } = await pool.query(
+        `
+        SELECT id, notification_type, title, body, request_id, payload_json, is_read, created_at, read_at
+          FROM app_notifications
+         WHERE user_id = $1
+           AND ($2::boolean = false OR is_read = false)
+           AND (
+             $3::timestamptz IS NULL
+             OR (created_at, id) < ($3::timestamptz, $4::text)
+           )
+         ORDER BY created_at DESC, id DESC
+         LIMIT $5
+        `,
+        [userId, unreadOnly, cursor?.createdAt ?? null, cursor?.id ?? null, limit]
+      );
+
+      const items = rows.map(mapAppNotificationRow);
+      const last = items.length ? items[items.length - 1] : null;
+      const nextCursor = items.length === limit && last ? encodeNotificationsCursor(last.createdAt, last.id) : null;
+
+      res.json({ items, nextCursor });
+    })
+  );
+
+  router.get(
+    "/notifications/unread-count",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const userId = String(req.authUser?.id ?? "").trim();
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+
+      const pool = await getPool();
+      const { rows } = await pool.query(
+        `
+        SELECT COUNT(*)::int AS count
+          FROM app_notifications
+         WHERE user_id = $1
+           AND is_read = false
+        `,
+        [userId]
+      );
+
+      const count = Number.parseInt(String(rows?.[0]?.count ?? "0"), 10) || 0;
+      res.json({ unreadCount: count });
+    })
+  );
+
+  router.post(
+    "/notifications/:notificationId/read",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const userId = String(req.authUser?.id ?? "").trim();
+      const notificationId = String(req.params.notificationId ?? "").trim();
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+      if (!notificationId) {
+        res.status(400).json({ error: "Missing notification id" });
+        return;
+      }
+
+      const pool = await getPool();
+      const { rowCount } = await pool.query(
+        `
+        UPDATE app_notifications
+           SET is_read = true,
+               read_at = COALESCE(read_at, now())
+         WHERE id = $1
+           AND user_id = $2
+        `,
+        [notificationId, userId]
+      );
+
+      res.json({ updated: rowCount ?? 0 });
+    })
+  );
+
+  router.post(
+    "/notifications/read-all",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const userId = String(req.authUser?.id ?? "").trim();
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+
+      const pool = await getPool();
+      const { rowCount } = await pool.query(
+        `
+        UPDATE app_notifications
+           SET is_read = true,
+               read_at = COALESCE(read_at, now())
+         WHERE user_id = $1
+           AND is_read = false
+        `,
+        [userId]
+      );
+
+      res.json({ updated: rowCount ?? 0 });
+    })
+  );
+
+  router.get(
+    "/requests/search",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const q = String(req.query.q ?? "").trim();
+      const limitRaw = Number.parseInt(String(req.query.limit ?? "20"), 10);
+      const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 5), 100) : 20;
+
+      if (!q || q.length < 2) {
+        res.json([]);
+        return;
+      }
+
+      const pool = await getPool();
+      const like = `%${q.replace(/\s+/g, " ")}%`;
+      const { rows } = await pool.query(
+        `
+        SELECT
+          id,
+          status,
+          updated_at,
+          data->>'clientName' AS "clientName",
+          data->>'applicationVehicle' AS "applicationVehicle",
+          data->>'country' AS "country",
+          data->>'createdByName' AS "createdByName",
+          data->>'priority' AS "priority"
+        FROM requests
+        WHERE
+          id ILIKE $1
+          OR COALESCE(data->>'clientName', '') ILIKE $1
+          OR COALESCE(data->>'applicationVehicle', '') ILIKE $1
+          OR COALESCE(data->>'country', '') ILIKE $1
+        ORDER BY updated_at DESC
+        LIMIT $2
+        `,
+        [like, limit]
+      );
+
+      res.json(
+        rows.map((row) => ({
+          id: String(row.id),
+          status: String(row.status ?? ""),
+          priority: normalizeRequestPriority(row.priority),
+          clientName: String(row.clientName ?? ""),
+          applicationVehicle: String(row.applicationVehicle ?? ""),
+          country: String(row.country ?? ""),
+          createdByName: String(row.createdByName ?? ""),
+          updatedAt: row.updated_at,
+        }))
+      );
+    })
+  );
 
   router.post(
     "/auth/login",
@@ -4760,6 +5141,7 @@ export const apiRouter = (() => {
         rows.map((row) => ({
           id: row.id,
           status: row.status,
+          priority: normalizeRequestPriority(row.priority),
           clientName: row.clientName ?? "",
           applicationVehicle: row.applicationVehicle ?? "",
           country: row.country ?? "",
@@ -5337,6 +5719,24 @@ export const apiRouter = (() => {
         );
       }
 
+      try {
+        const createdStatus = String(status ?? "");
+        if (createdStatus && createdStatus !== "draft") {
+          await enqueueInAppNotifications(pool, {
+            request: requestData,
+            requestId: id,
+            status: createdStatus,
+            previousStatus: "",
+            eventType: "request_created",
+            actorUserId: body.createdBy ?? "",
+            actorName: body.createdByName ?? "",
+            comment: "",
+          });
+        }
+      } catch (e) {
+        console.error("Failed to enqueue in-app create notification:", e);
+      }
+
       // Best-effort email notification enqueue for non-draft creates (ex: create+submit from the UI).
       try {
         const createdStatus = String(status ?? "");
@@ -5496,6 +5896,24 @@ export const apiRouter = (() => {
         new Date(nowIso),
       ]);
 
+      try {
+        const inAppStatus = isGmReject ? "gm_rejected" : String(updated.status ?? "");
+        if (inAppStatus && inAppStatus !== previousStatus) {
+          await enqueueInAppNotifications(pool, {
+            request: updated,
+            requestId,
+            status: inAppStatus,
+            previousStatus,
+            eventType: "request_status_changed",
+            actorUserId: body.userId ?? "",
+            actorName: body.userName ?? "",
+            comment,
+          });
+        }
+      } catch (e) {
+        console.error("Failed to enqueue in-app status notification:", e);
+      }
+
       // Best-effort email notification enqueue (do not block status updates if email config is missing).
       try {
         // For GM rejection, email should reflect the rejection, even though the effective status
@@ -5585,63 +6003,86 @@ export const apiRouter = (() => {
         return;
       }
 
+      const status = String(body.status ?? existing.status ?? "").trim();
+      const previousStatus = String(body.previousStatus ?? "").trim();
+      const actorUserId = String(req.authUser?.id ?? "").trim();
+
+      let inAppEnqueued = false;
+      try {
+        const inserted = await enqueueInAppNotifications(pool, {
+          request: existing,
+          requestId,
+          status,
+          previousStatus,
+          eventType,
+          actorUserId,
+          actorName,
+          comment,
+        });
+        inAppEnqueued = inserted > 0;
+      } catch (e) {
+        console.error("Failed to enqueue in-app notify notification:", e);
+      }
+
+      let emailEnqueued = false;
+      let emailReason = null;
       const [settings, tokenState] = await Promise.all([
         getM365Settings(pool),
         getM365TokenState(pool),
       ]);
       if (!settings.enabled) {
-        res.json({ enqueued: false, reason: "disabled" });
-        return;
-      }
-      if (!tokenState.hasRefreshToken) {
-        res.json({ enqueued: false, reason: "not_connected" });
-        return;
-      }
+        emailReason = "disabled";
+      } else if (!tokenState.hasRefreshToken) {
+        emailReason = "not_connected";
+      } else {
+        const to = resolveRecipientsForStatus(settings, status);
+        if (!to.length) {
+          emailReason = "no_recipients";
+        } else {
+          const link = buildRequestLink(settings.appBaseUrl, requestId);
 
-      const status = String(body.status ?? existing.status ?? "").trim();
-      const to = resolveRecipientsForStatus(settings, status);
-      if (!to.length) {
-        res.json({ enqueued: false, reason: "no_recipients" });
-        return;
-      }
+          const groups = await groupRecipientsByPreferredLanguage(pool, to);
+          for (const [lang, groupEmails] of groups) {
+            const vars = getNotificationTemplateVars({ request: existing, requestId, status, previousStatus, lang, actorName });
+            const subjectFallback = applyTemplateVars(
+              getDefaultTemplateForEvent(eventType, lang)?.subject ?? "",
+              vars
+            ) || `[CRA] Request ${requestId} updated`;
+            const template = getTemplateForEvent(settings, eventType, lang);
+            const subjectTpl = applyTemplateVars(template.subject, vars);
+            const html = renderStatusEmailHtml({
+              request: existing,
+              eventType,
+              newStatus: status,
+              previousStatus,
+              actorName,
+              comment,
+              link,
+              dashboardLink: buildDashboardLink(settings.appBaseUrl),
+              logoCid: "monroc-logo",
+              template,
+              introOverride: template.intro,
+              lang,
+            });
 
-      const link = buildRequestLink(settings.appBaseUrl, requestId);
-
-      const groups = await groupRecipientsByPreferredLanguage(pool, to);
-      for (const [lang, groupEmails] of groups) {
-        const previousStatus = String(body.previousStatus ?? "").trim();
-        const vars = getNotificationTemplateVars({ request: existing, requestId, status, previousStatus, lang, actorName });
-        const subjectFallback = applyTemplateVars(
-          getDefaultTemplateForEvent(eventType, lang)?.subject ?? "",
-          vars
-        ) || `[CRA] Request ${requestId} updated`;
-        const template = getTemplateForEvent(settings, eventType, lang);
-        const subjectTpl = applyTemplateVars(template.subject, vars);
-        const html = renderStatusEmailHtml({
-          request: existing,
-          eventType,
-          newStatus: status,
-          previousStatus,
-          actorName,
-          comment,
-          link,
-          dashboardLink: buildDashboardLink(settings.appBaseUrl),
-          logoCid: "monroc-logo",
-          template,
-          introOverride: template.intro,
-          lang,
-        });
-
-        await pool.query(
-          `
-          INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
-          VALUES ($1,$2,$3,$4,$5,$6)
-          `,
-          [randomUUID(), eventType, requestId, groupEmails.join(", "), subjectTpl || subjectFallback, html]
-        );
+            await pool.query(
+              `
+              INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+              VALUES ($1,$2,$3,$4,$5,$6)
+              `,
+              [randomUUID(), eventType, requestId, groupEmails.join(", "), subjectTpl || subjectFallback, html]
+            );
+          }
+          emailEnqueued = true;
+        }
       }
 
-      res.json({ enqueued: true, to });
+      res.json({
+        enqueued: inAppEnqueued || emailEnqueued,
+        inAppEnqueued,
+        emailEnqueued,
+        reason: inAppEnqueued || emailEnqueued ? undefined : emailReason || "no_targets",
+      });
     })
   );
 

@@ -1,11 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { 
   FileText, 
   Clock, 
   CheckCircle, 
   AlertCircle, 
-  Plus,
   TrendingUp,
   Filter,
   X
@@ -13,6 +11,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useRequests } from '@/context/RequestContext';
 import { useLanguage } from '@/context/LanguageContext';
+import { useAppShell } from '@/context/AppShellContext';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -23,7 +22,8 @@ import {
 } from '@/components/ui/select';
 import KPICard from '@/components/dashboard/KPICard';
 import RequestsTable from '@/components/dashboard/RequestsTable';
-import { CustomerRequest, RequestStatus, STATUS_CONFIG } from '@/types';
+import { cn } from '@/lib/utils';
+import { RequestStatus, STATUS_CONFIG } from '@/types';
 
 type FilterType = 'all' | RequestStatus | 'in_progress' | 'completed' | 'needs_attention' | 'costing_processed';
 type OwnershipFilter = 'all' | 'mine';
@@ -55,10 +55,10 @@ const COSTING_PROCESSED_STATUSES: RequestStatus[] = [
 ];
 
 const Dashboard: React.FC = () => {
-  const navigate = useNavigate();
   const { user } = useAuth();
   const { requests, deleteRequest } = useRequests();
   const { t } = useLanguage();
+  const { density, globalSearchQuery, searchResults } = useAppShell();
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [ownershipFilter, setOwnershipFilter] = useState<OwnershipFilter>('all');
 
@@ -99,6 +99,13 @@ const Dashboard: React.FC = () => {
     // Single status filter
     return ownershipFilteredRequests.filter(r => r.status === activeFilter);
   }, [ownershipFilteredRequests, activeFilter]);
+
+  const isSearchMode = globalSearchQuery.trim().length >= 2;
+  const searchMatchedIds = useMemo(() => new Set(searchResults.map((row) => row.id)), [searchResults]);
+  const displayedRequests = useMemo(() => {
+    if (!isSearchMode) return filteredRequests;
+    return filteredRequests.filter((request) => searchMatchedIds.has(request.id));
+  }, [filteredRequests, isSearchMode, searchMatchedIds]);
 
   // Calculate KPIs based on role
   const kpis = useMemo(() => {
@@ -162,8 +169,6 @@ const Dashboard: React.FC = () => {
     setActiveFilter('all');
   };
 
-  const showCreateButton = user?.role === 'sales' || user?.role === 'admin';
-
   // Get all available statuses for the filter dropdown
   const availableStatuses = useMemo(() => {
     const statuses = new Set(roleFilteredRequests.map(r => r.status));
@@ -176,29 +181,8 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">{t.dashboard.title}</h1>
-          <p className="text-muted-foreground mt-1">
-            {t.dashboard.welcome}, {user?.name}
-          </p>
-        </div>
-        
-        {showCreateButton && (
-          <Button 
-            onClick={() => navigate('/requests/new')}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-md hover:shadow-lg transition-all"
-          >
-            <Plus size={18} className="mr-2" />
-            {t.nav.newRequest}
-          </Button>
-        )}
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className={density === 'compact' ? 'space-y-4' : 'space-y-6'}>
+      <div className={cn('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4', density === 'compact' ? 'gap-3' : 'gap-6')}>
         {kpis.map((kpi, index) => (
           <div 
             key={kpi.title}
@@ -216,19 +200,21 @@ const Dashboard: React.FC = () => {
         ))}
       </div>
 
-      {/* Requests Table */}
-
-      {/* Requests Table */}
-      <div className="space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className={density === 'compact' ? 'space-y-3' : 'space-y-4'}>
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold text-foreground">{t.dashboard.requests}</h2>
+            <h2 className={cn('font-semibold text-foreground', density === 'compact' ? 'text-lg' : 'text-xl')}>{t.dashboard.requests}</h2>
             <span className="text-sm text-muted-foreground">
-              {filteredRequests.length} {activeFilter !== 'all' || ownershipFilter !== 'all' ? t.common.filtered : t.common.total}
+              {displayedRequests.length} {activeFilter !== 'all' || ownershipFilter !== 'all' || isSearchMode ? t.common.filtered : t.common.total}
             </span>
+            {isSearchMode ? (
+              <span className="text-xs rounded-full px-2 py-0.5 bg-primary/10 text-primary border border-primary/20">
+                Search: {globalSearchQuery.trim()}
+              </span>
+            ) : null}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {(activeFilter !== 'all' || ownershipFilter !== 'all') && (
               <Button
                 variant="outline"
@@ -245,7 +231,7 @@ const Dashboard: React.FC = () => {
             )}
 
             <Select value={ownershipFilter} onValueChange={(value) => setOwnershipFilter(value as OwnershipFilter)}>
-              <SelectTrigger className="w-[150px]">
+              <SelectTrigger className={cn('w-[150px]', density === 'compact' ? 'h-8' : 'h-9')}>
                 <SelectValue placeholder={t.dashboard.ownership} />
               </SelectTrigger>
               <SelectContent className="bg-card border border-border">
@@ -255,7 +241,7 @@ const Dashboard: React.FC = () => {
             </Select>
             
              <Select value={activeFilter} onValueChange={(value) => setActiveFilter(value as FilterType)}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className={cn('w-[180px]', density === 'compact' ? 'h-8' : 'h-9')}>
                 <Filter size={14} className="mr-2" />
                 <SelectValue placeholder={t.common.filter} />
               </SelectTrigger>
@@ -278,7 +264,7 @@ const Dashboard: React.FC = () => {
         </div>
         
         <RequestsTable 
-          requests={filteredRequests}
+          requests={displayedRequests}
           userRole={user?.role || 'sales'}
           onDelete={user?.role === 'admin' ? handleDelete : undefined}
         />

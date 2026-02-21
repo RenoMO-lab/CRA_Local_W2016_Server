@@ -177,6 +177,14 @@
   .kpi-card {
     @apply bg-card rounded-xl border border-border p-6 h-full min-h-[140px] transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5;
   }
+
+  :root[data-density='compact'] .kpi-card {
+    @apply p-4 min-h-[116px];
+  }
+
+  :root[data-density='compact'] .section-title {
+    @apply mb-3;
+  }
 }
 
 @layer utilities {

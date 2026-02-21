@@ -17,6 +17,8 @@ export type RequestStatus =
   | 'cancelled'
   | 'closed';
 
+export type RequestPriority = 'low' | 'normal' | 'high' | 'urgent';
+
 export type BrakeType = 'drum' | 'disk' | 'na' | 'As Per ROC Standard';
 
 export type StudsPcdMode = 'standard' | 'special';
@@ -152,6 +154,7 @@ export interface CustomerRequest {
   
   // Workflow
   status: RequestStatus;
+  priority?: RequestPriority;
   history: StatusHistoryEntry[];
   
   // Metadata

@@ -8,6 +8,7 @@ import { AuthProvider } from "./context/AuthContext";
 import { RequestProvider } from "./context/RequestContext";
 import { AdminSettingsProvider } from "./context/AdminSettingsContext";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
+import { AppShellProvider } from "./context/AppShellContext";
 import MainLayout from "./components/layout/MainLayout";
 
 const Login = React.lazy(() => import("./pages/Login"));
@@ -42,24 +43,26 @@ const App = () => (
               <Toaster />
               <Sonner />
               <BrowserRouter>
-                <Suspense
-                  fallback={<AppLoadingFallback />}
-                >
-                  <Routes>
-                    <Route path="/login" element={<Login />} />
-                    <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                    <Route element={<MainLayout />}>
-                      <Route path="/dashboard" element={<Dashboard />} />
-                      <Route path="/performance" element={<Performance />} />
-                      <Route path="/requests/new" element={<RequestForm />} />
-                      <Route path="/requests/:id" element={<RequestForm />} />
-                      <Route path="/requests/:id/edit" element={<RequestForm />} />
-                      <Route path="/price-list" element={<PriceList />} />
-                      <Route path="/settings" element={<Settings />} />
-                    </Route>
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
-                </Suspense>
+                <AppShellProvider>
+                  <Suspense
+                    fallback={<AppLoadingFallback />}
+                  >
+                    <Routes>
+                      <Route path="/login" element={<Login />} />
+                      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                      <Route element={<MainLayout />}>
+                        <Route path="/dashboard" element={<Dashboard />} />
+                        <Route path="/performance" element={<Performance />} />
+                        <Route path="/requests/new" element={<RequestForm />} />
+                        <Route path="/requests/:id" element={<RequestForm />} />
+                        <Route path="/requests/:id/edit" element={<RequestForm />} />
+                        <Route path="/price-list" element={<PriceList />} />
+                        <Route path="/settings" element={<Settings />} />
+                      </Route>
+                      <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </Suspense>
+                </AppShellProvider>
               </BrowserRouter>
             </RequestProvider>
           </AdminSettingsProvider>
