@@ -540,7 +540,17 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
               {renderSortableHead(t.table.country, 'country')}
               <TableHead className="font-semibold">{t.table.productType}</TableHead>
               {renderSortableHead(t.table.createdBy, 'createdByName')}
-              {renderSortableHead(t.table.created, 'createdAt')}
+              <TableHead className="font-semibold whitespace-nowrap min-w-[132px]">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 hover:text-foreground transition-colors whitespace-nowrap"
+                  onClick={(event) => updateSort('createdAt', event.shiftKey)}
+                >
+                  <span className="whitespace-nowrap">{t.table.created}</span>
+                  {sortIcon('createdAt')}
+                  {sortOrderBadge('createdAt')}
+                </button>
+              </TableHead>
               <TableHead className="text-right font-semibold">{t.table.actions}</TableHead>
             </TableRow>
           </TableHeader>
@@ -601,7 +611,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                   {getProductTypeLabel(getPrimaryProduct(request))}
                 </TableCell>
                 <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>{request.createdByName}</TableCell>
-                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>
+                <TableCell className={cn('whitespace-nowrap min-w-[132px]', density === 'compact' ? 'py-1.5' : 'py-2')}>
                   {format(new Date(request.createdAt), 'MMM d, yyyy')}
                 </TableCell>
                 <TableCell className={cn('text-right', density === 'compact' ? 'py-1.5' : 'py-2')} onClick={(event) => event.stopPropagation()}>

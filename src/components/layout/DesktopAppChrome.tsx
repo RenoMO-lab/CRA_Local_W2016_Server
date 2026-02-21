@@ -358,12 +358,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     }
   };
 
-  const dbToneClass = cn(
-    shellStatus?.db?.health === 'green' && 'text-emerald-600',
-    shellStatus?.db?.health === 'yellow' && 'text-amber-600',
-    shellStatus?.db?.health === 'red' && 'text-red-600'
-  );
-
   return (
     <>
       <div className="hidden md:block fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/95 backdrop-blur">
@@ -493,8 +487,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
       <div className="hidden md:flex fixed bottom-0 left-0 right-0 z-50 h-8 px-4 border-t border-border bg-background/95 backdrop-blur items-center justify-between text-[11px] text-muted-foreground">
         <div className="flex items-center gap-3 min-w-0">
-          <span className="truncate">Env: {shellStatus?.environment?.label ?? '--'}</span>
-          <span className={cn('truncate', dbToneClass)}>DB: {shellStatus?.db?.healthLabel ?? '--'}</span>
+          <span className="truncate">DB: {shellStatus?.db?.healthLabel ?? '--'}</span>
           <span className="truncate">Sync: {syncState === 'refreshing' ? 'Refreshing' : syncState === 'error' ? 'Error' : 'Ready'}</span>
           <span className="truncate">Last refresh: {formatTimeShort(lastSyncAt)}</span>
         </div>
