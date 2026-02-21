@@ -2556,7 +2556,7 @@ export const apiRouter = (() => {
       const pool = await getPool();
       const auth = await getAuthFromSessionToken(pool, token);
       if (!auth) {
-        clearSessionCookie(res);
+        clearSessionCookie(req, res);
         next();
         return;
       }
@@ -2828,7 +2828,7 @@ export const apiRouter = (() => {
       }
 
       const session = await createUserSession(pool, user.id);
-      setSessionCookie(res, session.token, session.expiresAt);
+      setSessionCookie(req, res, session.token, session.expiresAt);
       await writeAuditLogBestEffort(pool, req, {
         action: "auth.login_success",
         actor: { id: user.id, email: user.email, role: user.role },
@@ -2847,7 +2847,7 @@ export const apiRouter = (() => {
       if (req.authSessionId) {
         await revokeSessionById(pool, req.authSessionId);
       }
-      clearSessionCookie(res);
+      clearSessionCookie(req, res);
       await writeAuditLogBestEffort(pool, req, {
         action: "auth.logout",
         targetType: "session",

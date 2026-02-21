@@ -7,8 +7,8 @@ const SCRYPT_P = 1;
 const SCRYPT_KEYLEN = 64;
 
 const SESSION_COOKIE_NAME = String(process.env.SESSION_COOKIE_NAME || "cra_sid").trim() || "cra_sid";
-const SESSION_COOKIE_SECURE =
-  String(process.env.SESSION_COOKIE_SECURE || "").trim().toLowerCase() === "true";
+const SESSION_COOKIE_SECURE_MODE_RAW = String(process.env.SESSION_COOKIE_SECURE_MODE || "").trim().toLowerCase();
+const SESSION_COOKIE_SECURE_LEGACY_RAW = String(process.env.SESSION_COOKIE_SECURE || "").trim().toLowerCase();
 const SESSION_TTL_HOURS = Number.parseInt(process.env.SESSION_TTL_HOURS || "24", 10);
 const SESSION_TTL_MS = Math.max(1, Number.isFinite(SESSION_TTL_HOURS) ? SESSION_TTL_HOURS : 24) * 60 * 60 * 1000;
 
@@ -43,6 +43,36 @@ const normalizeRole = (value) => {
 const normalizePreferredLanguage = (value) => {
   const lang = String(value ?? "").trim().toLowerCase();
   return VALID_LANGUAGES.has(lang) ? lang : null;
+};
+
+const resolveSecureMode = () => {
+  if (SESSION_COOKIE_SECURE_MODE_RAW === "auto" || SESSION_COOKIE_SECURE_MODE_RAW === "true" || SESSION_COOKIE_SECURE_MODE_RAW === "false") {
+    return SESSION_COOKIE_SECURE_MODE_RAW;
+  }
+  if (SESSION_COOKIE_SECURE_LEGACY_RAW === "true") return "true";
+  if (SESSION_COOKIE_SECURE_LEGACY_RAW === "false") return "false";
+  return "auto";
+};
+
+const SESSION_COOKIE_SECURE_MODE = resolveSecureMode();
+
+const isRequestSecure = (req) => {
+  if (req?.secure) return true;
+  const forwardedProto = String(req?.headers?.["x-forwarded-proto"] ?? "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  if (forwardedProto === "https") return true;
+  const forwardedSsl = String(req?.headers?.["x-forwarded-ssl"] ?? "").trim().toLowerCase();
+  if (forwardedSsl === "on") return true;
+  const frontEndHttps = String(req?.headers?.["front-end-https"] ?? "").trim().toLowerCase();
+  return frontEndHttps === "on";
+};
+
+const resolveSessionCookieSecure = (req) => {
+  if (SESSION_COOKIE_SECURE_MODE === "true") return true;
+  if (SESSION_COOKIE_SECURE_MODE === "false") return false;
+  return isRequestSecure(req);
 };
 
 const parseCookies = (headerValue) => {
@@ -140,22 +170,24 @@ export const readSessionTokenFromRequest = (req) => {
   return String(cookies?.[SESSION_COOKIE_NAME] ?? "").trim();
 };
 
-export const setSessionCookie = (res, sessionToken, expiresAt) => {
+export const setSessionCookie = (req, res, sessionToken, expiresAt) => {
   const expires = expiresAt instanceof Date ? expiresAt : new Date(Date.now() + SESSION_TTL_MS);
+  const secure = resolveSessionCookieSecure(req);
   res.cookie(SESSION_COOKIE_NAME, String(sessionToken ?? ""), {
     httpOnly: true,
     sameSite: "lax",
-    secure: SESSION_COOKIE_SECURE,
+    secure,
     path: "/",
     expires,
   });
 };
 
-export const clearSessionCookie = (res) => {
+export const clearSessionCookie = (req, res) => {
+  const secure = resolveSessionCookieSecure(req);
   res.clearCookie(SESSION_COOKIE_NAME, {
     httpOnly: true,
     sameSite: "lax",
-    secure: SESSION_COOKIE_SECURE,
+    secure,
     path: "/",
   });
 };
@@ -332,4 +364,5 @@ export const makePasswordHash = (plainTextPassword) => hashPassword(plainTextPas
 export const SESSION_CONFIG = {
   cookieName: SESSION_COOKIE_NAME,
   ttlHours: SESSION_TTL_HOURS,
+  secureMode: SESSION_COOKIE_SECURE_MODE,
 };
