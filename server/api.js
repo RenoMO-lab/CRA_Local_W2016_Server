@@ -5714,61 +5714,123 @@ export const apiRouter = (() => {
 
       const pool = await getPool();
       const nowIso = new Date().toISOString();
-      const id = await generateRequestId(pool);
-      const status = body.status ?? "draft";
-
+      const status = String(body.status ?? "draft").trim() || "draft";
+      const createdBy = String(body.createdBy ?? req.authUser?.id ?? "").trim();
+      const createdByName = String(body.createdByName ?? req.authUser?.name ?? "").trim();
+      const draftSessionKey = typeof body.draftSessionKey === "string" ? body.draftSessionKey.trim() : "";
+      const idempotentDraftCreate = status === "draft" && createdBy && draftSessionKey;
       const initialHistory = [
         {
           id: `h-${Date.now()}`,
           status,
           timestamp: nowIso,
-          userId: body.createdBy ?? "",
-          userName: body.createdByName ?? "",
+          userId: createdBy,
+          userName: createdByName,
         },
       ];
 
-      const requestData = normalizeRequestData(
-        {
-          ...body,
-          id,
-          status,
-          createdAt: nowIso,
-          updatedAt: nowIso,
-          history: body.history?.length ? body.history : initialHistory,
-        },
-        nowIso
-      );
+      const result = await withTransaction(pool, async (client) => {
+        if (idempotentDraftCreate) {
+          // Serialize create/update for the same draft session key to avoid race-created siblings.
+          await client.query("SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))", [createdBy, draftSessionKey]);
+          const existingDraftRes = await client.query(
+            `
+            SELECT id, data
+            FROM requests
+            WHERE status = 'draft'
+              AND data->>'createdBy' = $1
+              AND data->>'draftSessionKey' = $2
+            ORDER BY created_at DESC
+            LIMIT 1
+            FOR UPDATE
+            `,
+            [createdBy, draftSessionKey]
+          );
 
-      const { inserts: attachmentInserts } = extractInlineAttachments(requestData);
+          const existingDraft = existingDraftRes.rows[0];
+          if (existingDraft) {
+            const existingData = safeParseRequest(existingDraft.data, `idempotent-draft:${existingDraft.id}`) ?? {};
+            const requestData = normalizeRequestData(
+              {
+                ...existingData,
+                ...body,
+                id: existingDraft.id,
+                status,
+                createdBy,
+                createdByName,
+                draftSessionKey,
+                createdAt: existingData.createdAt ?? nowIso,
+                updatedAt: nowIso,
+                history: Array.isArray(existingData.history) && existingData.history.length
+                  ? existingData.history
+                  : body.history?.length
+                    ? body.history
+                    : initialHistory,
+              },
+              nowIso
+            );
+            await materializeRequestAttachments(client, existingDraft.id, requestData);
+            await client.query("UPDATE requests SET data=$2::jsonb, status=$3, updated_at=$4 WHERE id=$1", [
+              existingDraft.id,
+              JSON.stringify(requestData),
+              status,
+              new Date(nowIso),
+            ]);
+            return { requestData, id: existingDraft.id, created: false, reusedDraft: true };
+          }
+        }
 
-      await pool.query(
-        "INSERT INTO requests (id, data, status, created_at, updated_at) VALUES ($1, $2::jsonb, $3, $4, $5)",
-        [id, JSON.stringify(requestData), status, new Date(nowIso), new Date(nowIso)]
-      );
-
-      // Persist attachment binaries (urls were already rewritten to /api/attachments/:id above).
-      for (const att of attachmentInserts) {
-        await pool.query(
-          `
-          INSERT INTO request_attachments
-            (id, request_id, attachment_type, filename, content_type, byte_size, uploaded_at, uploaded_by, data)
-          VALUES
-            ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-          ON CONFLICT (id) DO NOTHING
-          `,
-          [
-            att.id,
+        const id = await generateRequestId(client);
+        const requestData = normalizeRequestData(
+          {
+            ...body,
             id,
-            att.attachmentType,
-            att.filename,
-            att.contentType,
-            att.byteSize,
-            att.uploadedAt,
-            att.uploadedBy,
-            att.data,
-          ]
+            status,
+            createdBy,
+            createdByName,
+            draftSessionKey: draftSessionKey || undefined,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            history: body.history?.length ? body.history : initialHistory,
+          },
+          nowIso
         );
-      }
+
+        const { inserts: attachmentInserts } = extractInlineAttachments(requestData);
+
+        await client.query(
+          "INSERT INTO requests (id, data, status, created_at, updated_at) VALUES ($1, $2::jsonb, $3, $4, $5)",
+          [id, JSON.stringify(requestData), status, new Date(nowIso), new Date(nowIso)]
+        );
+
+        // Persist attachment binaries (urls were already rewritten to /api/attachments/:id above).
+        for (const att of attachmentInserts) {
+          await client.query(
+            `
+            INSERT INTO request_attachments
+              (id, request_id, attachment_type, filename, content_type, byte_size, uploaded_at, uploaded_by, data)
+            VALUES
+              ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            ON CONFLICT (id) DO NOTHING
+            `,
+            [
+              att.id,
+              id,
+              att.attachmentType,
+              att.filename,
+              att.contentType,
+              att.byteSize,
+              att.uploadedAt,
+              att.uploadedBy,
+              att.data,
+            ]
+          );
+        }
+        return { requestData, id, created: true, reusedDraft: false };
+      });
+
+      const requestData = result.requestData;
+      const id = result.id;
 
       try {
         const createdStatus = String(status ?? "");
@@ -5779,8 +5841,8 @@ export const apiRouter = (() => {
             status: createdStatus,
             previousStatus: "",
             eventType: "request_created",
-            actorUserId: body.createdBy ?? "",
-            actorName: body.createdByName ?? "",
+            actorUserId: createdBy,
+            actorName: createdByName,
             comment: "",
           });
         }
@@ -5809,7 +5871,7 @@ export const apiRouter = (() => {
                   status: createdStatus,
                   previousStatus: "",
                   lang,
-                  actorName: body.createdByName ?? "",
+                  actorName: createdByName,
                 });
                 const subjectFallback = applyTemplateVars(
                   getDefaultTemplateForEvent("request_created", lang)?.subject ?? "",
@@ -5822,7 +5884,7 @@ export const apiRouter = (() => {
                   eventType: "request_created",
                   newStatus: createdStatus,
                   previousStatus: "",
-                  actorName: body.createdByName ?? "",
+                  actorName: createdByName,
                   comment: "",
                   link,
                   dashboardLink: buildDashboardLink(settings.appBaseUrl),
@@ -5850,10 +5912,14 @@ export const apiRouter = (() => {
         action: "request.created",
         targetType: "request",
         targetId: id,
-        metadata: { status: requestData.status ?? status ?? null },
+        metadata: {
+          status: requestData.status ?? status ?? null,
+          reusedDraft: result.reusedDraft,
+          draftSessionKey: draftSessionKey || null,
+        },
       });
 
-      res.status(201).json(requestData);
+      res.status(result.created ? 201 : 200).json(requestData);
     })
   );
 
@@ -5947,6 +6013,23 @@ export const apiRouter = (() => {
         new Date(nowIso),
       ]);
 
+      let deletedSiblingDrafts = 0;
+      const draftSessionKey = String(updated.draftSessionKey ?? existing.draftSessionKey ?? "").trim();
+      const sessionCreatedBy = String(updated.createdBy ?? existing.createdBy ?? "").trim();
+      if (requestedStatus === "submitted" && draftSessionKey && sessionCreatedBy) {
+        const cleanupRes = await pool.query(
+          `
+          DELETE FROM requests
+          WHERE status = 'draft'
+            AND id <> $1
+            AND data->>'createdBy' = $2
+            AND data->>'draftSessionKey' = $3
+          `,
+          [requestId, sessionCreatedBy, draftSessionKey]
+        );
+        deletedSiblingDrafts = cleanupRes.rowCount ?? 0;
+      }
+
       try {
         const inAppStatus = isGmReject ? "gm_rejected" : String(updated.status ?? "");
         if (inAppStatus && inAppStatus !== previousStatus) {
@@ -6029,8 +6112,26 @@ export const apiRouter = (() => {
         action: "request.status_changed",
         targetType: "request",
         targetId: requestId,
-        metadata: { from: previousStatus, to: requestedStatus || null, effectiveTo: updated.status ?? null },
+        metadata: {
+          from: previousStatus,
+          to: requestedStatus || null,
+          effectiveTo: updated.status ?? null,
+          deletedSiblingDrafts: deletedSiblingDrafts || 0,
+        },
       });
+
+      if (deletedSiblingDrafts > 0) {
+        await writeAuditLogBestEffort(pool, req, {
+          action: "request.draft_siblings_deleted",
+          targetType: "request",
+          targetId: requestId,
+          metadata: {
+            deletedSiblingDrafts,
+            draftSessionKey,
+            createdBy: sessionCreatedBy,
+          },
+        });
+      }
 
       res.json(updated);
     })

@@ -325,7 +325,7 @@ export const RequestProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
 
     const revived = markFullRequest(reviveRequest(created));
-    setRequests(prev => [...prev, revived]);
+    setRequests(prev => (prev.some(r => r.id === revived.id) ? prev.map(r => (r.id === revived.id ? revived : r)) : [...prev, revived]));
     setLastSyncAt(new Date());
     setSyncError(null);
     setSyncState('idle');

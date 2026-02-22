@@ -182,8 +182,16 @@ const buildDuplicateDraftFromRequest = (source: CustomerRequest): Partial<Custom
   delete (duplicated as any).updatedAt;
   delete (duplicated as any).createdBy;
   delete (duplicated as any).createdByName;
+  delete (duplicated as any).draftSessionKey;
 
   return duplicated;
+};
+
+const generateDraftSessionKey = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `draft-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 };
 
 const RequestForm: React.FC = () => {
@@ -258,6 +266,7 @@ const RequestForm: React.FC = () => {
   const draftCreatePromiseRef = useRef<Promise<CustomerRequest> | null>(null);
   const latestPendingPayloadRef = useRef<Partial<CustomerRequest> | null>(null);
   const activeCreateSessionRef = useRef<string | null>(null);
+  const draftSessionKeyRef = useRef<string | null>(null);
   const [hasPendingAutosave, setHasPendingAutosave] = useState(false);
 
   useEffect(() => {
@@ -314,6 +323,7 @@ const RequestForm: React.FC = () => {
   useEffect(() => {
     if (!isCreateMode) {
       activeCreateSessionRef.current = null;
+      draftSessionKeyRef.current = null;
       return;
     }
 
@@ -323,6 +333,7 @@ const RequestForm: React.FC = () => {
     draftAnchorIdRef.current = null;
     draftCreatePromiseRef.current = null;
     latestPendingPayloadRef.current = null;
+    draftSessionKeyRef.current = generateDraftSessionKey();
   }, [isCreateMode, location.pathname, location.search]);
 
   useEffect(() => {
@@ -330,6 +341,7 @@ const RequestForm: React.FC = () => {
       draftAnchorIdRef.current = null;
       draftCreatePromiseRef.current = null;
       latestPendingPayloadRef.current = null;
+      draftSessionKeyRef.current = null;
     };
   }, []);
 
@@ -608,10 +620,10 @@ const RequestForm: React.FC = () => {
       setSaveState('saving');
 
       try {
-        const draftPayload = prepareRequestPayload({
+        const draftPayload = withDraftSessionKey(prepareRequestPayload({
           ...(formData as Partial<CustomerRequest>),
           status: 'draft',
-        });
+        }));
         latestPendingPayloadRef.current = draftPayload;
 
         const targetId = getWritableRequestId();
@@ -1020,6 +1032,16 @@ const RequestForm: React.FC = () => {
     return updates;
   };
 
+  const withDraftSessionKey = (payload: Partial<CustomerRequest>): Partial<CustomerRequest> => {
+    if (!isCreateMode) return payload;
+    const key = draftSessionKeyRef.current;
+    if (!key) return payload;
+    return {
+      ...payload,
+      draftSessionKey: key,
+    };
+  };
+
   const getWritableRequestId = () => existingRequest?.id ?? draftAnchorIdRef.current ?? null;
 
   const ensureDraftAnchor = async (baseData: Partial<CustomerRequest>) => {
@@ -1027,10 +1049,10 @@ const RequestForm: React.FC = () => {
     if (existingId) return existingId;
 
     if (!draftCreatePromiseRef.current) {
-      const createPayload = prepareRequestPayload({
+      const createPayload = withDraftSessionKey(prepareRequestPayload({
         ...baseData,
         status: 'draft',
-      });
+      }));
       latestPendingPayloadRef.current = createPayload;
       draftCreatePromiseRef.current = createRequest(createPayload as any)
         .then((created) => {
@@ -1054,10 +1076,10 @@ const RequestForm: React.FC = () => {
     try {
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      const draftPayload = prepareRequestPayload({
+      const draftPayload = withDraftSessionKey(prepareRequestPayload({
         ...formData as any,
         status: 'draft',
-      });
+      }));
       latestPendingPayloadRef.current = draftPayload;
       const createSnapshot = JSON.stringify(draftPayload);
       const hadWritableId = Boolean(getWritableRequestId());
@@ -1125,10 +1147,10 @@ const RequestForm: React.FC = () => {
         const writableId = getWritableRequestId() ?? await ensureDraftAnchor(formData as Partial<CustomerRequest>);
         await updateRequest(
           writableId,
-          prepareRequestPayload({
+          withDraftSessionKey(prepareRequestPayload({
             ...formData as any,
             status: 'submitted',
-          })
+          }))
         );
         await updateStatus(writableId, 'submitted');
         setFormData((prev) => ({ ...prev, status: 'submitted' }));
