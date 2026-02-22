@@ -9,6 +9,7 @@ import {
   Download,
   Edit,
   Eye,
+  Files,
   MoreHorizontal,
   Trash2,
 } from 'lucide-react';
@@ -326,7 +327,14 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
       {
         key: 'duplicate',
         label: 'Duplicate',
+        icon: Files,
         onSelect: () => handleDuplicate(request.id),
+      },
+      {
+        key: 'download-pdf',
+        label: t.table.download,
+        icon: Download,
+        onSelect: () => handleOpenPdfDialog(request),
       },
       {
         key: 'export-row',
@@ -339,12 +347,6 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
         label: 'Copy ID',
         icon: Copy,
         onSelect: () => handleCopyId(request.id),
-      },
-      {
-        key: 'download-pdf',
-        label: t.table.download,
-        icon: Download,
-        onSelect: () => handleOpenPdfDialog(request),
       },
     ];
 
