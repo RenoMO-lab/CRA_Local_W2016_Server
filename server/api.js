@@ -2495,7 +2495,7 @@ const checkRateLimit = async (pool, req) => {
   return null;
 };
 
-const generateRequestId = async (pool) => {
+const generateRequestIdInClient = async (client) => {
   const now = new Date();
   const year = now.getFullYear().toString().slice(-2);
   const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -2503,18 +2503,22 @@ const generateRequestId = async (pool) => {
   const dateStamp = `${year}${month}${day}`;
   const counterName = `request_${dateStamp}`;
 
+  await client.query("INSERT INTO counters (name, value) VALUES ($1, 0) ON CONFLICT (name) DO NOTHING", [
+    counterName,
+  ]);
+
+  const result = await client.query("UPDATE counters SET value = value + 1 WHERE name = $1 RETURNING value", [
+    counterName,
+  ]);
+
+  const value = result.rows?.[0]?.value;
+  if (!value) throw new Error("Failed to generate request id");
+  return `CRA${dateStamp}${String(value).padStart(2, "0")}`;
+};
+
+const generateRequestId = async (pool) => {
   return withTransaction(pool, async (client) => {
-    await client.query("INSERT INTO counters (name, value) VALUES ($1, 0) ON CONFLICT (name) DO NOTHING", [
-      counterName,
-    ]);
-
-    const result = await client.query("UPDATE counters SET value = value + 1 WHERE name = $1 RETURNING value", [
-      counterName,
-    ]);
-
-    const value = result.rows?.[0]?.value;
-    if (!value) throw new Error("Failed to generate request id");
-    return `CRA${dateStamp}${String(value).padStart(2, "0")}`;
+    return generateRequestIdInClient(client);
   });
 };
 
@@ -5780,7 +5784,7 @@ export const apiRouter = (() => {
           }
         }
 
-        const id = await generateRequestId(client);
+        const id = await generateRequestIdInClient(client);
         const requestData = normalizeRequestData(
           {
             ...body,
