@@ -16,6 +16,7 @@ import {
   UserRole,
 } from "@/types";
 import { cn } from "@/lib/utils";
+import { filterLifecycleHistory } from "@/lib/historyLifecycle";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -148,7 +149,8 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
 
   const sortedHistory = useMemo(() => {
     if (!request?.history?.length) return [];
-    return [...request.history].sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp));
+    const lifecycleHistory = filterLifecycleHistory(request.history);
+    return [...lifecycleHistory].sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp));
   }, [request]);
 
   const headerSubtitle = useMemo(() => {

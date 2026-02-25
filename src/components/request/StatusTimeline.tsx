@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import { Check, Clock, AlertCircle, MessageSquare, DollarSign, CheckCircle, Pencil, FileText } from 'lucide-react';
 import { StatusHistoryEntry, RequestStatus, STATUS_CONFIG } from '@/types';
 import { cn } from '@/lib/utils';
+import { filterLifecycleHistory } from '@/lib/historyLifecycle';
 import { useLanguage } from '@/context/LanguageContext';
 
 interface StatusTimelineProps {
@@ -48,16 +49,17 @@ const getStatusIcon = (status: RequestStatus) => {
 
 const StatusTimeline: React.FC<StatusTimelineProps> = ({ history }) => {
   const { t } = useLanguage();
+  const lifecycleHistory = filterLifecycleHistory(history);
 
   return (
     <div className="bg-card rounded-lg border border-border p-4 md:p-6">
       <h3 className="font-semibold text-foreground mb-3 md:mb-4 text-sm md:text-base">{t.timeline.statusHistory}</h3>
       
       <div className="space-y-0">
-        {history.map((entry, index) => {
+        {lifecycleHistory.map((entry, index) => {
           const Icon = getStatusIcon(entry.status);
           const config = STATUS_CONFIG[entry.status];
-          const isLast = index === history.length - 1;
+          const isLast = index === lifecycleHistory.length - 1;
           const statusKey = entry.status as keyof typeof t.statuses;
           const label = t.statuses[statusKey] || config.label;
           const successStatuses: RequestStatus[] = ['gm_approved', 'costing_complete', 'closed'];

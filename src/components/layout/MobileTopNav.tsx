@@ -2,23 +2,14 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ChevronDown,
-  KeyRound,
-  Laptop,
-  LogOut,
   Menu,
-  MessageCircle,
-  Moon,
   Plus,
   Settings,
-  Sun,
 } from 'lucide-react';
-import { useTheme } from 'next-themes';
 
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import AccountDialog from '@/components/account/AccountDialog';
-import FeedbackDialog from '@/components/feedback/FeedbackDialog';
+import UserHubMenu from '@/components/layout/UserHubMenu';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { cn } from '@/lib/utils';
@@ -50,18 +41,10 @@ DrawerItem.displayName = 'DrawerItem';
 const MobileTopNav: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
-  const { t, language, setLanguage } = useLanguage();
-  const { theme, setTheme } = useTheme();
+  const { user } = useAuth();
+  const { t } = useLanguage();
 
-  const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-
-  const languages = [
-    { code: 'en', label: 'English' },
-    { code: 'fr', label: 'Français' },
-    { code: 'zh', label: '中文' },
-  ];
 
   const settingsTab = (() => {
     if (location.pathname !== '/settings') return 'export';
@@ -135,6 +118,22 @@ const MobileTopNav: React.FC = () => {
               {t.nav.newRequest}
             </Button>
           )}
+
+          {user ? (
+            <UserHubMenu
+              trigger={
+                <Button variant="outline" className="h-8 gap-1 px-1.5 max-w-[138px]">
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-[10px] font-semibold text-primary">
+                    {user.name.charAt(0).toUpperCase()}
+                  </span>
+                  <span className="truncate text-[11px] font-medium">{user.name}</span>
+                </Button>
+              }
+              contentAlign="end"
+              contentSide="bottom"
+              contentSideOffset={8}
+            />
+          ) : null}
 
           <Button
             variant="ghost"
@@ -216,109 +215,10 @@ const MobileTopNav: React.FC = () => {
                   ) : null}
                 </div>
               ) : null}
-
-              <div className="mt-2 pt-2 border-t border-border space-y-1">
-                <FeedbackDialog
-                  trigger={
-                    <DrawerItem>
-                      <MessageCircle size={16} />
-                      <span className="flex-1">{t.feedback.reportIssue}</span>
-                    </DrawerItem>
-                  }
-                />
-
-                <DrawerItem
-                  onClick={() => {
-                    setIsMenuOpen(false);
-                    setIsAccountOpen(true);
-                  }}
-                >
-                  <KeyRound size={16} />
-                  <span className="flex-1">{t.account.myAccount}</span>
-                </DrawerItem>
-              </div>
-
-              <div className="mt-2 pt-2 border-t border-border">
-                <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t.common.theme}
-                </div>
-                <div className="px-2 grid grid-cols-3 gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setTheme('system')}
-                    className={cn(
-                      'flex flex-col items-center justify-center gap-1 rounded-md border border-border px-2 py-2 text-[11px] leading-tight transition-colors',
-                      (theme || 'system') === 'system'
-                        ? 'bg-primary/10 text-primary border-primary/30'
-                        : 'hover:bg-accent',
-                    )}
-                  >
-                    <Laptop size={14} className="opacity-80" />
-                    <span className="font-medium">{t.common.themeSystem}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTheme('light')}
-                    className={cn(
-                      'flex flex-col items-center justify-center gap-1 rounded-md border border-border px-2 py-2 text-[11px] leading-tight transition-colors',
-                      theme === 'light' ? 'bg-primary/10 text-primary border-primary/30' : 'hover:bg-accent',
-                    )}
-                  >
-                    <Sun size={14} className="opacity-80" />
-                    <span className="font-medium">{t.common.themeLight}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTheme('dark')}
-                    className={cn(
-                      'flex flex-col items-center justify-center gap-1 rounded-md border border-border px-2 py-2 text-[11px] leading-tight transition-colors',
-                      theme === 'dark' ? 'bg-primary/10 text-primary border-primary/30' : 'hover:bg-accent',
-                    )}
-                  >
-                    <Moon size={14} className="opacity-80" />
-                    <span className="font-medium">{t.common.themeDark}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-2 pt-2 border-t border-border">
-                <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t.common.language}
-                </div>
-                <div className="px-2">
-                  <Select value={language} onValueChange={(value) => setLanguage(value as any)}>
-                    <SelectTrigger className="w-full bg-background/40">
-                      <SelectValue placeholder={t.common.language} />
-                    </SelectTrigger>
-                    <SelectContent className="bg-card border border-border">
-                      {languages.map((lang) => (
-                        <SelectItem key={lang.code} value={lang.code}>
-                          {lang.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
-            <div className="border-t border-border p-2">
-              <DrawerItem
-                onClick={() => {
-                  setIsMenuOpen(false);
-                  logout();
-                }}
-                className="text-destructive hover:text-destructive"
-              >
-                <LogOut size={16} />
-                <span className="flex-1">{t.nav.logout}</span>
-              </DrawerItem>
             </div>
           </div>
         </SheetContent>
       </Sheet>
-
-      <AccountDialog open={isAccountOpen} onOpenChange={setIsAccountOpen} />
     </header>
   );
 };

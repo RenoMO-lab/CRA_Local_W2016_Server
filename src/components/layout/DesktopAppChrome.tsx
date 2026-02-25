@@ -3,11 +3,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Bell,
   CheckCheck,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Command,
   LayoutGrid,
-  MoreVertical,
   Plus,
   RefreshCw,
   Search,
@@ -22,17 +22,9 @@ import { useLanguage } from '@/context/LanguageContext';
 import { useRequests } from '@/context/RequestContext';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import UserHubMenu from '@/components/layout/UserHubMenu';
 import { cn } from '@/lib/utils';
 
 interface DesktopAppChromeProps {
@@ -55,6 +47,7 @@ interface AppNotification {
   title: string;
   body: string;
   requestId: string | null;
+  payload?: Record<string, any> | null;
   isRead: boolean;
   createdAt: string | null;
   readAt: string | null;
@@ -311,6 +304,23 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     };
   }, [fetchNotifications, fetchUnreadCount, notificationsFilter, notificationsOpen]);
 
+  useEffect(() => {
+    if (!user) return;
+
+    let timerId: number | undefined;
+    const tick = async () => {
+      if (document.visibilityState !== 'visible') return;
+      await syncClientUpdateNotification();
+    };
+
+    void tick();
+    timerId = window.setInterval(tick, 10 * 60_000);
+
+    return () => {
+      if (timerId) window.clearInterval(timerId);
+    };
+  }, [syncClientUpdateNotification, user]);
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
@@ -355,8 +365,38 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     if (item.requestId) {
       navigate(`/requests/${item.requestId}`);
       setNotificationsOpen(false);
+      return;
+    }
+    const actionPath = typeof item.payload?.actionPath === 'string' ? item.payload.actionPath : '';
+    if (actionPath) {
+      navigate(actionPath);
+      setNotificationsOpen(false);
     }
   };
+
+  const syncClientUpdateNotification = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await fetch('/api/notifications/client-update/sync', { method: 'POST' });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data?.createdForCurrentUser === true) {
+        toast.success(t.downloads.updateToastTitle, {
+          description: t.downloads.updateToastDesc,
+          action: {
+            label: t.downloads.openDownloads,
+            onClick: () => navigate('/downloads'),
+          },
+        });
+      }
+      await fetchUnreadCount();
+      if (notificationsOpen) {
+        await fetchNotifications(notificationsFilter);
+      }
+    } catch {
+      // ignore transient sync errors
+    }
+  }, [fetchNotifications, fetchUnreadCount, navigate, notificationsFilter, notificationsOpen, t.downloads, user]);
 
   return (
     <>
@@ -460,28 +500,22 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
               </span>
             ) : null}
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="h-8 w-8">
-                <MoreVertical className="h-4 w-4" />
+          <UserHubMenu
+            trigger={
+              <Button variant="outline" className="h-8 max-w-[220px] gap-2 px-1.5">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-[11px] font-semibold text-primary">
+                  {(user?.name || 'U').charAt(0).toUpperCase()}
+                </span>
+                <span className="min-w-0 truncate text-xs font-medium">{user?.name || 'User'}</span>
+                {user ? (
+                  <span className="hidden sm:inline-flex rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    {t.roles[user.role]}
+                  </span>
+                ) : null}
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem
-                onClick={() => {
-                  setPaletteQuery(globalSearchQuery);
-                  setCommandPaletteOpen(true);
-                }}
-              >
-                Open command palette
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuRadioGroup value={density} onValueChange={(value) => setDensity(value as 'compact' | 'comfortable')}>
-                <DropdownMenuRadioItem value="compact">Compact density</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="comfortable">Comfortable density</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            }
+          />
         </div>
       </div>
 
@@ -694,6 +728,20 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                           }}
                         >
                           Open request
+                        </Button>
+                      ) : null}
+                      {!item.requestId && typeof item.payload?.actionPath === 'string' && item.payload.actionPath ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs"
+                          onClick={() => {
+                            navigate(item.payload?.actionPath as string);
+                            setNotificationsOpen(false);
+                          }}
+                        >
+                          {t.downloads.openDownloads}
                         </Button>
                       ) : null}
                     </div>

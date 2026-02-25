@@ -1,41 +1,26 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import {
   BarChart3,
-  Check,
   ChevronDown,
-  ChevronRight,
   Database,
-  Download,
   FileText,
-  KeyRound,
   Languages,
-  Laptop,
-  LifeBuoy,
-  LogOut,
   Mail,
   MessageCircle,
-  Moon,
-  MoreVertical,
   Plus,
   ScrollText,
   Server,
   Settings,
-  Sun,
   Tags,
   Users,
 } from 'lucide-react';
-import { useTheme } from 'next-themes';
 
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAppShell } from '@/context/AppShellContext';
 import { cn } from '@/lib/utils';
-import { ROLE_CONFIG, UserRole } from '@/types';
 import LanguageSelector from '@/components/LanguageSelector';
-import FeedbackDialog from '@/components/feedback/FeedbackDialog';
-import HelpDialog from '@/components/help/HelpDialog';
-import AccountDialog from '@/components/account/AccountDialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,19 +35,12 @@ interface SidebarProps {
   onResize: (width: number) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResize }) => {
+const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, width, onResize }) => {
   const location = useLocation();
-  const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const { density } = useAppShell();
-  const { theme, setTheme } = useTheme();
-  const [isAccountOpen, setIsAccountOpen] = useState(false);
-  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
-  const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(location.pathname === '/settings');
-  const accountMenuRef = useRef<HTMLDivElement | null>(null);
-  const themeCloseTimerRef = useRef<number | null>(null);
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(width);
 
@@ -79,57 +57,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResiz
     }
     setAdminOpen(false);
   }, [isSettingsActive, location.pathname]);
-
-  useEffect(() => {
-    if (themeCloseTimerRef.current !== null) {
-      window.clearTimeout(themeCloseTimerRef.current);
-      themeCloseTimerRef.current = null;
-    }
-    setIsAccountMenuOpen(false);
-    setIsThemeMenuOpen(false);
-  }, [location.pathname]);
-
-  useEffect(() => {
-    if (!isAccountMenuOpen) return;
-
-    const onPointerDown = (event: MouseEvent) => {
-      if (!accountMenuRef.current?.contains(event.target as Node)) {
-        if (themeCloseTimerRef.current !== null) {
-          window.clearTimeout(themeCloseTimerRef.current);
-          themeCloseTimerRef.current = null;
-        }
-        setIsAccountMenuOpen(false);
-        setIsThemeMenuOpen(false);
-      }
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        if (themeCloseTimerRef.current !== null) {
-          window.clearTimeout(themeCloseTimerRef.current);
-          themeCloseTimerRef.current = null;
-        }
-        setIsAccountMenuOpen(false);
-        setIsThemeMenuOpen(false);
-      }
-    };
-
-    window.addEventListener('mousedown', onPointerDown);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', onPointerDown);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [isAccountMenuOpen]);
-
-  useEffect(() => {
-    return () => {
-      if (themeCloseTimerRef.current !== null) {
-        window.clearTimeout(themeCloseTimerRef.current);
-        themeCloseTimerRef.current = null;
-      }
-    };
-  }, []);
 
   const navItems = useMemo(
     () => [
@@ -159,8 +86,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResiz
 
   const isActive = (path: string) => location.pathname === path;
 
-  const getRoleLabel = (role: UserRole) => t.roles[role] || ROLE_CONFIG[role].label;
-
   const startResize = (event: React.MouseEvent) => {
     if (isCollapsed) return;
     resizeStartX.current = event.clientX;
@@ -183,27 +108,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResiz
   const sectionPadding = density === 'compact' ? 'px-2 py-2' : 'px-3 py-3';
   const navItemPadding = density === 'compact' ? 'px-3 py-2' : 'px-3 py-2.5';
   const sidebarWidth = isCollapsed ? 64 : width;
-  const accountActionClass =
-    'w-full flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-sidebar-foreground transition-colors hover:bg-sidebar-background/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50';
-  const themeOptionClass =
-    'w-full flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
-
-  const clearThemeCloseTimer = () => {
-    if (themeCloseTimerRef.current !== null) {
-      window.clearTimeout(themeCloseTimerRef.current);
-      themeCloseTimerRef.current = null;
-    }
-  };
-
-  const handleThemeSelect = (nextTheme: 'system' | 'light' | 'dark') => {
-    setTheme(nextTheme);
-    setIsThemeMenuOpen(false);
-    clearThemeCloseTimer();
-    themeCloseTimerRef.current = window.setTimeout(() => {
-      setIsAccountMenuOpen(false);
-      themeCloseTimerRef.current = null;
-    }, 140);
-  };
 
   return (
     <aside
@@ -333,233 +237,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResiz
           <LanguageSelector variant="sidebar" />
         )}
       </div>
-
-      <div className={cn('border-t border-sidebar-border', sectionPadding)}>
-        {user ? (
-          <div ref={accountMenuRef} className="relative">
-            {!isCollapsed && isAccountMenuOpen ? (
-              <div
-                className={cn(
-                  'absolute bottom-full left-0 right-0 z-[70] border border-sidebar-border border-b-0 rounded-t-lg rounded-b-none bg-sidebar-accent shadow-xl',
-                  density === 'compact' ? 'p-1.5 space-y-0.5' : 'p-2 space-y-1'
-                )}
-              >
-                <button
-                  type="button"
-                  className={accountActionClass}
-                  onClick={() => {
-                    clearThemeCloseTimer();
-                    setIsAccountMenuOpen(false);
-                    setIsThemeMenuOpen(false);
-                    window.dispatchEvent(new CustomEvent('feedback:open'));
-                  }}
-                >
-                  <MessageCircle size={14} />
-                  {t.feedback.reportIssue}
-                </button>
-                <HelpDialog
-                  trigger={
-                    <button type="button" className={accountActionClass}>
-                      <LifeBuoy size={14} />
-                      {t.common.help}
-                    </button>
-                  }
-                />
-
-                <div className="h-px bg-sidebar-border my-1" />
-
-                <button
-                  type="button"
-                  className={accountActionClass}
-                  onClick={() => {
-                    clearThemeCloseTimer();
-                    setIsAccountMenuOpen(false);
-                    setIsThemeMenuOpen(false);
-                    navigate('/downloads');
-                  }}
-                >
-                  <Download size={14} />
-                  {t.downloads.downloadButton}
-                </button>
-
-                <div className="h-px bg-sidebar-border my-1" />
-
-                <button
-                  type="button"
-                  className={accountActionClass}
-                  onClick={() => {
-                    clearThemeCloseTimer();
-                    setIsAccountOpen(true);
-                    setIsAccountMenuOpen(false);
-                    setIsThemeMenuOpen(false);
-                  }}
-                >
-                  <KeyRound size={14} />
-                  {t.account.myAccount}
-                </button>
-
-                <div className="h-px bg-sidebar-border my-1" />
-
-                <div className="relative">
-                  <button
-                    type="button"
-                    className={accountActionClass}
-                    onClick={() => {
-                      clearThemeCloseTimer();
-                      setIsThemeMenuOpen((value) => !value);
-                    }}
-                  >
-                    <Laptop size={14} />
-                    <span className="flex-1 text-left">{t.common.theme}</span>
-                    <ChevronRight size={14} className={cn('transition-transform', isThemeMenuOpen && 'text-primary')} />
-                  </button>
-                  {isThemeMenuOpen ? (
-                    <div className="absolute left-[calc(100%+8px)] top-0 z-[80] w-[196px] rounded-lg border border-border bg-popover text-popover-foreground shadow-xl p-1">
-                      {[
-                        { key: 'system', label: t.common.themeSystem, icon: Laptop },
-                        { key: 'light', label: t.common.themeLight, icon: Sun },
-                        { key: 'dark', label: t.common.themeDark, icon: Moon },
-                      ].map((option) => {
-                        const Icon = option.icon;
-                        const active = (theme || 'system') === option.key;
-                        return (
-                          <button
-                            key={option.key}
-                            type="button"
-                            className={cn(themeOptionClass, active && 'text-primary')}
-                            onClick={() => handleThemeSelect(option.key as 'system' | 'light' | 'dark')}
-                          >
-                            <Icon size={13} />
-                            <span className="flex-1 text-left">{option.label}</span>
-                            {active ? <Check size={12} /> : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="h-px bg-sidebar-border my-1" />
-
-                <button
-                  type="button"
-                  className={cn(accountActionClass, 'text-destructive hover:text-destructive')}
-                  onClick={() => {
-                    clearThemeCloseTimer();
-                    setIsAccountMenuOpen(false);
-                    setIsThemeMenuOpen(false);
-                    logout();
-                  }}
-                >
-                  <LogOut size={14} />
-                  {t.nav.logout}
-                </button>
-              </div>
-            ) : null}
-
-            <div
-              className={cn(
-                'bg-sidebar-accent border border-sidebar-border',
-                !isCollapsed && isAccountMenuOpen ? 'rounded-b-lg rounded-t-none border-t-0' : 'rounded-lg',
-                density === 'compact' ? 'p-2' : 'p-3'
-              )}
-            >
-              <div className={cn('flex items-start gap-2', isCollapsed ? 'flex-col items-center' : 'justify-between')}>
-                {!isCollapsed ? (
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-sidebar-foreground truncate">{user.name}</p>
-                    <p className="text-xs text-sidebar-muted truncate">{user.email}</p>
-                    <span className={cn('inline-block mt-2 px-2 py-0.5 rounded text-xs font-medium', ROLE_CONFIG[user.role].color)}>
-                      {getRoleLabel(user.role)}
-                    </span>
-                  </div>
-                ) : (
-                  <span className={cn('w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium', ROLE_CONFIG[user.role].color)}>
-                    {user.name.charAt(0)}
-                  </span>
-                )}
-
-                {isCollapsed ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        className="p-1.5 rounded-lg text-sidebar-muted hover:text-primary hover:bg-primary/10 transition-colors"
-                        aria-label={t.common.actions}
-                      >
-                        <MoreVertical size={16} />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent side="right" align="end" sideOffset={8} className="min-w-[190px]">
-                      <DropdownMenuItem
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          window.dispatchEvent(new CustomEvent('feedback:open'));
-                        }}
-                      >
-                        <MessageCircle size={14} className="mr-2" />
-                        {t.feedback.reportIssue}
-                      </DropdownMenuItem>
-                      <HelpDialog
-                        trigger={
-                          <DropdownMenuItem onSelect={(event) => event.preventDefault()}>
-                            <LifeBuoy size={14} className="mr-2" />
-                            {t.common.help}
-                          </DropdownMenuItem>
-                        }
-                      />
-                      <DropdownMenuItem onSelect={() => setIsAccountOpen(true)}>
-                        <KeyRound size={14} className="mr-2" />
-                        {t.account.myAccount}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => navigate('/downloads')}>
-                        <Download size={14} className="mr-2" />
-                        {t.downloads.downloadButton}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => setTheme('system')}>
-                        <Laptop size={14} className="mr-2" />
-                        {t.common.themeSystem}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => setTheme('light')}>
-                        <Sun size={14} className="mr-2" />
-                        {t.common.themeLight}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => setTheme('dark')}>
-                        <Moon size={14} className="mr-2" />
-                        {t.common.themeDark}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={logout} className="text-destructive focus:text-destructive">
-                        <LogOut size={14} className="mr-2" />
-                        {t.nav.logout}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : (
-                  <button
-                    type="button"
-                    className="p-2 rounded-lg text-sidebar-muted hover:text-primary hover:bg-primary/10 transition-colors"
-                    aria-label={t.common.actions}
-                    aria-expanded={isAccountMenuOpen}
-                    onClick={() => {
-                      clearThemeCloseTimer();
-                      setIsAccountMenuOpen((value) => !value);
-                      setIsThemeMenuOpen(false);
-                    }}
-                  >
-                    <MoreVertical size={16} />
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="hidden">
-        <FeedbackDialog trigger={<span />} />
-      </div>
-
-      <AccountDialog open={isAccountOpen} onOpenChange={setIsAccountOpen} />
 
       {!isCollapsed ? (
         <div

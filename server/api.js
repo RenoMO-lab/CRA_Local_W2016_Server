@@ -1902,11 +1902,14 @@ const DEFAULT_CRA_CLIENT_GITHUB_REPO = "CRA_client";
 const DEFAULT_CRA_CLIENT_GITHUB_ASSET_PATTERN = "windows-x64.exe";
 const DEFAULT_CRA_CLIENT_RELEASE_CACHE_SECONDS = 300;
 const DEFAULT_CRA_CLIENT_NEGATIVE_CACHE_SECONDS = 30;
+const DEFAULT_CLIENT_UPDATE_SYNC_THROTTLE_SECONDS = 300;
 const GITHUB_API_BASE = "https://api.github.com";
 const DB_BACKUP_DIR = path.resolve(process.env.DB_BACKUP_DIR || "C:\\CRA_Local_W2016_Main\\backups\\postgres");
 const MAX_DB_BACKUP_LIST = 100;
 let dbBackupInProgress = false;
 const craClientReleaseCache = new Map();
+const clientUpdateSyncCache = new Map();
+const clientUpdateErrorLogCache = new Map();
 
 const clampLineCount = (value) => {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -2098,6 +2101,10 @@ const getCraClientNegativeCacheTtlMs = () =>
   parsePositiveInt(process.env.CRA_CLIENT_RELEASE_NEGATIVE_CACHE_SECONDS, DEFAULT_CRA_CLIENT_NEGATIVE_CACHE_SECONDS) *
   1000;
 
+const getClientUpdateSyncThrottleMs = () =>
+  parsePositiveInt(process.env.CRA_CLIENT_UPDATE_SYNC_THROTTLE_SECONDS, DEFAULT_CLIENT_UPDATE_SYNC_THROTTLE_SECONDS) *
+  1000;
+
 const selectGitHubReleaseAsset = (assets, pattern) => {
   const list = Array.isArray(assets) ? assets : [];
   const needle = String(pattern ?? "").trim().toLowerCase();
@@ -2191,6 +2198,71 @@ const resolveCraClientDownloadTarget = async () => {
     if (local.exists) return { ...local, source: "local" };
     throw error;
   }
+};
+
+const buildClientUpdateNotificationPayload = (installerMeta) => {
+  const version = sanitizeDownloadText(installerMeta?.version);
+  return {
+    version: version || null,
+    installerName: sanitizeDownloadFileName(installerMeta?.installerName, DEFAULT_CRA_CLIENT_INSTALLER_NAME),
+    sizeBytes: Number.isFinite(Number(installerMeta?.sizeBytes)) ? Number(installerMeta.sizeBytes) : null,
+    updatedAt: sanitizeDownloadText(installerMeta?.updatedAt) || null,
+    actionPath: "/downloads",
+    source: sanitizeDownloadText(installerMeta?.source) || "github",
+  };
+};
+
+const enqueueClientUpdateNotifications = async (pool, installerMeta) => {
+  const payload = buildClientUpdateNotificationPayload(installerMeta);
+  const version = String(payload.version ?? "").trim();
+  if (!version) {
+    return { inserted: 0, insertedUserIds: new Set(), version: null };
+  }
+
+  const throttleMs = getClientUpdateSyncThrottleMs();
+  const now = Date.now();
+  const throttleKey = `${version}`;
+  const throttleHit = clientUpdateSyncCache.get(throttleKey);
+  if (throttleHit && now - throttleHit.ts < throttleMs) {
+    return { inserted: 0, insertedUserIds: new Set(), version };
+  }
+
+  const { rows: users } = await pool.query(
+    `
+    SELECT id
+      FROM app_users
+     WHERE is_active = true
+    `
+  );
+
+  let inserted = 0;
+  const insertedUserIds = new Set();
+  const title = `CRA Client update available (${version})`;
+  const body = `A newer CRA desktop client is available. Open Downloads to install ${version}.`;
+
+  for (const user of users ?? []) {
+    const userId = String(user?.id ?? "").trim();
+    if (!userId) continue;
+    const id = randomUUID();
+    const { rowCount } = await pool.query(
+      `
+      INSERT INTO app_notifications (id, user_id, notification_type, title, body, request_id, payload_json)
+      VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+      ON CONFLICT DO NOTHING
+      `,
+      [id, userId, "client_update_available", title, body, null, JSON.stringify(payload)]
+    );
+    if ((rowCount ?? 0) > 0) {
+      inserted += 1;
+      insertedUserIds.add(userId);
+    }
+  }
+
+  clientUpdateSyncCache.set(throttleKey, { ts: now });
+  if (inserted > 0) {
+    console.info(`[client-update] version=${version} inserted=${inserted}`);
+  }
+  return { inserted, insertedUserIds, version };
 };
 
 const formatBackupTimestamp = (date = new Date()) => {
@@ -2954,6 +3026,41 @@ export const apiRouter = (() => {
       }
       res.setHeader("Content-Disposition", `attachment; filename=\"${installer.installerName}\"`);
       Readable.fromWeb(assetResponse.body).pipe(res);
+    })
+  );
+
+  router.post(
+    "/notifications/client-update/sync",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const userId = String(req.authUser?.id ?? "").trim();
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+
+      const pool = await getPool();
+      try {
+        const installer = await resolveCraClientDownloadTarget();
+        const result = await enqueueClientUpdateNotifications(pool, installer);
+        const createdForCurrentUser = result.insertedUserIds.has(userId);
+        res.json({
+          createdForCurrentUser,
+          version: result.version,
+        });
+      } catch (error) {
+        const key = "resolve_error";
+        const now = Date.now();
+        const lastLoggedAt = clientUpdateErrorLogCache.get(key) ?? 0;
+        if (now - lastLoggedAt > 60_000) {
+          console.warn("[client-update] sync skipped:", String(error?.message ?? error));
+          clientUpdateErrorLogCache.set(key, now);
+        }
+        res.json({
+          createdForCurrentUser: false,
+          version: null,
+        });
+      }
     })
   );
 
@@ -6583,7 +6690,9 @@ export const apiRouter = (() => {
           ? [...existing.history]
           : [];
 
-      if (historyEvent === "edited") {
+      const hasSubmittedInHistory = baseHistory.some((entry) => String(entry?.status ?? "") === "submitted");
+
+      if (historyEvent === "edited" && hasSubmittedInHistory) {
         baseHistory.push({
           id: `h-${Date.now()}`,
           status: "edited",

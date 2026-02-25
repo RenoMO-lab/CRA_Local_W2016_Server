@@ -3,6 +3,7 @@ import { Attachment, CustomerRequest, RequestProduct, STATUS_CONFIG, AXLE_LOCATI
 import { format } from 'date-fns';
 import { enUS, fr, zhCN } from 'date-fns/locale';
 import { translations, Language } from '@/i18n/translations';
+import { filterLifecycleHistory } from '@/lib/historyLifecycle';
 
 const MONROC_RED = '#FA0000';
 const TEXT_GREY = '#4B5563';
@@ -1098,7 +1099,8 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
     const revisionValue = (() => {
       const raw: any = (request as any)?.revision ?? (request as any)?.version ?? null;
       if (raw !== null && raw !== undefined && String(raw).trim() !== "") return String(raw);
-      const edits = Array.isArray(request.history) ? request.history.filter((h: any) => h?.status === "edited").length : 0;
+      const lifecycleHistory = filterLifecycleHistory(request.history as any);
+      const edits = lifecycleHistory.filter((h: any) => h?.status === "edited").length;
       return String(Math.max(1, 1 + edits));
     })();
 
@@ -1480,7 +1482,8 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
 
   // Status history card.
   if (Array.isArray(request.history) && request.history.length) {
-    const filteredHistory = request.history.filter((entry, index, arr) => {
+    const lifecycleHistory = filterLifecycleHistory(request.history as any);
+    const filteredHistory = lifecycleHistory.filter((entry, index, arr) => {
       if (index === 0) return true;
       const prev = arr[index - 1];
       const sameStatus = entry.status === prev.status;
