@@ -17,6 +17,7 @@ const RequestForm = React.lazy(() => import("./pages/RequestForm"));
 const Performance = React.lazy(() => import("./pages/Performance"));
 const Settings = React.lazy(() => import("./pages/Settings"));
 const PriceList = React.lazy(() => import("./pages/PriceList"));
+const Downloads = React.lazy(() => import("./pages/Downloads"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -57,6 +58,7 @@ const App = () => (
                         <Route path="/requests/:id" element={<RequestForm />} />
                         <Route path="/requests/:id/edit" element={<RequestForm />} />
                         <Route path="/price-list" element={<PriceList />} />
+                        <Route path="/downloads" element={<Downloads />} />
                         <Route path="/settings" element={<Settings />} />
                       </Route>
                       <Route path="*" element={<NotFound />} />

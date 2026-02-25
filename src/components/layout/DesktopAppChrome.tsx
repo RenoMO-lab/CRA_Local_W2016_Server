@@ -122,6 +122,14 @@ const routeContext = (pathname: string): RouteContext => {
       ],
     };
   }
+  if (pathname.startsWith('/downloads')) {
+    return {
+      breadcrumb: [
+        { label: 'CRA', to: '/dashboard' },
+        { label: 'Downloads' },
+      ],
+    };
+  }
   if (pathname.startsWith('/settings')) {
     return {
       breadcrumb: [

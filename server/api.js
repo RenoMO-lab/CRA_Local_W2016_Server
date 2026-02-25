@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { promises as fs } from "node:fs";
+import { Readable } from "node:stream";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -1893,9 +1894,19 @@ const MAX_LOG_LINES = 1000;
 const LOG_DIR = path.join(REPO_ROOT, "deploy", "logs");
 const DEFAULT_DEPLOY_LOG_PATH = path.join(LOG_DIR, "auto-deploy.log");
 const BUILD_INFO_PATH = path.join(REPO_ROOT, "dist", "build-info.json");
+const DEFAULT_CRA_CLIENT_INSTALLER_NAME = "CRA-Setup.exe";
+const DEFAULT_CRA_CLIENT_INSTALLER_PATH = path.join(REPO_ROOT, "artifacts", DEFAULT_CRA_CLIENT_INSTALLER_NAME);
+const DEFAULT_CRA_CLIENT_RELEASE_SOURCE = "github";
+const DEFAULT_CRA_CLIENT_GITHUB_OWNER = "RenoMO-lab";
+const DEFAULT_CRA_CLIENT_GITHUB_REPO = "CRA_client";
+const DEFAULT_CRA_CLIENT_GITHUB_ASSET_PATTERN = "windows-x64.exe";
+const DEFAULT_CRA_CLIENT_RELEASE_CACHE_SECONDS = 300;
+const DEFAULT_CRA_CLIENT_NEGATIVE_CACHE_SECONDS = 30;
+const GITHUB_API_BASE = "https://api.github.com";
 const DB_BACKUP_DIR = path.resolve(process.env.DB_BACKUP_DIR || "C:\\CRA_Local_W2016_Main\\backups\\postgres");
 const MAX_DB_BACKUP_LIST = 100;
 let dbBackupInProgress = false;
+const craClientReleaseCache = new Map();
 
 const clampLineCount = (value) => {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -1982,6 +1993,204 @@ const resolveDeployLog = async () => {
   // Only use the explicit deploy log. Other files in deploy/logs (e.g. db-backup.log, manual-start logs)
   // are not a reliable source for "last deployment" and would be confusing to show as deploy history.
   return { selectedPath: null, tried, files };
+};
+
+const sanitizeDownloadFileName = (value, fallback = DEFAULT_CRA_CLIENT_INSTALLER_NAME) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return fallback;
+  const base = path.basename(raw);
+  const safe = base.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
+  return safe || fallback;
+};
+
+const sanitizeDownloadText = (value) =>
+  String(value ?? "")
+    .replace(/`r`n/gi, "")
+    .replace(/[\x00-\x1F\x7F]/g, "")
+    .trim();
+
+const parseBool = (value, fallback = false) => {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return fallback;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  return fallback;
+};
+
+const parsePositiveInt = (value, fallback) => {
+  const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+};
+
+const createHttpError = (status, message) => {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+};
+
+const inferInstallerVersion = (installerName) => {
+  const name = String(installerName ?? "").trim();
+  if (!name) return "";
+  const normalized = name.replace(/_/g, "-");
+  const match =
+    normalized.match(/(?:^|-)v?(\d+\.\d+\.\d+)(?:-|\.|$)/i) ||
+    normalized.match(/(?:^|-)v?(\d+\.\d+)(?:-|\.|$)/i);
+  if (!match?.[1]) return "";
+  return `v${match[1]}`;
+};
+
+const resolveCraClientInstaller = async () => {
+  const configuredPath = sanitizeDownloadText(process.env.CRA_CLIENT_INSTALLER_PATH);
+  const installerPath = configuredPath
+    ? path.isAbsolute(configuredPath)
+      ? configuredPath
+      : path.resolve(REPO_ROOT, configuredPath)
+    : DEFAULT_CRA_CLIENT_INSTALLER_PATH;
+  const configuredName = sanitizeDownloadText(process.env.CRA_CLIENT_INSTALLER_NAME);
+  const fallbackName = path.basename(installerPath || DEFAULT_CRA_CLIENT_INSTALLER_NAME);
+  const installerName = sanitizeDownloadFileName(configuredName, fallbackName || DEFAULT_CRA_CLIENT_INSTALLER_NAME);
+  const configuredVersion = sanitizeDownloadText(process.env.CRA_CLIENT_INSTALLER_VERSION);
+  const inferredVersion = inferInstallerVersion(installerName);
+  const version = configuredVersion || inferredVersion;
+  const sha256 = sanitizeDownloadText(process.env.CRA_CLIENT_INSTALLER_SHA256);
+
+  try {
+    const st = await fs.stat(installerPath);
+    if (!st.isFile()) {
+      return { exists: false, installerPath, installerName, version, sha256 };
+    }
+    return {
+      exists: true,
+      installerPath,
+      installerName,
+      version,
+      sha256,
+      sizeBytes: st.size,
+      updatedAt: st.mtime.toISOString(),
+    };
+  } catch {
+    return { exists: false, installerPath, installerName, version, sha256 };
+  }
+};
+
+const getCraClientGitHubConfig = () => {
+  const owner = sanitizeDownloadText(process.env.CRA_CLIENT_GITHUB_OWNER) || DEFAULT_CRA_CLIENT_GITHUB_OWNER;
+  const repo = sanitizeDownloadText(process.env.CRA_CLIENT_GITHUB_REPO) || DEFAULT_CRA_CLIENT_GITHUB_REPO;
+  const assetPattern =
+    sanitizeDownloadText(process.env.CRA_CLIENT_GITHUB_ASSET_PATTERN) || DEFAULT_CRA_CLIENT_GITHUB_ASSET_PATTERN;
+  const token = sanitizeDownloadText(process.env.CRA_CLIENT_GITHUB_TOKEN);
+  return { owner, repo, assetPattern, token };
+};
+
+const getCraClientReleaseSource = () => {
+  const raw = sanitizeDownloadText(process.env.CRA_CLIENT_RELEASE_SOURCE).toLowerCase();
+  if (raw === "local") return "local";
+  return DEFAULT_CRA_CLIENT_RELEASE_SOURCE;
+};
+
+const shouldAllowCraClientFallback = () => parseBool(process.env.CRA_CLIENT_RELEASE_ALLOW_LOCAL_FALLBACK, true);
+
+const getCraClientReleaseCacheTtlMs = () =>
+  parsePositiveInt(process.env.CRA_CLIENT_RELEASE_CACHE_SECONDS, DEFAULT_CRA_CLIENT_RELEASE_CACHE_SECONDS) * 1000;
+
+const getCraClientNegativeCacheTtlMs = () =>
+  parsePositiveInt(process.env.CRA_CLIENT_RELEASE_NEGATIVE_CACHE_SECONDS, DEFAULT_CRA_CLIENT_NEGATIVE_CACHE_SECONDS) *
+  1000;
+
+const selectGitHubReleaseAsset = (assets, pattern) => {
+  const list = Array.isArray(assets) ? assets : [];
+  const needle = String(pattern ?? "").trim().toLowerCase();
+  if (!needle) return null;
+  return (
+    list.find((asset) => String(asset?.name ?? "").toLowerCase().includes(needle)) ||
+    list.find((asset) => String(asset?.name ?? "").toLowerCase().endsWith(".exe")) ||
+    null
+  );
+};
+
+const fetchCraClientGitHubRelease = async () => {
+  const cfg = getCraClientGitHubConfig();
+  const cacheKey = `${cfg.owner}/${cfg.repo}|${cfg.assetPattern}`;
+  const now = Date.now();
+  const cached = craClientReleaseCache.get(cacheKey);
+  if (cached) {
+    if (cached.value && cached.expiresAt > now) return cached.value;
+    if (cached.error && cached.errorExpiresAt > now) throw cached.error;
+  }
+
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "CRA-Local-Server",
+  };
+  if (cfg.token) {
+    headers.Authorization = `Bearer ${cfg.token}`;
+  }
+
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}/releases/latest`;
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    let message = `GitHub release API failed with status ${response.status}`;
+    if (response.status === 403 || response.status === 429) {
+      message = "GitHub API rate limit reached";
+    } else if (response.status === 404) {
+      message = "GitHub release repository or latest release not found";
+    }
+    const error = createHttpError(502, message);
+    craClientReleaseCache.set(cacheKey, {
+      error,
+      errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+    });
+    throw error;
+  }
+
+  const payload = await response.json();
+  const asset = selectGitHubReleaseAsset(payload?.assets, cfg.assetPattern);
+  if (!asset?.browser_download_url) {
+    const error = createHttpError(502, "No matching CRA client release asset found");
+    craClientReleaseCache.set(cacheKey, {
+      error,
+      errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+    });
+    throw error;
+  }
+
+  const release = {
+    exists: true,
+    source: "github",
+    installerName: sanitizeDownloadFileName(asset.name, DEFAULT_CRA_CLIENT_INSTALLER_NAME),
+    version: sanitizeDownloadText(payload?.tag_name),
+    sizeBytes: Number.parseInt(String(asset?.size ?? "0"), 10) || 0,
+    updatedAt: sanitizeDownloadText(asset?.updated_at || payload?.published_at || payload?.created_at),
+    sha256: null,
+    downloadUrl: String(asset.browser_download_url),
+  };
+
+  craClientReleaseCache.set(cacheKey, {
+    value: release,
+    expiresAt: now + getCraClientReleaseCacheTtlMs(),
+  });
+  return release;
+};
+
+const resolveCraClientDownloadTarget = async () => {
+  const source = getCraClientReleaseSource();
+  const allowFallback = shouldAllowCraClientFallback();
+
+  if (source === "local") {
+    const local = await resolveCraClientInstaller();
+    if (!local.exists) throw createHttpError(404, "CRA client installer not found");
+    return { ...local, source: "local" };
+  }
+
+  try {
+    return await fetchCraClientGitHubRelease();
+  } catch (error) {
+    if (!allowFallback) throw error;
+    const local = await resolveCraClientInstaller();
+    if (local.exists) return { ...local, source: "local" };
+    throw error;
+  }
 };
 
 const formatBackupTimestamp = (date = new Date()) => {
@@ -2673,6 +2882,78 @@ export const apiRouter = (() => {
         },
         serverTime: new Date().toISOString(),
       });
+    })
+  );
+
+  router.get(
+    "/client/download-info",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      try {
+        const installer = await resolveCraClientDownloadTarget();
+        res.json({
+          name: installer.installerName,
+          version: installer.version || null,
+          sizeBytes: installer.sizeBytes ?? 0,
+          sha256: installer.sha256 || null,
+          updatedAt: installer.updatedAt ?? null,
+        });
+      } catch (error) {
+        const status = Number(error?.status ?? 502);
+        res.status(Number.isFinite(status) ? status : 502).json({
+          error: String(error?.message ?? "CRA client installer not available"),
+        });
+      }
+    })
+  );
+
+  router.get(
+    "/client/download",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      let installer;
+      try {
+        installer = await resolveCraClientDownloadTarget();
+      } catch (error) {
+        const status = Number(error?.status ?? 502);
+        res.status(Number.isFinite(status) ? status : 502).json({
+          error: String(error?.message ?? "CRA client installer not available"),
+        });
+        return;
+      }
+
+      if (installer.source === "local") {
+        res.download(installer.installerPath, installer.installerName);
+        return;
+      }
+
+      const cfg = getCraClientGitHubConfig();
+      const headers = {
+        Accept: "application/octet-stream",
+        "User-Agent": "CRA-Local-Server",
+      };
+      if (cfg.token) {
+        headers.Authorization = `Bearer ${cfg.token}`;
+      }
+
+      const assetResponse = await fetch(installer.downloadUrl, {
+        headers,
+        redirect: "follow",
+      });
+
+      if (!assetResponse.ok || !assetResponse.body) {
+        res.status(502).json({ error: `Failed to fetch installer asset (status ${assetResponse.status})` });
+        return;
+      }
+
+      const contentType = assetResponse.headers.get("content-type") || "application/octet-stream";
+      const contentLength = assetResponse.headers.get("content-length");
+      res.setHeader("Content-Type", contentType);
+      if (contentLength) {
+        res.setHeader("Content-Length", contentLength);
+      }
+      res.setHeader("Content-Disposition", `attachment; filename=\"${installer.installerName}\"`);
+      Readable.fromWeb(assetResponse.body).pipe(res);
     })
   );
 

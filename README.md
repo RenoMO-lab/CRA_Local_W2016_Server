@@ -62,6 +62,25 @@ PGPASSWORD=your_postgres_password
 SESSION_COOKIE_NAME=cra_sid
 SESSION_TTL_HOURS=24
 
+# CRA desktop client in-app download
+# Source: github (default) or local
+CRA_CLIENT_RELEASE_SOURCE=github
+CRA_CLIENT_RELEASE_ALLOW_LOCAL_FALLBACK=true
+CRA_CLIENT_RELEASE_CACHE_SECONDS=300
+CRA_CLIENT_RELEASE_NEGATIVE_CACHE_SECONDS=30
+
+# GitHub source configuration
+CRA_CLIENT_GITHUB_OWNER=RenoMO-lab
+CRA_CLIENT_GITHUB_REPO=CRA_client
+CRA_CLIENT_GITHUB_ASSET_PATTERN=windows-x64.exe
+CRA_CLIENT_GITHUB_TOKEN=
+
+# Local fallback configuration
+CRA_CLIENT_INSTALLER_PATH=C:\CRA_Local_Main\artifacts\CRA-Client-latest.exe
+CRA_CLIENT_INSTALLER_NAME=CRA-Client-latest.exe
+CRA_CLIENT_INSTALLER_VERSION=v0.1.19
+CRA_CLIENT_INSTALLER_SHA256=
+
 # Bootstrap admin (used only when app_users is empty)
 BOOTSTRAP_ADMIN_NAME=Admin
 BOOTSTRAP_ADMIN_EMAIL=r.molinier@sonasia.monroc.com
@@ -78,6 +97,17 @@ Authentication notes:
 - Auth now uses server-side sessions stored in PostgreSQL.
 - User accounts/roles are stored in table `app_users` (not browser localStorage).
 - After upgrade, sign in with the bootstrap admin account and use **Settings > Users > Import legacy users** once if you need to migrate users from an old browser-local installation.
+
+CRA Client download notes:
+- Logged-in users can open `/downloads` to download the desktop installer.
+- The file is served by authenticated API endpoints:
+  - `GET /api/client/download-info`
+  - `GET /api/client/download`
+- Default mode (`CRA_CLIENT_RELEASE_SOURCE=github`) auto-tracks latest GitHub release from `RenoMO-lab/CRA_client`.
+- Users still download from your server endpoint (`/api/client/download`), but bytes are streamed from latest GitHub asset.
+- Local fallback mode stays available:
+  - set `CRA_CLIENT_RELEASE_SOURCE=local`, or
+  - keep `CRA_CLIENT_RELEASE_ALLOW_LOCAL_FALLBACK=true` to use local file when GitHub is unavailable.
 
 ## Local development
 

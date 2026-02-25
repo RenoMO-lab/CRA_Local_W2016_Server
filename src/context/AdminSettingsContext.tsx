@@ -183,7 +183,7 @@ const DEFAULT_DATA = {
     { id: '2', value: 'Tridem' },
     { id: '3', value: 'Boggie' },
     { id: '4', value: 'Industrial Axles' },
-    { id: '5', value: 'Stud Axles' },
+    { id: '5', value: 'Stub Axles' },
     { id: '6', value: 'Single Axles' },
   ],
 };

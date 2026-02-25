@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
   Check,
   ChevronDown,
   ChevronRight,
   Database,
+  Download,
   FileText,
   KeyRound,
   Languages,
@@ -51,6 +52,7 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResize }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const { density } = useAppShell();
@@ -371,6 +373,22 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResiz
                   className={accountActionClass}
                   onClick={() => {
                     clearThemeCloseTimer();
+                    setIsAccountMenuOpen(false);
+                    setIsThemeMenuOpen(false);
+                    navigate('/downloads');
+                  }}
+                >
+                  <Download size={14} />
+                  {t.downloads.downloadButton}
+                </button>
+
+                <div className="h-px bg-sidebar-border my-1" />
+
+                <button
+                  type="button"
+                  className={accountActionClass}
+                  onClick={() => {
+                    clearThemeCloseTimer();
                     setIsAccountOpen(true);
                     setIsAccountMenuOpen(false);
                     setIsThemeMenuOpen(false);
@@ -493,6 +511,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle, width, onResiz
                       <DropdownMenuItem onSelect={() => setIsAccountOpen(true)}>
                         <KeyRound size={14} className="mr-2" />
                         {t.account.myAccount}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => navigate('/downloads')}>
+                        <Download size={14} className="mr-2" />
+                        {t.downloads.downloadButton}
                       </DropdownMenuItem>
                       <DropdownMenuItem onSelect={() => setTheme('system')}>
                         <Laptop size={14} className="mr-2" />

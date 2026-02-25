@@ -49,7 +49,6 @@ INSERT INTO admin_list_items (id, category, value, sort_order) VALUES
   ('configurationTypes-2', 'configurationTypes', 'Tridem', 2),
   ('configurationTypes-3', 'configurationTypes', 'Boggie', 3),
   ('configurationTypes-4', 'configurationTypes', 'Industrial Axles', 4),
-  ('configurationTypes-5', 'configurationTypes', 'Stud Axles', 5),
+  ('configurationTypes-5', 'configurationTypes', 'Stub Axles', 5),
   ('configurationTypes-6', 'configurationTypes', 'Single Axles', 6)
 ON CONFLICT (id) DO NOTHING;
-
