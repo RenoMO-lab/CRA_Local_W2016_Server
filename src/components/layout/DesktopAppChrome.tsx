@@ -304,6 +304,30 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     };
   }, [fetchNotifications, fetchUnreadCount, notificationsFilter, notificationsOpen]);
 
+  const syncClientUpdateNotification = useCallback(async () => {
+    if (!user) return;
+    try {
+      const res = await fetch('/api/notifications/client-update/sync', { method: 'POST' });
+      if (!res.ok) return;
+      const data = await res.json().catch(() => null);
+      if (data?.createdForCurrentUser === true) {
+        toast.success(t.downloads.updateToastTitle, {
+          description: t.downloads.updateToastDesc,
+          action: {
+            label: t.downloads.openDownloads,
+            onClick: () => navigate('/downloads'),
+          },
+        });
+      }
+      await fetchUnreadCount();
+      if (notificationsOpen) {
+        await fetchNotifications(notificationsFilter);
+      }
+    } catch {
+      // ignore transient sync errors
+    }
+  }, [fetchNotifications, fetchUnreadCount, navigate, notificationsFilter, notificationsOpen, t.downloads, user]);
+
   useEffect(() => {
     if (!user) return;
 
@@ -373,30 +397,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       setNotificationsOpen(false);
     }
   };
-
-  const syncClientUpdateNotification = useCallback(async () => {
-    if (!user) return;
-    try {
-      const res = await fetch('/api/notifications/client-update/sync', { method: 'POST' });
-      if (!res.ok) return;
-      const data = await res.json().catch(() => null);
-      if (data?.createdForCurrentUser === true) {
-        toast.success(t.downloads.updateToastTitle, {
-          description: t.downloads.updateToastDesc,
-          action: {
-            label: t.downloads.openDownloads,
-            onClick: () => navigate('/downloads'),
-          },
-        });
-      }
-      await fetchUnreadCount();
-      if (notificationsOpen) {
-        await fetchNotifications(notificationsFilter);
-      }
-    } catch {
-      // ignore transient sync errors
-    }
-  }, [fetchNotifications, fetchUnreadCount, navigate, notificationsFilter, notificationsOpen, t.downloads, user]);
 
   return (
     <>
