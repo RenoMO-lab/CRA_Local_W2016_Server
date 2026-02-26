@@ -206,6 +206,29 @@ Server setup:
 
 Deploy script: `CRA_Local/deploy/deploy.ps1`
 
+### Status Integrity Gate (recommended before/after deploy)
+
+Use these scripts to detect unexpected lifecycle regressions across deployments:
+
+```powershell
+# Pre-deploy snapshot
+node scripts/request-status-snapshot.mjs --out .\tmp\status-before.json
+
+# Run deploy / migration / restart
+
+# Post-deploy snapshot
+node scripts/request-status-snapshot.mjs --out .\tmp\status-after.json
+
+# Fail if any request moved backwards in workflow rank
+node scripts/request-status-snapshot-diff.mjs --before .\tmp\status-before.json --after .\tmp\status-after.json
+```
+
+Admin diagnostics endpoint (authenticated admin):
+
+```text
+GET /api/admin/request-status-integrity
+```
+
 ## Troubleshooting
 
 - API errors on load: check `.env` and PostgreSQL connectivity.

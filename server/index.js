@@ -8,6 +8,7 @@ import { pingDb } from "./db.js";
 import { startNotificationsWorker } from "./notificationsWorker.js";
 import { startDbMonitor } from "./dbMonitor.js";
 import { startDbBackupScheduler } from "./dbBackup.js";
+import { startStatusIntegrityMonitor } from "./statusIntegrityMonitor.js";
 
 dotenv.config();
 
@@ -122,6 +123,16 @@ connectWithRetry()
       startDbBackupScheduler();
     } catch (e) {
       console.error("Failed to start DB backup scheduler:", e);
+    }
+
+    try {
+      startStatusIntegrityMonitor({
+        intervalMs: process.env.STATUS_INTEGRITY_MONITOR_INTERVAL_MS
+          ? Number.parseInt(process.env.STATUS_INTEGRITY_MONITOR_INTERVAL_MS, 10)
+          : undefined,
+      });
+    } catch (e) {
+      console.error("Failed to start status integrity monitor:", e);
     }
   })
   .catch((error) => {

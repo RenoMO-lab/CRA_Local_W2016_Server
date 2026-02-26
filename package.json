@@ -11,6 +11,9 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "migrate": "node server/migrate.js",
+    "status:integrity": "node scripts/request-status-integrity-report.mjs",
+    "status:snapshot": "node scripts/request-status-snapshot.mjs --out ./.tmp/status-snapshot.json",
+    "status:snapshot:diff": "node scripts/request-status-snapshot-diff.mjs",
     "preview": "vite preview",
     "start": "node server/index.js"
   },

@@ -56,6 +56,12 @@ import {
   updateDbBackupConfig,
   setupDbBackupCredentials,
 } from "./dbBackup.js";
+import {
+  generateStatusIntegrityReport,
+  getAllowedStatusTransitions,
+  isAllowedStatusTransition,
+  isKnownRequestStatus,
+} from "./statusIntegrity.js";
 
 const ADMIN_LIST_CATEGORIES = new Set([
   "applicationVehicles",
@@ -5922,6 +5928,18 @@ export const apiRouter = (() => {
     })
   );
 
+  router.get(
+    "/admin/request-status-integrity",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const rawLimit = Number.parseInt(String(req.query.limit ?? "100"), 10);
+      const limit = Number.isFinite(rawLimit) ? rawLimit : 100;
+      const pool = await getPool();
+      const report = await generateStatusIntegrityReport(pool, { limit });
+      res.json(report);
+    })
+  );
+
   // Server-side performance overview metrics. The UI intentionally polls the lightweight
   // `/requests/summary` endpoint (which omits `history`), so we compute KPI aggregates here.
   router.get(
@@ -6663,6 +6681,20 @@ export const apiRouter = (() => {
       const now = new Date();
       const nowIso = now.toISOString();
 
+      if (!isKnownRequestStatus(requestedStatus)) {
+        res.status(400).json({ error: `Unknown status '${requestedStatus}'` });
+        return;
+      }
+
+      if (!isAllowedStatusTransition(previousStatus, requestedStatus)) {
+        const allowed = getAllowedStatusTransitions(previousStatus);
+        res.status(400).json({
+          error: `Invalid status transition from '${previousStatus}' to '${requestedStatus}'`,
+          allowedTransitions: allowed,
+        });
+        return;
+      }
+
       // Cancelling a request must include a reason (auditability + context).
       if (requestedStatus === "cancelled" && !comment) {
         res.status(400).json({ error: "Sales comment required when cancelling a request" });
@@ -6990,9 +7022,14 @@ export const apiRouter = (() => {
       const historyEvent = body.historyEvent;
       const editedBy = body.editedBy;
       const editedByName = body.editedByName;
+      const persistedStatus = String(existing.status ?? "").trim();
+      const attemptedStatus = typeof body.status === "string" ? body.status.trim() : "";
+      const attemptedStatusChange = Boolean(attemptedStatus && attemptedStatus !== persistedStatus);
+      const sanitizedBody = { ...body };
+      delete sanitizedBody.status;
       const merged = {
         ...existing,
-        ...body,
+        ...sanitizedBody,
         updatedAt: nowIso,
       };
       delete merged.historyEvent;
@@ -7030,6 +7067,7 @@ export const apiRouter = (() => {
       const updated = normalizeRequestData(
         {
           ...merged,
+          status: persistedStatus,
           history: baseHistory,
         },
         nowIso
@@ -7044,16 +7082,30 @@ export const apiRouter = (() => {
       await pool.query("UPDATE requests SET data=$2::jsonb, status=$3, updated_at=$4 WHERE id=$1", [
         requestId,
         JSON.stringify(updated),
-        updated.status ?? existing.status,
+        persistedStatus || existing.status,
         new Date(nowIso),
       ]);
+
+      if (attemptedStatusChange) {
+        await writeAuditLogBestEffort(pool, req, {
+          action: "request.status_change_blocked",
+          targetType: "request",
+          targetId: requestId,
+          metadata: {
+            attemptedStatus,
+            persistedStatus,
+          },
+        });
+      }
 
       await writeAuditLogBestEffort(pool, req, {
         action: "request.updated",
         targetType: "request",
         targetId: requestId,
         metadata: {
-          status: updated.status ?? existing.status ?? null,
+          status: persistedStatus || existing.status || null,
+          attemptedStatusChange,
+          attemptedStatus: attemptedStatus || null,
           historyEvent: historyEvent ?? null,
         },
       });
