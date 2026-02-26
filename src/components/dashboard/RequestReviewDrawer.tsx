@@ -1,7 +1,18 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
-import { ExternalLink, Pencil, RefreshCw } from "lucide-react";
+import {
+  AlertCircle,
+  Check,
+  CheckCircle,
+  Clock,
+  DollarSign,
+  ExternalLink,
+  FileText,
+  MessageSquare,
+  Pencil,
+  RefreshCw,
+} from "lucide-react";
 
 import { useLanguage } from "@/context/LanguageContext";
 import { useRequests } from "@/context/RequestContext";
@@ -12,7 +23,6 @@ import {
   CustomerRequest,
   RequestProduct,
   RequestStatus,
-  STATUS_CONFIG,
   UserRole,
 } from "@/types";
 import { cn } from "@/lib/utils";
@@ -48,6 +58,43 @@ const getPrimaryProduct = (request: CustomerRequest): Partial<RequestProduct> =>
     configurationType: request.configurationType,
     configurationTypeOther: request.configurationTypeOther,
   };
+};
+
+const getStatusIcon = (status: RequestStatus) => {
+  switch (status) {
+    case "draft":
+      return Clock;
+    case "submitted":
+      return Check;
+    case "edited":
+      return Pencil;
+    case "design_result":
+      return FileText;
+    case "under_review":
+      return Clock;
+    case "clarification_needed":
+      return AlertCircle;
+    case "feasibility_confirmed":
+      return CheckCircle;
+    case "in_costing":
+      return DollarSign;
+    case "costing_complete":
+      return CheckCircle;
+    case "sales_followup":
+      return DollarSign;
+    case "gm_approval_pending":
+      return Clock;
+    case "gm_approved":
+      return CheckCircle;
+    case "gm_rejected":
+      return AlertCircle;
+    case "cancelled":
+      return AlertCircle;
+    case "closed":
+      return Check;
+    default:
+      return Clock;
+  }
 };
 
 const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, userRole }) => {
@@ -157,7 +204,7 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
     if (!request) return "";
     const client = request.clientName?.trim() ? request.clientName : "-";
     const country = request.country?.trim() ? translateOption(request.country) : "-";
-    return `${client} • ${country}`;
+    return `${client} 鈥?${country}`;
   }, [request, translateOption]);
 
   const formatDateTime = (d: Date | string | undefined) => {
@@ -314,13 +361,35 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
               ) : sortedHistory.length === 0 ? (
                 <div className="text-sm text-muted-foreground">{t.dashboard.reviewNoActivity}</div>
               ) : (
-                <div className="space-y-3">
-                  {sortedHistory.slice(0, 8).map((h) => {
-                    const cfg = STATUS_CONFIG[h.status] || { color: "text-foreground", bgColor: "bg-muted" };
+                <div className="space-y-0">
+                  {sortedHistory.slice(0, 8).map((h, index, rows) => {
+                    const Icon = getStatusIcon(h.status);
+                    const isLatest = index === 0;
+                    const isLast = index === rows.length - 1;
+                    const successStatuses: RequestStatus[] = ["gm_approved", "costing_complete", "closed"];
+                    const dangerStatuses: RequestStatus[] = ["gm_rejected", "cancelled", "clarification_needed", "edited"];
+                    const toneClass = isLatest
+                      ? successStatuses.includes(h.status)
+                        ? "bg-success/10 text-success"
+                        : dangerStatuses.includes(h.status)
+                          ? "bg-destructive/10 text-destructive"
+                          : "bg-info/10 text-info"
+                      : "bg-muted/30 text-muted-foreground";
+
                     return (
-                      <div key={h.id} className="flex items-start gap-3">
-                        <div className={cn("mt-1.5 h-2.5 w-2.5 rounded-full", cfg.bgColor)} />
-                        <div className="min-w-0 flex-1">
+                      <div key={h.id} className="relative flex gap-3">
+                        <div className="relative flex flex-col items-center">
+                          <div
+                            className={cn(
+                              "w-6 h-6 rounded-full flex items-center justify-center shrink-0 relative z-10",
+                              toneClass
+                            )}
+                          >
+                            <Icon size={12} />
+                          </div>
+                          {!isLast ? <div className="w-0.5 flex-1 bg-border min-h-3" /> : null}
+                        </div>
+                        <div className={cn("min-w-0 flex-1 pb-3", isLast && "pb-0")}>
                           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                             <div className="text-sm font-semibold text-foreground">
                               {statusLabel(h.status)}
@@ -330,7 +399,10 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
                           </div>
                           {h.comment?.trim() ? (
                             <div className={cn("mt-1 rounded-md px-3 py-2 text-sm", "bg-muted/40 text-foreground")}>
-                              {h.comment}
+                              <div className="flex items-start gap-2">
+                                <MessageSquare size={14} className="text-muted-foreground mt-0.5 shrink-0" />
+                                <span>{h.comment}</span>
+                              </div>
                             </div>
                           ) : null}
                         </div>
@@ -348,3 +420,4 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
 };
 
 export default RequestReviewDrawer;
+

@@ -160,6 +160,8 @@ export interface CustomerRequest {
   // Metadata
   createdBy: string;
   createdByName: string;
+  nextActionRole?: UserRole | 'none';
+  nextActionLabel?: string;
   draftSessionKey?: string;
   createdAt: Date;
   updatedAt: Date;

@@ -231,6 +231,16 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
   const canEditRoute = userRole === 'admin';
   const canDelete = () => userRole === 'admin';
 
+  const getNextActionLabel = (request: CustomerRequest) => {
+    if (request.nextActionRole === 'none') return '';
+    if (request.nextActionRole && t.roles[request.nextActionRole]) {
+      return t.roles[request.nextActionRole];
+    }
+    const raw = String(request.nextActionLabel ?? '').trim();
+    if (!raw || raw.toLowerCase() === 'no action') return '';
+    return raw;
+  };
+
   const handleQuickReview = (id: string) => {
     setReviewRequestId(id);
     setIsReviewOpen(true);
@@ -603,6 +613,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
               {renderSortableHead(t.table.requestId, 'id')}
               {renderSortableHead('Priority', 'priority')}
               {renderSortableHead(t.table.status, 'status')}
+              <TableHead className="font-semibold">{t.table.nextActionBy}</TableHead>
               {renderSortableHead(t.table.clientName, 'clientName')}
               {renderSortableHead(t.table.application, 'applicationVehicle')}
               {renderSortableHead(t.table.country, 'country')}
@@ -669,6 +680,9 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                 </TableCell>
                 <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>
                   <StatusBadge status={request.status} />
+                </TableCell>
+                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>
+                  {getNextActionLabel(request)}
                 </TableCell>
                 <TableCell className={cn('max-w-[180px] truncate', density === 'compact' ? 'py-1.5' : 'py-2')}>{request.clientName}</TableCell>
                 <TableCell className={cn('max-w-[180px] truncate', density === 'compact' ? 'py-1.5' : 'py-2')}>

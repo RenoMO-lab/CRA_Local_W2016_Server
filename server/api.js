@@ -292,6 +292,27 @@ const resolveInAppRolesForStatus = (status) => {
   return roles.filter((role) => role === "sales" || role === "design" || role === "costing" || role === "admin");
 };
 
+const TERMINAL_NO_ACTION_STATUSES = new Set(["closed", "cancelled", "gm_approved"]);
+
+const resolveNextActionForStatus = (status) => {
+  const normalized = String(status ?? "").trim();
+  if (!normalized || TERMINAL_NO_ACTION_STATUSES.has(normalized)) {
+    return { role: "none", label: "No action" };
+  }
+
+  const roles = resolveInAppRolesForStatus(normalized);
+  const role = String(roles[0] ?? "").trim();
+  if (!role) {
+    return { role: "none", label: "No action" };
+  }
+
+  if (role === "sales") return { role: "sales", label: "Sales" };
+  if (role === "design") return { role: "design", label: "Design" };
+  if (role === "costing") return { role: "costing", label: "Costing" };
+  if (role === "admin") return { role: "admin", label: "Admin" };
+  return { role: "none", label: "No action" };
+};
+
 const buildInAppNotificationText = ({ eventType, request, requestId, status, previousStatus, actorName }) => {
   const displayId = String(requestId ?? "").trim() || String(request?.id ?? "").trim() || "Request";
   const clientName = String(request?.clientName ?? "").trim();
@@ -2210,6 +2231,256 @@ const buildClientUpdateNotificationPayload = (installerMeta) => {
     actionPath: "/downloads",
     source: sanitizeDownloadText(installerMeta?.source) || "github",
   };
+};
+
+const FEEDBACK_EMAIL_STRINGS = {
+  en: {
+    subjectPrefix: "[CRA] New feedback submitted",
+    title: "New feedback submitted",
+    openButton: "Open feedback in CRA",
+    detailsTitle: "Feedback details",
+    labels: {
+      title: "Title",
+      type: "Type",
+      severity: "Severity",
+      reporter: "Reporter",
+      role: "Role",
+      page: "Page",
+      description: "Description",
+      steps: "Steps to reproduce",
+    },
+  },
+  fr: {
+    subjectPrefix: "[CRA] Nouveau retour soumis",
+    title: "Nouveau retour soumis",
+    openButton: "Ouvrir le retour dans CRA",
+    detailsTitle: "Details du retour",
+    labels: {
+      title: "Titre",
+      type: "Type",
+      severity: "Severite",
+      reporter: "Signale par",
+      role: "Role",
+      page: "Page",
+      description: "Description",
+      steps: "Etapes",
+    },
+  },
+  zh: {
+    subjectPrefix: "[CRA] 新反馈已提交",
+    title: "新反馈已提交",
+    openButton: "在 CRA 中打开反馈",
+    detailsTitle: "反馈详情",
+    labels: {
+      title: "标题",
+      type: "类型",
+      severity: "严重级别",
+      reporter: "提交人",
+      role: "角色",
+      page: "页面",
+      description: "描述",
+      steps: "复现步骤",
+    },
+  },
+};
+
+const getFeedbackEmailStrings = (lang) => {
+  const resolved = normalizeNotificationLanguage(lang) ?? "en";
+  return FEEDBACK_EMAIL_STRINGS[resolved] ?? FEEDBACK_EMAIL_STRINGS.en;
+};
+
+const feedbackTypeLabel = (lang, type) => {
+  const v = String(type ?? "").trim().toLowerCase();
+  if (v === "bug") return lang === "fr" ? "Bug" : lang === "zh" ? "缺陷" : "Bug";
+  if (v === "feature") return lang === "fr" ? "Amelioration" : lang === "zh" ? "功能建议" : "Feature";
+  return v || "-";
+};
+
+const feedbackSeverityLabel = (lang, severity) => {
+  const v = String(severity ?? "").trim().toLowerCase();
+  if (!v) return "-";
+  if (lang === "fr") {
+    if (v === "low") return "Faible";
+    if (v === "medium") return "Moyenne";
+    if (v === "high") return "Elevee";
+    if (v === "critical") return "Critique";
+  }
+  if (lang === "zh") {
+    if (v === "low") return "低";
+    if (v === "medium") return "中";
+    if (v === "high") return "高";
+    if (v === "critical") return "严重";
+  }
+  return humanizeStatus(v);
+};
+
+const buildFeedbackEmailHtml = ({ lang, feedback, appBaseUrl }) => {
+  const i18n = getFeedbackEmailStrings(lang);
+  const openLink = buildDashboardLink(appBaseUrl)
+    ? `${buildDashboardLink(appBaseUrl).replace(/\/dashboard$/, "")}/settings?tab=feedback`
+    : "";
+  const title = String(feedback?.title ?? "").trim() || "-";
+  const type = feedbackTypeLabel(lang, feedback?.type);
+  const severity = feedbackSeverityLabel(lang, feedback?.severity);
+  const reporter = String(feedback?.userName ?? "").trim() || "-";
+  const role = String(feedback?.userRole ?? "").trim() || "-";
+  const page = String(feedback?.pagePath ?? "").trim() || "-";
+  const description = String(feedback?.description ?? "").trim() || "-";
+  const steps = String(feedback?.steps ?? "").trim() || "-";
+
+  return `
+  <div style="margin:0;padding:0;background:#f3f4f6;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f4f6;padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="680" cellspacing="0" cellpadding="0" style="width:680px;max-width:680px;background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;overflow:hidden;">
+            <tr>
+              <td style="padding:20px 24px;border-bottom:1px solid #e5e7eb;background:#111827;color:#f9fafb;font-family:Arial,sans-serif;">
+                <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.8;">CRA</div>
+                <div style="margin-top:6px;font-size:22px;font-weight:800;line-height:1.2;">${escapeHtml(i18n.title)}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 24px;font-family:Arial,sans-serif;color:#111827;">
+                <div style="font-size:14px;color:#4b5563;margin-bottom:12px;">${escapeHtml(i18n.detailsTitle)}</div>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;width:180px;">${escapeHtml(i18n.labels.title)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(title)}</td></tr>
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.type)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(type)}</td></tr>
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.severity)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(severity)}</td></tr>
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.reporter)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(reporter)}</td></tr>
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.role)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(role)}</td></tr>
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.page)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(page)}</td></tr>
+                </table>
+                <div style="margin-top:14px;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.description)}</div>
+                <div style="margin-top:6px;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;color:#111827;white-space:pre-wrap;">${escapeHtml(description)}</div>
+                <div style="margin-top:14px;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.steps)}</div>
+                <div style="margin-top:6px;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;color:#111827;white-space:pre-wrap;">${escapeHtml(steps)}</div>
+                ${
+                  openLink
+                    ? `<div style="margin-top:18px;"><a href="${escapeHtml(openLink)}" style="display:inline-block;background:#ef4444;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:13px;font-weight:700;">${escapeHtml(i18n.openButton)}</a></div>`
+                    : ""
+                }
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </div>`;
+};
+
+const resolveFeedbackAdminRecipients = async (pool) => {
+  const { rows } = await pool.query(
+    `
+    SELECT id, name, email, preferred_language
+      FROM app_users
+     WHERE is_active = true
+       AND role = 'admin'
+    `
+  );
+
+  const userIds = [];
+  const emails = [];
+  const seenUsers = new Set();
+  const seenEmails = new Set();
+  for (const row of rows ?? []) {
+    const id = String(row?.id ?? "").trim();
+    if (id && !seenUsers.has(id)) {
+      seenUsers.add(id);
+      userIds.push(id);
+    }
+    const email = String(row?.email ?? "").trim();
+    if (email && isValidEmail(email)) {
+      const lower = email.toLowerCase();
+      if (!seenEmails.has(lower)) {
+        seenEmails.add(lower);
+        emails.push(email);
+      }
+    }
+  }
+  return { userIds, emails };
+};
+
+const enqueueFeedbackSubmittedNotifications = async (pool, feedback) => {
+  const { userIds } = await resolveFeedbackAdminRecipients(pool);
+  if (!userIds.length) return 0;
+
+  const feedbackId = String(feedback?.id ?? "").trim();
+  const feedbackTitle = String(feedback?.title ?? "").trim() || "Untitled feedback";
+  const submitter = String(feedback?.userName ?? "").trim() || "Unknown";
+  const feedbackType = feedbackTypeLabel("en", feedback?.type);
+  const payload = {
+    feedbackId: feedbackId || null,
+    actionPath: "/settings?tab=feedback",
+    feedbackType: String(feedback?.type ?? "").trim() || null,
+    severity: String(feedback?.severity ?? "").trim() || null,
+    submittedBy: submitter || null,
+    pagePath: String(feedback?.pagePath ?? "").trim() || null,
+  };
+
+  let inserted = 0;
+  for (const userId of userIds) {
+    const { rowCount } = await pool.query(
+      `
+      INSERT INTO app_notifications (id, user_id, notification_type, title, body, request_id, payload_json)
+      VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+      ON CONFLICT DO NOTHING
+      `,
+      [
+        randomUUID(),
+        userId,
+        "feedback_submitted",
+        "New feedback submitted",
+        `${feedbackType}: ${feedbackTitle} by ${submitter}`,
+        null,
+        JSON.stringify(payload),
+      ]
+    );
+    inserted += rowCount ?? 0;
+  }
+  return inserted;
+};
+
+const enqueueFeedbackSubmittedEmail = async (pool, feedback) => {
+  const [settings, tokenState, recipients] = await Promise.all([
+    getM365Settings(pool),
+    getM365TokenState(pool),
+    resolveFeedbackAdminRecipients(pool),
+  ]);
+
+  if (!settings.enabled) {
+    return { enqueued: false, reason: "disabled" };
+  }
+  if (!tokenState.hasRefreshToken) {
+    return { enqueued: false, reason: "m365_not_connected" };
+  }
+  if (!recipients.emails.length) {
+    return { enqueued: false, reason: "no_admin_email" };
+  }
+
+  const grouped = await groupRecipientsByPreferredLanguage(pool, recipients.emails);
+  if (!grouped.length) {
+    return { enqueued: false, reason: "no_admin_email" };
+  }
+
+  const feedbackId = String(feedback?.id ?? "").trim();
+  const title = String(feedback?.title ?? "").trim() || "Untitled feedback";
+  let inserted = 0;
+
+  for (const [lang, groupEmails] of grouped) {
+    const i18n = getFeedbackEmailStrings(lang);
+    const subject = `${i18n.subjectPrefix}: ${title}`.slice(0, 240);
+    const html = buildFeedbackEmailHtml({ lang, feedback, appBaseUrl: settings.appBaseUrl });
+    const { rowCount } = await pool.query(
+      `
+      INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+      VALUES ($1,$2,$3,$4,$5,$6)
+      `,
+      [randomUUID(), "feedback_submitted", feedbackId || randomUUID(), groupEmails.join(", "), subject, html]
+    );
+    inserted += rowCount ?? 0;
+  }
+  return { enqueued: inserted > 0, inserted, reason: inserted > 0 ? undefined : "no_admin_email" };
 };
 
 const enqueueClientUpdateNotifications = async (pool, installerMeta) => {
@@ -5358,6 +5629,55 @@ export const apiRouter = (() => {
         ]
       );
 
+      let inAppEnqueued = 0;
+      try {
+        inAppEnqueued = await enqueueFeedbackSubmittedNotifications(pool, {
+          id,
+          type,
+          title,
+          description,
+          steps,
+          severity,
+          pagePath,
+          userName,
+          userRole,
+        });
+      } catch (e) {
+        console.error("Failed to enqueue feedback in-app notifications:", e);
+      }
+
+      let emailResult = { enqueued: false, reason: "unknown" };
+      try {
+        emailResult = await enqueueFeedbackSubmittedEmail(pool, {
+          id,
+          type,
+          title,
+          description,
+          steps,
+          severity,
+          pagePath,
+          userName,
+          userRole,
+        });
+      } catch (e) {
+        emailResult = { enqueued: false, reason: "error" };
+        console.error("Failed to enqueue feedback email notification:", e);
+      }
+
+      await writeAuditLogBestEffort(pool, req, {
+        action: "feedback.submitted",
+        targetType: "feedback",
+        targetId: id,
+        metadata: {
+          feedbackType: type,
+          severity: severity || null,
+          userRole: userRole || null,
+          inAppEnqueued,
+          emailEnqueued: emailResult.enqueued === true,
+          emailReason: emailResult.reason ?? null,
+        },
+      });
+
       res.status(201).json({
         id,
         type,
@@ -5581,18 +5901,23 @@ export const apiRouter = (() => {
       const pool = await getPool();
       const { rows } = await pool.query(requestSummarySelect);
       res.json(
-        rows.map((row) => ({
-          id: row.id,
-          status: row.status,
-          priority: normalizeRequestPriority(row.priority),
-          clientName: row.clientName ?? "",
-          applicationVehicle: row.applicationVehicle ?? "",
-          country: row.country ?? "",
-          createdBy: row.createdBy ?? "",
-          createdByName: row.createdByName ?? "",
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        }))
+        rows.map((row) => {
+          const nextAction = resolveNextActionForStatus(row.status);
+          return {
+            id: row.id,
+            status: row.status,
+            priority: normalizeRequestPriority(row.priority),
+            clientName: row.clientName ?? "",
+            applicationVehicle: row.applicationVehicle ?? "",
+            country: row.country ?? "",
+            createdBy: row.createdBy ?? "",
+            createdByName: row.createdByName ?? "",
+            createdAt: row.created_at,
+            updatedAt: row.updated_at,
+            nextActionRole: nextAction.role,
+            nextActionLabel: nextAction.label,
+          };
+        })
       );
     })
   );

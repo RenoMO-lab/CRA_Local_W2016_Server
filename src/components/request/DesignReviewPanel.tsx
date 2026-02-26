@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { format } from 'date-fns';
+import { format, startOfDay } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
@@ -32,6 +32,7 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
   const [showClarificationForm, setShowClarificationForm] = useState(false);
   const [showAcceptanceForm, setShowAcceptanceForm] = useState(false);
   const { t } = useLanguage();
+  const today = startOfDay(new Date());
 
   const handleSetUnderReview = () => {
     onUpdateStatus('under_review');
@@ -211,7 +212,7 @@ const DesignReviewPanel: React.FC<DesignReviewPanelProps> = ({
                   selected={expectedDate}
                   onSelect={setExpectedDate}
                   initialFocus
-                  disabled={(date) => date < new Date()}
+                  disabled={(date) => date < today}
                   className="pointer-events-auto"
                 />
               </PopoverContent>

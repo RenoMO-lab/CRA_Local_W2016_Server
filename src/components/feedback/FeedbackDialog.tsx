@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,8 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ trigger }) => {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const submitAttemptRef = useRef(0);
+  const wasClosedForSubmitRef = useRef(false);
   const [form, setForm] = useState<FeedbackFormState>({
     type: 'bug',
     title: '',
@@ -84,7 +86,11 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ trigger }) => {
       return;
     }
 
+    const attemptId = submitAttemptRef.current + 1;
+    submitAttemptRef.current = attemptId;
+    wasClosedForSubmitRef.current = true;
     setIsSubmitting(true);
+    setOpen(false);
     try {
       const payload = {
         type: form.type,
@@ -108,15 +114,28 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ trigger }) => {
         throw new Error(`Feedback submit failed: ${res.status}`);
       }
 
+      if (submitAttemptRef.current !== attemptId) {
+        return;
+      }
+
       toast.success(t.feedback.submittedTitle, { description: t.feedback.submittedDesc });
       window.dispatchEvent(new CustomEvent('feedback:submitted'));
       resetForm();
-      setOpen(false);
+      wasClosedForSubmitRef.current = false;
     } catch (error) {
+      if (submitAttemptRef.current !== attemptId) {
+        return;
+      }
       console.error('Failed to submit feedback:', error);
       toast.error(t.feedback.submitFailed);
+      if (wasClosedForSubmitRef.current) {
+        setOpen(true);
+      }
+      wasClosedForSubmitRef.current = false;
     } finally {
-      setIsSubmitting(false);
+      if (submitAttemptRef.current === attemptId) {
+        setIsSubmitting(false);
+      }
     }
   };
 
