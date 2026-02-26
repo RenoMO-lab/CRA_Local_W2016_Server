@@ -44,27 +44,71 @@ type SalesFollowupData = {
 
 const MAX_PAYMENT_TERMS = 6;
 
-const createPaymentTerm = (paymentNumber: number): SalesPaymentTerm => ({
+type PaymentNamePreset = '' | 'down_payment' | 'before_delivery' | 'after_delivery' | 'other';
+
+type SalesPaymentTermEditor = SalesPaymentTerm & {
+  paymentNamePreset: PaymentNamePreset;
+  paymentNameOther: string;
+};
+
+const PAYMENT_NAME_BY_PRESET: Record<Exclude<PaymentNamePreset, '' | 'other'>, string> = {
+  down_payment: 'Down-Payment',
+  before_delivery: 'Payment Before Delivery',
+  after_delivery: 'Payment After Delivery',
+};
+
+const inferPaymentNamePreset = (
+  value: string | undefined
+): Pick<SalesPaymentTermEditor, 'paymentNamePreset' | 'paymentNameOther'> => {
+  const normalized = (value ?? '').trim();
+  if (!normalized) {
+    return { paymentNamePreset: '', paymentNameOther: '' };
+  }
+  const exactPreset = (Object.entries(PAYMENT_NAME_BY_PRESET).find(
+    (_entry) => _entry[1].toLowerCase() === normalized.toLowerCase()
+  )?.[0] ?? null) as Exclude<PaymentNamePreset, '' | 'other'> | null;
+  if (exactPreset) {
+    return { paymentNamePreset: exactPreset, paymentNameOther: '' };
+  }
+  return { paymentNamePreset: 'other', paymentNameOther: normalized };
+};
+
+const resolvePaymentName = (term: SalesPaymentTermEditor): string => {
+  if (term.paymentNamePreset === 'other') {
+    return term.paymentNameOther.trim();
+  }
+  if (term.paymentNamePreset === '') {
+    return '';
+  }
+  return PAYMENT_NAME_BY_PRESET[term.paymentNamePreset];
+};
+
+const createPaymentTerm = (paymentNumber: number): SalesPaymentTermEditor => ({
   paymentNumber,
   paymentName: '',
   paymentPercent: null,
   comments: '',
+  paymentNamePreset: '',
+  paymentNameOther: '',
 });
 
 const normalizePaymentTermsForEditor = (
   rawTerms: SalesPaymentTerm[] | undefined,
   rawCount: number | undefined
-): { count: number; terms: SalesPaymentTerm[] } => {
+): { count: number; terms: SalesPaymentTermEditor[] } => {
   const source = Array.isArray(rawTerms) ? rawTerms : [];
   const baseCount = Number.isFinite(rawCount as number) ? Number(rawCount) : source.length || 1;
   const count = Math.min(MAX_PAYMENT_TERMS, Math.max(1, baseCount));
   const terms = Array.from({ length: count }, (_v, index) => {
     const raw = source[index] ?? createPaymentTerm(index + 1);
+    const nameState = inferPaymentNamePreset(typeof raw.paymentName === 'string' ? raw.paymentName : '');
     return {
       paymentNumber: index + 1,
       paymentName: typeof raw.paymentName === 'string' ? raw.paymentName : '',
       paymentPercent: typeof raw.paymentPercent === 'number' ? raw.paymentPercent : null,
       comments: typeof raw.comments === 'string' ? raw.comments : '',
+      paymentNamePreset: nameState.paymentNamePreset,
+      paymentNameOther: nameState.paymentNameOther,
     };
   });
   return { count, terms };
@@ -125,7 +169,9 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
     request.salesExpectedDeliveryDate || ''
   );
   const [salesPaymentTermCount, setSalesPaymentTermCount] = useState<number>(initialPaymentTermState.count);
-  const [salesPaymentTerms, setSalesPaymentTerms] = useState<SalesPaymentTerm[]>(initialPaymentTermState.terms);
+  const [salesPaymentTerms, setSalesPaymentTerms] = useState<SalesPaymentTermEditor[]>(
+    initialPaymentTermState.terms
+  );
   const [salesFeedbackComment, setSalesFeedbackComment] = useState<string>(
     request.salesFeedbackComment || ''
   );
@@ -155,9 +201,11 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
       const term = salesPaymentTerms[index] ?? createPaymentTerm(index + 1);
       return {
         paymentNumber: index + 1,
-        paymentName: term.paymentName ?? '',
+        paymentName: resolvePaymentName(term),
         paymentPercent: typeof term.paymentPercent === 'number' ? term.paymentPercent : null,
         comments: term.comments ?? '',
+        paymentNamePreset: term.paymentNamePreset,
+        paymentNameOther: term.paymentNameOther,
       };
     });
 
@@ -337,7 +385,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
 
   const updatePaymentTerm = (
     index: number,
-    field: 'paymentName' | 'paymentPercent' | 'comments',
+    field: 'paymentPercent' | 'comments',
     value: string
   ) => {
     setSalesPaymentTerms((prev) =>
@@ -347,6 +395,49 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
           return { ...term, paymentPercent: parseOptionalNumber(value) };
         }
         return { ...term, [field]: value };
+      })
+    );
+  };
+
+  const updatePaymentNamePreset = (index: number, preset: PaymentNamePreset) => {
+    setSalesPaymentTerms((prev) =>
+      prev.map((term, termIndex) => {
+        if (termIndex !== index) return term;
+        if (preset === 'other') {
+          return {
+            ...term,
+            paymentNamePreset: 'other',
+            paymentName: term.paymentNameOther.trim() || term.paymentName,
+          };
+        }
+        if (preset === '') {
+          return {
+            ...term,
+            paymentNamePreset: '',
+            paymentName: '',
+            paymentNameOther: '',
+          };
+        }
+        return {
+          ...term,
+          paymentNamePreset: preset,
+          paymentName: PAYMENT_NAME_BY_PRESET[preset],
+          paymentNameOther: '',
+        };
+      })
+    );
+  };
+
+  const updatePaymentNameOther = (index: number, value: string) => {
+    setSalesPaymentTerms((prev) =>
+      prev.map((term, termIndex) => {
+        if (termIndex !== index) return term;
+        return {
+          ...term,
+          paymentNameOther: value,
+          paymentName: value,
+          paymentNamePreset: 'other',
+        };
       })
     );
   };
@@ -450,16 +541,28 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   const vatRateValue = parseOptionalNumber(salesVatRate);
   const marginValue = parseOptionalNumber(salesMargin);
   const paymentTermsForValidation = getActivePaymentTerms();
-  const paymentTermsComplete = paymentTermsForValidation.every(
-    (term) => term.paymentName.trim().length > 0 && term.paymentPercent !== null
-  );
   const paymentPercentTotal = paymentTermsForValidation.reduce(
     (sum, term) => sum + (term.paymentPercent ?? 0),
     0
   );
+  const paymentTermsTotalDelta = paymentPercentTotal - 100;
+  const isPaymentTotalPerfect = Math.abs(paymentTermsTotalDelta) < 0.01;
+  const paymentTermsComplete = paymentTermsForValidation.every(
+    (term) =>
+      term.paymentName.trim().length > 0 &&
+      term.paymentPercent !== null &&
+      (term.paymentNamePreset !== 'other' || term.paymentNameOther.trim().length > 0)
+  );
   const paymentTermsRequiredValid = paymentTermsComplete;
   const paymentTermsTotalValid =
-    paymentTermsComplete && Math.abs(paymentPercentTotal - 100) < 0.01;
+    paymentTermsComplete && isPaymentTotalPerfect;
+  const paymentTotalToneClass = !paymentTermsComplete
+    ? 'text-muted-foreground'
+    : isPaymentTotalPerfect
+      ? 'text-success'
+      : paymentPercentTotal > 100
+        ? 'text-destructive'
+        : 'text-warning';
   const vatRateValid = salesVatMode === 'without' || vatRateValue !== null;
   const marginValid = marginValue !== null;
   const expectedDeliveryValid = salesExpectedDeliveryDate.trim().length > 0;
@@ -668,20 +771,37 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
             <div className="space-y-3">
               {paymentTermsForValidation.map((term, index) => (
                 <div key={term.paymentNumber} className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[96px_minmax(0,2fr)_140px_minmax(0,1.4fr)] gap-3">
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">{t.panels.paymentNumber}</Label>
                       <Input value={String(term.paymentNumber)} disabled />
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">{t.panels.paymentName} *</Label>
-                      <Input
-                        value={term.paymentName}
-                        onChange={(e) => updatePaymentTerm(index, 'paymentName', e.target.value)}
-                        placeholder={t.panels.enterPaymentName}
+                      <Select
+                        value={term.paymentNamePreset}
+                        onValueChange={(value) => updatePaymentNamePreset(index, value as PaymentNamePreset)}
                         disabled={readOnly}
-                        className="bg-background"
-                      />
+                      >
+                        <SelectTrigger className="w-full bg-background">
+                          <SelectValue placeholder={t.panels.selectPaymentName} />
+                        </SelectTrigger>
+                        <SelectContent className="bg-card border border-border">
+                          <SelectItem value="down_payment">{t.panels.paymentNameDownPayment}</SelectItem>
+                          <SelectItem value="before_delivery">{t.panels.paymentNameBeforeDelivery}</SelectItem>
+                          <SelectItem value="after_delivery">{t.panels.paymentNameAfterDelivery}</SelectItem>
+                          <SelectItem value="other">{t.panels.paymentNameOtherLabel}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {term.paymentNamePreset === 'other' && (
+                        <Input
+                          value={term.paymentNameOther}
+                          onChange={(e) => updatePaymentNameOther(index, e.target.value)}
+                          placeholder={t.panels.enterOtherPaymentName}
+                          disabled={readOnly}
+                          className="bg-background"
+                        />
+                      )}
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">{t.panels.paymentPercent} *</Label>
@@ -710,9 +830,14 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
                 </div>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {t.panels.paymentTermsTotal}: {paymentPercentTotal.toFixed(2)}%
-            </p>
+            <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+              <p className={`text-sm font-medium ${paymentTotalToneClass}`}>
+                {t.panels.paymentTermsTotal}: {paymentPercentTotal.toFixed(2)}% / 100%
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {t.panels.paymentTotalTarget}
+              </p>
+            </div>
             {!paymentTermsRequiredValid && (
               <p className="text-xs text-destructive">{t.panels.paymentTermsRequired}</p>
             )}
