@@ -1,0 +1,110 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Set theme class ASAP to avoid a flash on load.
+      (function () {
+        try {
+          var key = "cra-theme";
+          var theme = localStorage.getItem(key); // "light" | "dark" | "system" | null
+          var systemDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          // Default for first-time visitors (no saved theme): dark.
+          // Respect saved choice for everyone else, including "system".
+          var useDark =
+            theme === null ||
+            theme === "dark" ||
+            (theme === "system" && systemDark) ||
+            (theme !== "light" && theme !== "system" && systemDark);
+          var root = document.documentElement;
+          if (useDark) root.classList.add("dark");
+          else root.classList.remove("dark");
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="icon" type="image/png" href="/monroc-favicon.png" />
+    <link rel="preload" as="image" href="/monroc-logo.png" fetchpriority="high" />
+    <link rel="preload" as="image" href="/monroc-favicon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    />
+    <title>Monroc | CRA</title>
+    <meta name="description" content="Streamline your technical request workflow with comprehensive analysis and approval for axle components." />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta property="og:title" content="Customer Request Analysis | Monroc" />
+    <meta property="og:description" content="Internal business application for customer technical requests" />
+    <meta property="og:type" content="website" />
+    <style>
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f7f7f7;
+        color: #111827;
+        z-index: 9999;
+      }
+      html.dark #app-splash {
+        background: #070b12;
+        color: #e5e7eb;
+      }
+      #app-splash .splash-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        font-family: "Inter", system-ui, -apple-system, sans-serif;
+      }
+      #app-splash .splash-logo {
+        width: 56px;
+        height: 56px;
+        display: grid;
+        place-items: center;
+        animation: splash-pulse 1.2s ease-in-out infinite;
+      }
+      #app-splash .splash-logo img {
+        width: 48px;
+        height: 48px;
+        -o-object-fit: contain;
+           object-fit: contain;
+        animation: splash-spin 1.4s linear infinite;
+      }
+      @keyframes splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @keyframes splash-pulse {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.06);
+        }
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index-PbE4fnFd.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BTqwfjHm.css">
+  </head>
+
+  <body>
+    <div id="app-splash">
+      <div class="splash-wrap">
+        <div class="splash-logo">
+          <img src="/monroc-favicon.png?v=3" alt="Monroc" />
+        </div>
+        <div>Loading...</div>
+      </div>
+    </div>
+    <div id="root"></div>
+  </body>
+</html>
+
