@@ -109,6 +109,7 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ trigger }) => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      const data = await res.json().catch(() => null);
 
       if (!res.ok) {
         throw new Error(`Feedback submit failed: ${res.status}`);
@@ -118,7 +119,11 @@ const FeedbackDialog: React.FC<FeedbackDialogProps> = ({ trigger }) => {
         return;
       }
 
-      toast.success(t.feedback.submittedTitle, { description: t.feedback.submittedDesc });
+      const ticketNumber = String(data?.ticketNumber ?? '').trim();
+      const successDescription = ticketNumber
+        ? String(t.feedback.submittedDescWithTicket ?? t.feedback.submittedDesc).replace('{ticketNumber}', ticketNumber)
+        : t.feedback.submittedDesc;
+      toast.success(t.feedback.submittedTitle, { description: successDescription });
       window.dispatchEvent(new CustomEvent('feedback:submitted'));
       resetForm();
       wasClosedForSubmitRef.current = false;

@@ -175,6 +175,7 @@ const DEFAULT_FLOW_MAP: M365FlowMap = {
 
 interface FeedbackItem {
   id: string;
+  ticketNumber?: string;
   type: 'bug' | 'feature' | string;
   title: string;
   description: string;
@@ -184,7 +185,11 @@ interface FeedbackItem {
   userName: string;
   userEmail: string;
   userRole: string;
+  reporterLanguage?: string;
   status?: 'submitted' | 'ongoing' | 'finished' | 'cancelled' | string;
+  resolutionNote?: string;
+  closedAt?: string;
+  closedByUserId?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -537,6 +542,7 @@ const Settings: React.FC = () => {
   const isMobile = useIsMobile();
   const [selectedFeedbackId, setSelectedFeedbackId] = useState<string | null>(null);
   const [isFeedbackDetailsOpen, setIsFeedbackDetailsOpen] = useState(false);
+  const [feedbackResolutionDraft, setFeedbackResolutionDraft] = useState<Record<string, string>>({});
   const [feedbackDeleteId, setFeedbackDeleteId] = useState<string | null>(null);
   const [deployInfo, setDeployInfo] = useState<DeployInfo | null>(null);
   const [isDeployLoading, setIsDeployLoading] = useState(false);
@@ -651,6 +657,10 @@ const Settings: React.FC = () => {
 
   const openFeedbackDetails = (item: FeedbackItem) => {
     setSelectedFeedbackId(item.id);
+    setFeedbackResolutionDraft((prev) => ({
+      ...prev,
+      [item.id]: (prev[item.id] ?? item.resolutionNote ?? ''),
+    }));
     setIsFeedbackDetailsOpen(true);
   };
 
@@ -658,10 +668,14 @@ const Settings: React.FC = () => {
     setIsFeedbackDetailsOpen(false);
   };
 
+  const getFeedbackResolution = (item: FeedbackItem) =>
+    String(feedbackResolutionDraft[item.id] ?? item.resolutionNote ?? '').trim();
+
   const renderStatusPill = (item: FeedbackItem) => {
     const current = normalizeFeedbackStatus(item.status);
     const classes = getFeedbackStatusPillClasses(current);
     const otherStatuses = FEEDBACK_STATUSES.filter((s) => s !== current);
+    const resolution = getFeedbackResolution(item);
 
     return (
       <DropdownMenu>
@@ -689,7 +703,8 @@ const Settings: React.FC = () => {
             <DropdownMenuItem
               key={s}
               className="cursor-pointer"
-              onClick={() => updateFeedbackStatus(item.id, s)}
+              disabled={(s === 'finished' || s === 'cancelled') && !resolution}
+              onClick={() => updateFeedbackStatus(item.id, s, resolution)}
             >
               {getFeedbackStatusLabel(s)}
             </DropdownMenuItem>
@@ -1534,20 +1549,47 @@ const Settings: React.FC = () => {
     }
   }, [feedbackItems, isFeedbackDetailsOpen, selectedFeedbackId]);
 
-  const updateFeedbackStatus = async (id: string, status: 'submitted' | 'ongoing' | 'finished' | 'cancelled') => {
+  const updateFeedbackStatus = async (
+    id: string,
+    status: 'submitted' | 'ongoing' | 'finished' | 'cancelled',
+    resolutionNote?: string
+  ) => {
+    const nextResolution = String(resolutionNote ?? '').trim();
+    if ((status === 'finished' || status === 'cancelled') && !nextResolution) {
+      toast({
+        title: t.request.validationError,
+        description: t.feedback.closeRequiresResolution,
+        variant: 'destructive',
+      });
+      return;
+    }
     try {
       const res = await fetch(`/api/feedback/${encodeURIComponent(id)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, resolutionNote: nextResolution || undefined }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(data?.error || `Failed to update feedback: ${res.status}`);
       }
       setFeedbackItems((prev) =>
-        prev.map((item) => (item.id === id ? { ...item, status, updatedAt: data?.updatedAt ?? item.updatedAt } : item))
+        prev.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                status,
+                resolutionNote: data?.resolutionNote ?? item.resolutionNote,
+                closedAt: data?.closedAt ?? item.closedAt,
+                closedByUserId: data?.closedByUserId ?? item.closedByUserId,
+                updatedAt: data?.updatedAt ?? item.updatedAt,
+              }
+            : item
+        )
       );
+      if (data?.resolutionNote !== undefined) {
+        setFeedbackResolutionDraft((prev) => ({ ...prev, [id]: String(data.resolutionNote ?? '') }));
+      }
       if (selectedFeedbackId === id) {
         // Keep the details panel in sync.
         setSelectedFeedbackId(id);
@@ -2882,6 +2924,9 @@ const Settings: React.FC = () => {
                           </span>
                           {renderStatusPill(item)}
                         </div>
+                        <div className="text-xs text-muted-foreground">
+                          {t.feedback.ticketNumber}: <span className="font-medium text-foreground">{item.ticketNumber || '-'}</span>
+                        </div>
                         <div className="font-semibold text-foreground">{item.title}</div>
                         <div className="text-sm text-muted-foreground">{item.description}</div>
                         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -2899,6 +2944,7 @@ const Settings: React.FC = () => {
                     <Table>
                       <TableHeader>
                         <TableRow className="bg-muted/50 hover:bg-muted/50">
+                          <TableHead className="font-semibold">{t.feedback.ticketNumber}</TableHead>
                           <TableHead className="font-semibold">{t.feedback.type}</TableHead>
                           <TableHead className="font-semibold">{t.feedback.title}</TableHead>
                           <TableHead className="font-semibold">{t.feedback.status}</TableHead>
@@ -2915,6 +2961,7 @@ const Settings: React.FC = () => {
                             className="cursor-pointer hover:bg-muted/20"
                             onClick={() => openFeedbackDetails(item)}
                           >
+                            <TableCell className="font-mono text-xs">{item.ticketNumber || '-'}</TableCell>
                             <TableCell className="capitalize">
                               {item.type === 'bug' ? t.feedback.typeBug : t.feedback.typeFeature}
                             </TableCell>
@@ -2954,6 +3001,9 @@ const Settings: React.FC = () => {
                 <div className="mt-4 space-y-5">
                   <div className="flex flex-wrap items-center gap-2">
                     {renderStatusPill(selectedFeedback)}
+                    <span className="rounded-full border border-border px-2 py-0.5 text-xs font-mono text-muted-foreground">
+                      {t.feedback.ticketNumber}: {selectedFeedback.ticketNumber || '-'}
+                    </span>
                     <span className="text-xs uppercase tracking-wide text-muted-foreground">
                       {selectedFeedback.type === 'bug' ? t.feedback.typeBug : t.feedback.typeFeature}
                     </span>
@@ -2984,6 +3034,16 @@ const Settings: React.FC = () => {
                         {selectedFeedback.updatedAt ? format(new Date(selectedFeedback.updatedAt), 'MMM d, yyyy') : '-'}
                       </div>
                     </div>
+                    <div className="space-y-1">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.closedAt}</div>
+                      <div className="font-medium text-foreground">
+                        {selectedFeedback.closedAt ? formatDateTime(selectedFeedback.closedAt) : '-'}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.closedByUser}</div>
+                      <div className="font-medium text-foreground break-all">{selectedFeedback.closedByUserId || '-'}</div>
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -3002,7 +3062,38 @@ const Settings: React.FC = () => {
                     </div>
                   ) : null}
 
-                  <div className="pt-2 flex items-center justify-end">
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.resolutionNote}</div>
+                    <Textarea
+                      value={feedbackResolutionDraft[selectedFeedback.id] ?? selectedFeedback.resolutionNote ?? ''}
+                      onChange={(e) =>
+                        setFeedbackResolutionDraft((prev) => ({
+                          ...prev,
+                          [selectedFeedback.id]: e.target.value,
+                        }))
+                      }
+                      placeholder={t.feedback.resolutionPlaceholder}
+                    />
+                    <p className="text-xs text-muted-foreground">{t.feedback.closeRequiresResolution}</p>
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-end gap-2">
+                    <Button
+                      onClick={() =>
+                        updateFeedbackStatus(
+                          selectedFeedback.id,
+                          'finished',
+                          String(feedbackResolutionDraft[selectedFeedback.id] ?? selectedFeedback.resolutionNote ?? '').trim()
+                        )
+                      }
+                      disabled={
+                        normalizeFeedbackStatus(selectedFeedback.status) === 'finished' ||
+                        !String(feedbackResolutionDraft[selectedFeedback.id] ?? selectedFeedback.resolutionNote ?? '').trim()
+                      }
+                    >
+                      <CheckCircle2 size={16} />
+                      {t.feedback.markFinished}
+                    </Button>
                     <Button
                       variant="destructive"
                       onClick={() => setFeedbackDeleteId(selectedFeedback.id)}
@@ -3026,6 +3117,9 @@ const Settings: React.FC = () => {
                 <div className="space-y-5">
                   <div className="flex flex-wrap items-center gap-2">
                     {renderStatusPill(selectedFeedback)}
+                    <span className="rounded-full border border-border px-2 py-0.5 text-xs font-mono text-muted-foreground">
+                      {t.feedback.ticketNumber}: {selectedFeedback.ticketNumber || '-'}
+                    </span>
                     <span className="text-xs uppercase tracking-wide text-muted-foreground">
                       {selectedFeedback.type === 'bug' ? t.feedback.typeBug : t.feedback.typeFeature}
                     </span>
@@ -3048,6 +3142,10 @@ const Settings: React.FC = () => {
                       <span>{t.feedback.createdAt}: {selectedFeedback.createdAt ? format(new Date(selectedFeedback.createdAt), 'MMM d, yyyy') : '-'}</span>
                       <span>{t.common.update}: {selectedFeedback.updatedAt ? format(new Date(selectedFeedback.updatedAt), 'MMM d, yyyy') : '-'}</span>
                     </div>
+                    <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                      <span>{t.feedback.closedAt}: {selectedFeedback.closedAt ? formatDateTime(selectedFeedback.closedAt) : '-'}</span>
+                      <span>{t.feedback.closedByUser}: {selectedFeedback.closedByUserId || '-'}</span>
+                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -3066,9 +3164,40 @@ const Settings: React.FC = () => {
                     </div>
                   ) : null}
 
+                  <div className="space-y-2">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">{t.feedback.resolutionNote}</div>
+                    <Textarea
+                      value={feedbackResolutionDraft[selectedFeedback.id] ?? selectedFeedback.resolutionNote ?? ''}
+                      onChange={(e) =>
+                        setFeedbackResolutionDraft((prev) => ({
+                          ...prev,
+                          [selectedFeedback.id]: e.target.value,
+                        }))
+                      }
+                      placeholder={t.feedback.resolutionPlaceholder}
+                    />
+                    <p className="text-xs text-muted-foreground">{t.feedback.closeRequiresResolution}</p>
+                  </div>
+
                   <DialogFooter>
                     <Button variant="outline" onClick={closeFeedbackDetails}>
                       {t.common.close}
+                    </Button>
+                    <Button
+                      onClick={() =>
+                        updateFeedbackStatus(
+                          selectedFeedback.id,
+                          'finished',
+                          String(feedbackResolutionDraft[selectedFeedback.id] ?? selectedFeedback.resolutionNote ?? '').trim()
+                        )
+                      }
+                      disabled={
+                        normalizeFeedbackStatus(selectedFeedback.status) === 'finished' ||
+                        !String(feedbackResolutionDraft[selectedFeedback.id] ?? selectedFeedback.resolutionNote ?? '').trim()
+                      }
+                    >
+                      <CheckCircle2 size={16} />
+                      {t.feedback.markFinished}
                     </Button>
                     <Button variant="destructive" onClick={() => setFeedbackDeleteId(selectedFeedback.id)}>
                       <Trash2 size={16} />

@@ -2520,6 +2520,208 @@ const buildFeedbackEmailHtml = ({ lang, feedback, appBaseUrl }) => {
   </div>`;
 };
 
+const FEEDBACK_SENDER_EMAIL_STRINGS = {
+  en: {
+    ackSubjectPrefix: "[CRA] Feedback received",
+    ackTitle: "Feedback received",
+    ackIntro: "Thank you for your feedback. We created a support ticket for your request.",
+    closeSubjectPrefix: "[CRA] Feedback ticket closed",
+    closeTitle: "Feedback ticket update",
+    closeIntro: "Your feedback ticket has been closed.",
+    labels: {
+      ticket: "Ticket",
+      status: "Status",
+      title: "Title",
+      type: "Type",
+      severity: "Severity",
+      page: "Page",
+      submittedAt: "Submitted At",
+      closedAt: "Closed At",
+      resolution: "Resolution",
+    },
+  },
+  fr: {
+    ackSubjectPrefix: "[CRA] Retour recu",
+    ackTitle: "Retour recu",
+    ackIntro: "Merci pour votre retour. Un ticket de support a ete cree.",
+    closeSubjectPrefix: "[CRA] Ticket de retour cloture",
+    closeTitle: "Mise a jour du ticket",
+    closeIntro: "Votre ticket de retour a ete cloture.",
+    labels: {
+      ticket: "Ticket",
+      status: "Statut",
+      title: "Titre",
+      type: "Type",
+      severity: "Severite",
+      page: "Page",
+      submittedAt: "Soumis le",
+      closedAt: "Cloture le",
+      resolution: "Resolution",
+    },
+  },
+  zh: {
+    ackSubjectPrefix: "[CRA] Feedback received",
+    ackTitle: "Feedback received",
+    ackIntro: "Thank you for your feedback. We created a support ticket for your request.",
+    closeSubjectPrefix: "[CRA] Feedback ticket closed",
+    closeTitle: "Feedback ticket update",
+    closeIntro: "Your feedback ticket has been closed.",
+    labels: {
+      ticket: "Ticket",
+      status: "Status",
+      title: "Title",
+      type: "Type",
+      severity: "Severity",
+      page: "Page",
+      submittedAt: "Submitted At",
+      closedAt: "Closed At",
+      resolution: "Resolution",
+    },
+  },
+};
+
+const getFeedbackSenderEmailStrings = (lang) => {
+  const resolved = normalizeNotificationLanguage(lang) ?? "en";
+  return FEEDBACK_SENDER_EMAIL_STRINGS[resolved] ?? FEEDBACK_SENDER_EMAIL_STRINGS.en;
+};
+
+const renderFeedbackSenderEmailHtml = ({ lang, mode, feedback }) => {
+  const i18n = getFeedbackSenderEmailStrings(lang);
+  const ticketNumber = String(feedback?.ticketNumber ?? "").trim() || "-";
+  const status = String(feedback?.status ?? "").trim() || "-";
+  const title = String(feedback?.title ?? "").trim() || "-";
+  const type = feedbackTypeLabel(lang, feedback?.type);
+  const severity = feedbackSeverityLabel(lang, feedback?.severity);
+  const page = String(feedback?.pagePath ?? "").trim() || "-";
+  const submittedAt = formatIsoUtc(feedback?.createdAt);
+  const closedAt = formatIsoUtc(feedback?.closedAt);
+  const resolution = String(feedback?.resolutionNote ?? "").trim() || "-";
+  const isClose = mode === "closed";
+
+  const headline = isClose ? i18n.closeTitle : i18n.ackTitle;
+  const intro = isClose ? i18n.closeIntro : i18n.ackIntro;
+
+  return `
+  <div style="margin:0;padding:0;background:#f3f4f6;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f4f6;padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="680" cellspacing="0" cellpadding="0" style="width:680px;max-width:680px;background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;overflow:hidden;">
+            <tr>
+              <td style="padding:20px 24px;border-bottom:1px solid #e5e7eb;background:#111827;color:#f9fafb;font-family:Arial,sans-serif;">
+                <div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.8;">CRA</div>
+                <div style="margin-top:6px;font-size:22px;font-weight:800;line-height:1.2;">${escapeHtml(headline)}</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:20px 24px;font-family:Arial,sans-serif;color:#111827;">
+                <div style="font-size:14px;color:#4b5563;margin-bottom:14px;">${escapeHtml(intro)}</div>
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;width:180px;">${escapeHtml(i18n.labels.ticket)}</td><td style="padding:6px 0;font-size:13px;color:#111827;font-weight:700;">${escapeHtml(ticketNumber)}</td></tr>
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.status)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(humanizeStatus(status))}</td></tr>
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.title)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(title)}</td></tr>
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.type)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(type)}</td></tr>
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.severity)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(severity)}</td></tr>
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.page)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(page)}</td></tr>
+                  <tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.submittedAt)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(submittedAt || "-")}</td></tr>
+                  ${
+                    isClose
+                      ? `<tr><td style="padding:6px 0;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.closedAt)}</td><td style="padding:6px 0;font-size:13px;color:#111827;">${escapeHtml(closedAt || "-")}</td></tr>`
+                      : ""
+                  }
+                </table>
+                ${
+                  isClose
+                    ? `<div style="margin-top:14px;font-size:13px;color:#6b7280;">${escapeHtml(i18n.labels.resolution)}</div>
+                       <div style="margin-top:6px;padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;color:#111827;white-space:pre-wrap;">${escapeHtml(resolution)}</div>`
+                    : ""
+                }
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </div>`;
+};
+
+const getFeedbackCounterName = (createdAt) => {
+  const dt = createdAt instanceof Date ? createdAt : new Date(createdAt);
+  const year = Number.isNaN(dt.getTime()) ? new Date().getUTCFullYear() : dt.getUTCFullYear();
+  return `feedback_${year}`;
+};
+
+const formatFeedbackTicketNumber = ({ createdAt, sequence }) => {
+  const dt = createdAt instanceof Date ? createdAt : new Date(createdAt);
+  const year = Number.isNaN(dt.getTime()) ? new Date().getUTCFullYear() : dt.getUTCFullYear();
+  const seq = Number.isFinite(sequence) ? Math.max(1, Math.floor(sequence)) : 1;
+  return `CRA-${year}-${String(seq).padStart(6, "0")}`;
+};
+
+const allocateFeedbackTicketNumber = async (db, createdAt) => {
+  const counterName = getFeedbackCounterName(createdAt);
+  await db.query(`INSERT INTO counters (name, value) VALUES ($1, 0) ON CONFLICT (name) DO NOTHING`, [counterName]);
+  const { rows } = await db.query(
+    `
+    UPDATE counters
+    SET value = value + 1
+    WHERE name = $1
+    RETURNING value
+    `,
+    [counterName]
+  );
+  const sequence = Number.parseInt(String(rows?.[0]?.value ?? "1"), 10) || 1;
+  return formatFeedbackTicketNumber({ createdAt, sequence });
+};
+
+const resolveFeedbackReporter = async (db, { authUserId, userEmail }) => {
+  const authId = String(authUserId ?? "").trim();
+  if (authId) {
+    const { rows } = await db.query(
+      `
+      SELECT id, email, preferred_language
+      FROM app_users
+      WHERE id = $1 AND is_active = true
+      LIMIT 1
+      `,
+      [authId]
+    );
+    if (rows?.length) {
+      return {
+        reporterUserId: String(rows[0].id),
+        reporterEmail: String(rows[0].email ?? "").trim() || String(userEmail ?? "").trim(),
+        reporterLanguage: normalizeNotificationLanguage(rows[0].preferred_language) ?? "en",
+      };
+    }
+  }
+
+  const email = String(userEmail ?? "").trim();
+  if (email) {
+    const { rows } = await db.query(
+      `
+      SELECT id, email, preferred_language
+      FROM app_users
+      WHERE lower(email) = lower($1) AND is_active = true
+      LIMIT 1
+      `,
+      [email]
+    );
+    if (rows?.length) {
+      return {
+        reporterUserId: String(rows[0].id),
+        reporterEmail: String(rows[0].email ?? "").trim() || email,
+        reporterLanguage: normalizeNotificationLanguage(rows[0].preferred_language) ?? "en",
+      };
+    }
+  }
+
+  return {
+    reporterUserId: null,
+    reporterEmail: email,
+    reporterLanguage: "en",
+  };
+};
+
 const resolveFeedbackAdminRecipients = async (pool) => {
   const { rows } = await pool.query(
     `
@@ -2562,6 +2764,7 @@ const enqueueFeedbackSubmittedNotifications = async (pool, feedback) => {
   const feedbackType = feedbackTypeLabel("en", feedback?.type);
   const payload = {
     feedbackId: feedbackId || null,
+    ticketNumber: String(feedback?.ticketNumber ?? "").trim() || null,
     actionPath: "/settings?tab=feedback",
     feedbackType: String(feedback?.type ?? "").trim() || null,
     severity: String(feedback?.severity ?? "").trim() || null,
@@ -2582,7 +2785,7 @@ const enqueueFeedbackSubmittedNotifications = async (pool, feedback) => {
         userId,
         "feedback_submitted",
         "New feedback submitted",
-        `${feedbackType}: ${feedbackTitle} by ${submitter}`,
+        `${String(feedback?.ticketNumber ?? "").trim() || "Ticket"} | ${feedbackType}: ${feedbackTitle} by ${submitter}`,
         null,
         JSON.stringify(payload),
       ]
@@ -2632,6 +2835,60 @@ const enqueueFeedbackSubmittedEmail = async (pool, feedback) => {
     inserted += rowCount ?? 0;
   }
   return { enqueued: inserted > 0, inserted, reason: inserted > 0 ? undefined : "no_admin_email" };
+};
+
+const enqueueFeedbackSenderAcknowledgementEmail = async (pool, feedback) => {
+  const [settings, tokenState] = await Promise.all([getM365Settings(pool), getM365TokenState(pool)]);
+  if (!settings.enabled) return { enqueued: false, reason: "disabled" };
+  if (!tokenState.hasRefreshToken) return { enqueued: false, reason: "m365_not_connected" };
+
+  const toEmail = String(feedback?.userEmail ?? "").trim();
+  if (!toEmail || !isValidEmail(toEmail)) return { enqueued: false, reason: "no_reporter_email" };
+
+  const lang = normalizeNotificationLanguage(feedback?.reporterLanguage) ?? "en";
+  const i18n = getFeedbackSenderEmailStrings(lang);
+  const subject = `${i18n.ackSubjectPrefix} - ${String(feedback?.ticketNumber ?? "").trim()}`.slice(0, 240);
+  const html = renderFeedbackSenderEmailHtml({
+    lang,
+    mode: "ack",
+    feedback,
+  });
+  const feedbackId = String(feedback?.id ?? "").trim() || randomUUID();
+  const { rowCount } = await pool.query(
+    `
+    INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+    VALUES ($1,$2,$3,$4,$5,$6)
+    `,
+    [randomUUID(), "feedback_acknowledged", feedbackId, toEmail, subject, html]
+  );
+  return { enqueued: (rowCount ?? 0) > 0, reason: (rowCount ?? 0) > 0 ? undefined : "no_reporter_email" };
+};
+
+const enqueueFeedbackClosedEmail = async (pool, feedback) => {
+  const [settings, tokenState] = await Promise.all([getM365Settings(pool), getM365TokenState(pool)]);
+  if (!settings.enabled) return { enqueued: false, reason: "disabled" };
+  if (!tokenState.hasRefreshToken) return { enqueued: false, reason: "m365_not_connected" };
+
+  const toEmail = String(feedback?.userEmail ?? "").trim();
+  if (!toEmail || !isValidEmail(toEmail)) return { enqueued: false, reason: "no_reporter_email" };
+
+  const lang = normalizeNotificationLanguage(feedback?.reporterLanguage) ?? "en";
+  const i18n = getFeedbackSenderEmailStrings(lang);
+  const subject = `${i18n.closeSubjectPrefix} - ${String(feedback?.ticketNumber ?? "").trim()}`.slice(0, 240);
+  const html = renderFeedbackSenderEmailHtml({
+    lang,
+    mode: "closed",
+    feedback,
+  });
+  const feedbackId = String(feedback?.id ?? "").trim() || randomUUID();
+  const { rowCount } = await pool.query(
+    `
+    INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+    VALUES ($1,$2,$3,$4,$5,$6)
+    `,
+    [randomUUID(), "feedback_closed", feedbackId, toEmail, subject, html]
+  );
+  return { enqueued: (rowCount ?? 0) > 0, reason: (rowCount ?? 0) > 0 ? undefined : "no_reporter_email" };
 };
 
 const enqueueClientUpdateNotifications = async (pool, installerMeta) => {
@@ -5705,11 +5962,16 @@ export const apiRouter = (() => {
     asyncHandler(async (req, res) => {
       const pool = await getPool();
       const { rows } = await pool.query(
-        "SELECT id, type, title, description, steps, severity, page_path, user_name, user_email, user_role, status, created_at, updated_at FROM feedback ORDER BY created_at DESC"
+        `SELECT
+           id, ticket_number, type, title, description, steps, severity, page_path, user_name, user_email, user_role,
+           reporter_user_id, reporter_language, status, resolution_note, closed_at, closed_by_user_id, created_at, updated_at
+         FROM feedback
+         ORDER BY created_at DESC`
       );
 
       const data = rows.map((row) => ({
         id: row.id,
+        ticketNumber: row.ticket_number ?? "",
         type: row.type,
         title: row.title,
         description: row.description,
@@ -5719,7 +5981,12 @@ export const apiRouter = (() => {
         userName: row.user_name ?? "",
         userEmail: row.user_email ?? "",
         userRole: row.user_role ?? "",
+        reporterUserId: row.reporter_user_id ?? null,
+        reporterLanguage: row.reporter_language ?? "en",
         status: row.status ?? "submitted",
+        resolutionNote: row.resolution_note ?? "",
+        closedAt: row.closed_at ?? null,
+        closedByUserId: row.closed_by_user_id ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at ?? row.created_at,
       }));
@@ -5754,36 +6021,62 @@ export const apiRouter = (() => {
 
       const id = randomUUID();
       const nowIso = new Date().toISOString();
+      const nowDate = new Date(nowIso);
 
       const pool = await getPool();
-      await pool.query(
-        `
-        INSERT INTO feedback
-          (id, type, title, description, steps, severity, page_path, user_name, user_email, user_role, status, created_at, updated_at)
-        VALUES
-          ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-        `,
-        [
-          id,
-          type,
-          title,
-          description,
-          steps || null,
-          severity || null,
-          pagePath || null,
-          userName || null,
-          userEmail || null,
-          userRole || null,
-          "submitted",
-          new Date(nowIso),
-          new Date(nowIso),
-        ]
-      );
+      const created = await withTransaction(pool, async (db) => {
+        const reporter = await resolveFeedbackReporter(db, {
+          authUserId: req.authUser?.id ?? "",
+          userEmail,
+        });
+        const ticketNumber = await allocateFeedbackTicketNumber(db, nowDate);
+
+        await db.query(
+          `
+          INSERT INTO feedback
+            (
+              id, ticket_number, type, title, description, steps, severity, page_path, user_name, user_email, user_role,
+              reporter_user_id, reporter_language, status, resolution_note, closed_at, closed_by_user_id, created_at, updated_at
+            )
+          VALUES
+            ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+          `,
+          [
+            id,
+            ticketNumber,
+            type,
+            title,
+            description,
+            steps || null,
+            severity || null,
+            pagePath || null,
+            userName || null,
+            userEmail || null,
+            userRole || null,
+            reporter.reporterUserId,
+            reporter.reporterLanguage,
+            "submitted",
+            null,
+            null,
+            null,
+            nowDate,
+            nowDate,
+          ]
+        );
+
+        return {
+          ticketNumber,
+          reporterLanguage: reporter.reporterLanguage,
+          reporterUserId: reporter.reporterUserId,
+          reporterEmail: reporter.reporterEmail,
+        };
+      });
 
       let inAppEnqueued = 0;
       try {
         inAppEnqueued = await enqueueFeedbackSubmittedNotifications(pool, {
           id,
+          ticketNumber: created.ticketNumber,
           type,
           title,
           description,
@@ -5791,7 +6084,9 @@ export const apiRouter = (() => {
           severity,
           pagePath,
           userName,
+          userEmail: created.reporterEmail || userEmail,
           userRole,
+          reporterLanguage: created.reporterLanguage,
         });
       } catch (e) {
         console.error("Failed to enqueue feedback in-app notifications:", e);
@@ -5801,6 +6096,7 @@ export const apiRouter = (() => {
       try {
         emailResult = await enqueueFeedbackSubmittedEmail(pool, {
           id,
+          ticketNumber: created.ticketNumber,
           type,
           title,
           description,
@@ -5808,11 +6104,36 @@ export const apiRouter = (() => {
           severity,
           pagePath,
           userName,
+          userEmail: created.reporterEmail || userEmail,
           userRole,
+          reporterLanguage: created.reporterLanguage,
         });
       } catch (e) {
         emailResult = { enqueued: false, reason: "error" };
         console.error("Failed to enqueue feedback email notification:", e);
+      }
+
+      let senderAckResult = { enqueued: false, reason: "unknown" };
+      try {
+        senderAckResult = await enqueueFeedbackSenderAcknowledgementEmail(pool, {
+          id,
+          ticketNumber: created.ticketNumber,
+          type,
+          title,
+          description,
+          steps,
+          severity,
+          pagePath,
+          userName,
+          userEmail: created.reporterEmail || userEmail,
+          userRole,
+          reporterLanguage: created.reporterLanguage,
+          createdAt: nowIso,
+          status: "submitted",
+        });
+      } catch (e) {
+        senderAckResult = { enqueued: false, reason: "error" };
+        console.error("Failed to enqueue feedback acknowledgement email:", e);
       }
 
       await writeAuditLogBestEffort(pool, req, {
@@ -5823,14 +6144,19 @@ export const apiRouter = (() => {
           feedbackType: type,
           severity: severity || null,
           userRole: userRole || null,
+          ticketNumber: created.ticketNumber,
+          reporterLanguage: created.reporterLanguage,
           inAppEnqueued,
           emailEnqueued: emailResult.enqueued === true,
           emailReason: emailResult.reason ?? null,
+          senderAckEnqueued: senderAckResult.enqueued === true,
+          senderAckReason: senderAckResult.reason ?? null,
         },
       });
 
       res.status(201).json({
         id,
+        ticketNumber: created.ticketNumber,
         type,
         title,
         description,
@@ -5838,9 +6164,13 @@ export const apiRouter = (() => {
         severity,
         pagePath,
         userName,
-        userEmail,
+        userEmail: created.reporterEmail || userEmail,
         userRole,
+        reporterLanguage: created.reporterLanguage,
         status: "submitted",
+        resolutionNote: "",
+        closedAt: null,
+        closedByUserId: null,
         createdAt: nowIso,
         updatedAt: nowIso,
       });
@@ -5853,6 +6183,7 @@ export const apiRouter = (() => {
       const { feedbackId } = req.params;
       const body = req.body;
       const status = String(body?.status ?? "").trim().toLowerCase();
+      const resolutionNoteInput = typeof body?.resolutionNote === "string" ? body.resolutionNote.trim() : "";
       const allowed = new Set(["submitted", "ongoing", "finished", "cancelled"]);
 
       if (!feedbackId) {
@@ -5867,18 +6198,107 @@ export const apiRouter = (() => {
 
       const pool = await getPool();
       const nowIso = new Date().toISOString();
-      const result = await pool.query("UPDATE feedback SET status=$1, updated_at=$2 WHERE id=$3", [
-        status,
-        new Date(nowIso),
-        feedbackId,
-      ]);
+      const existingRes = await pool.query(
+        `
+        SELECT id, ticket_number, type, title, description, steps, severity, page_path, user_name, user_email, user_role,
+               reporter_user_id, reporter_language, status, resolution_note, closed_at, closed_by_user_id, created_at, updated_at
+          FROM feedback
+         WHERE id=$1
+         LIMIT 1
+        `,
+        [feedbackId]
+      );
+      const existing = existingRes.rows?.[0] ?? null;
+      if (!existing) {
+        res.status(404).json({ error: "Feedback not found" });
+        return;
+      }
 
+      const isTerminal = status === "finished" || status === "cancelled";
+      const existingResolution = String(existing.resolution_note ?? "").trim();
+      if (isTerminal && !resolutionNoteInput && !existingResolution) {
+        res.status(400).json({ error: "Resolution note is required when closing feedback" });
+        return;
+      }
+
+      const nextResolution = resolutionNoteInput || existingResolution || null;
+      const closedByUserId = String(req.authUser?.id ?? "").trim() || null;
+      const result = await pool.query(
+        `
+        UPDATE feedback
+           SET
+             status = $1,
+             resolution_note = $2,
+             closed_at = $3,
+             closed_by_user_id = $4,
+             updated_at = $5
+         WHERE id = $6
+        `,
+        [
+          status,
+          nextResolution,
+          isTerminal ? new Date(nowIso) : null,
+          isTerminal ? closedByUserId : null,
+          new Date(nowIso),
+          feedbackId,
+        ]
+      );
       if (!result.rowCount) {
         res.status(404).json({ error: "Feedback not found" });
         return;
       }
 
-      res.json({ ok: true, id: feedbackId, status, updatedAt: nowIso });
+      let senderCloseResult = { enqueued: false, reason: "not_terminal" };
+      if (isTerminal) {
+        try {
+          senderCloseResult = await enqueueFeedbackClosedEmail(pool, {
+            id: String(existing.id ?? feedbackId),
+            ticketNumber: String(existing.ticket_number ?? "").trim(),
+            type: String(existing.type ?? "").trim(),
+            title: String(existing.title ?? "").trim(),
+            description: String(existing.description ?? "").trim(),
+            steps: String(existing.steps ?? "").trim(),
+            severity: String(existing.severity ?? "").trim(),
+            pagePath: String(existing.page_path ?? "").trim(),
+            userName: String(existing.user_name ?? "").trim(),
+            userEmail: String(existing.user_email ?? "").trim(),
+            userRole: String(existing.user_role ?? "").trim(),
+            reporterLanguage: String(existing.reporter_language ?? "").trim() || "en",
+            createdAt: existing.created_at ?? nowIso,
+            status,
+            resolutionNote: nextResolution ?? "",
+            closedAt: nowIso,
+          });
+        } catch (e) {
+          senderCloseResult = { enqueued: false, reason: "error" };
+          console.error("Failed to enqueue feedback close email:", e);
+        }
+      }
+
+      await writeAuditLogBestEffort(pool, req, {
+        action: "feedback.status_changed",
+        targetType: "feedback",
+        targetId: feedbackId,
+        metadata: {
+          ticketNumber: String(existing.ticket_number ?? "").trim() || null,
+          fromStatus: String(existing.status ?? "").trim() || null,
+          toStatus: status,
+          isTerminal,
+          senderCloseEnqueued: senderCloseResult.enqueued === true,
+          senderCloseReason: senderCloseResult.reason ?? null,
+        },
+      });
+
+      res.json({
+        ok: true,
+        id: feedbackId,
+        ticketNumber: String(existing.ticket_number ?? "").trim() || null,
+        status,
+        resolutionNote: nextResolution ?? "",
+        closedAt: isTerminal ? nowIso : null,
+        closedByUserId: isTerminal ? closedByUserId : null,
+        updatedAt: nowIso,
+      });
     })
   );
 
