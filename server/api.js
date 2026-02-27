@@ -226,53 +226,196 @@ const autoAddM365RecipientForRole = async (pool, { role, email }) => {
   }
 };
 
-const resolveRecipientsForStatus = (settings, status) => {
-  const sales = parseEmailList(settings.recipientsSales);
-  const design = parseEmailList(settings.recipientsDesign);
-  const costing = parseEmailList(settings.recipientsCosting);
-  const admin = parseEmailList(settings.recipientsAdmin);
-
-  if (settings.testMode) {
-    // If test recipient is not provided, default to sender mailbox to prevent silent "no recipient" situations.
-    return parseEmailList(settings.testEmail || settings.senderUpn);
-  }
-
-  const flowMap = settings.flowMap && typeof settings.flowMap === "object" ? settings.flowMap : null;
-  const entry = flowMap ? flowMap[String(status ?? "")] : null;
-  if (entry && typeof entry === "object") {
-    const recipients = new Set();
-    if (entry.sales) sales.forEach((v) => recipients.add(v));
-    if (entry.design) design.forEach((v) => recipients.add(v));
-    if (entry.costing) costing.forEach((v) => recipients.add(v));
-    if (entry.admin) admin.forEach((v) => recipients.add(v));
-    return Array.from(recipients);
+const resolveRoleFlagsForStatus = (status, flowEntry) => {
+  if (flowEntry && typeof flowEntry === "object") {
+    return {
+      sales: Boolean(flowEntry.sales),
+      design: Boolean(flowEntry.design),
+      costing: Boolean(flowEntry.costing),
+      admin: Boolean(flowEntry.admin),
+    };
   }
 
   switch (String(status ?? "")) {
     case "submitted":
     case "under_review":
-      return [...design, ...admin];
+      return { sales: false, design: true, costing: false, admin: true };
     case "clarification_needed":
-      return [...sales, ...admin];
+      return { sales: true, design: false, costing: false, admin: true };
     case "feasibility_confirmed":
     case "design_result":
-      return [...costing, ...sales, ...admin];
+      return { sales: true, design: false, costing: true, admin: true };
     case "in_costing":
-      return [...costing, ...admin];
+      return { sales: false, design: false, costing: true, admin: true };
     case "costing_complete":
-      return [...sales, ...admin];
+      return { sales: true, design: false, costing: false, admin: true };
     case "sales_followup":
     case "gm_approval_pending":
     case "gm_approved":
     case "gm_rejected":
-      return [...sales, ...admin];
+      return { sales: true, design: false, costing: false, admin: true };
     case "cancelled":
-      return [...sales, ...admin];
+      return { sales: true, design: false, costing: false, admin: true };
     case "closed":
-      return [...sales];
+      return { sales: true, design: false, costing: false, admin: false };
     default:
-      return [...admin];
+      return { sales: false, design: false, costing: false, admin: true };
   }
+};
+
+const resolveRoleRecipientsForStatus = (settings, status) => {
+  const sales = parseEmailList(settings.recipientsSales);
+  const design = parseEmailList(settings.recipientsDesign);
+  const costing = parseEmailList(settings.recipientsCosting);
+  const admin = parseEmailList(settings.recipientsAdmin);
+  const flowMap = settings.flowMap && typeof settings.flowMap === "object" ? settings.flowMap : null;
+  const entry = flowMap ? flowMap[String(status ?? "")] : null;
+  const roleFlags = resolveRoleFlagsForStatus(status, entry);
+  const testRecipients = settings.testMode
+    ? // If test recipient is not provided, default to sender mailbox to prevent silent "no recipient" situations.
+      parseEmailList(settings.testEmail || settings.senderUpn)
+    : null;
+
+  return {
+    sales: roleFlags.sales ? (testRecipients ?? sales) : [],
+    design: roleFlags.design ? (testRecipients ?? design) : [],
+    costing: roleFlags.costing ? (testRecipients ?? costing) : [],
+    admin: roleFlags.admin ? (testRecipients ?? admin) : [],
+  };
+};
+
+const resolveRecipientsForStatus = (settings, status) => {
+  const roleRecipients = resolveRoleRecipientsForStatus(settings, status);
+  const recipients = new Set();
+  roleRecipients.sales.forEach((v) => recipients.add(v));
+  roleRecipients.design.forEach((v) => recipients.add(v));
+  roleRecipients.costing.forEach((v) => recipients.add(v));
+  roleRecipients.admin.forEach((v) => recipients.add(v));
+  return Array.from(recipients);
+};
+
+const ADMIN_IMMEDIATE_EMAIL_STATUSES = new Set(["gm_approval_pending"]);
+const ADMIN_DAILY_DIGEST_HOUR_LOCAL = 16;
+
+const formatLocalDateYmd = (value) => {
+  const dt = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(dt.getTime())) return "";
+  const year = dt.getFullYear();
+  const month = String(dt.getMonth() + 1).padStart(2, "0");
+  const day = String(dt.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const computeAdminDigestDate = (eventDate = new Date()) => {
+  const local = eventDate instanceof Date ? new Date(eventDate.getTime()) : new Date(eventDate);
+  if (Number.isNaN(local.getTime())) return formatLocalDateYmd(new Date());
+  if (local.getHours() >= ADMIN_DAILY_DIGEST_HOUR_LOCAL) {
+    local.setDate(local.getDate() + 1);
+  }
+  return formatLocalDateYmd(local);
+};
+
+const enqueueAdminDigestNotifications = async (
+  pool,
+  { eventType, requestId, status, previousStatus, actorName, comment, toEmails, digestDate, eventAt }
+) => {
+  const grouped = await groupRecipientsByPreferredLanguage(pool, toEmails);
+  let inserted = 0;
+  for (const [lang, groupEmails] of grouped) {
+    const { rowCount } = await pool.query(
+      `
+      INSERT INTO notification_admin_digest_queue
+        (id, event_type, request_id, request_status, previous_status, actor_name, comment, to_emails, lang, digest_date, event_at)
+      VALUES
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      `,
+      [
+        randomUUID(),
+        String(eventType ?? "request_status_changed"),
+        String(requestId ?? ""),
+        String(status ?? ""),
+        String(previousStatus ?? "").trim() || null,
+        String(actorName ?? "").trim() || null,
+        typeof comment === "string" && comment.trim() ? comment.trim() : null,
+        groupEmails.join(", "),
+        String(lang ?? "en"),
+        String(digestDate ?? computeAdminDigestDate(eventAt)),
+        eventAt ?? new Date(),
+      ]
+    );
+    inserted += rowCount ?? 0;
+  }
+  return inserted;
+};
+
+const enqueueRequestEmailByPolicy = async (
+  pool,
+  { settings, request, requestId, eventType, status, previousStatus, actorName, comment, eventAt }
+) => {
+  const roleRecipients = resolveRoleRecipientsForStatus(settings, status);
+  const immediateSet = new Set();
+  roleRecipients.sales.forEach((email) => immediateSet.add(email));
+  roleRecipients.design.forEach((email) => immediateSet.add(email));
+  roleRecipients.costing.forEach((email) => immediateSet.add(email));
+
+  const normalizedStatus = String(status ?? "").trim();
+  if (ADMIN_IMMEDIATE_EMAIL_STATUSES.has(normalizedStatus)) {
+    roleRecipients.admin.forEach((email) => immediateSet.add(email));
+  } else if (roleRecipients.admin.length) {
+    await enqueueAdminDigestNotifications(pool, {
+      eventType,
+      requestId,
+      status: normalizedStatus,
+      previousStatus,
+      actorName,
+      comment,
+      toEmails: roleRecipients.admin,
+      digestDate: computeAdminDigestDate(eventAt ?? new Date()),
+      eventAt: eventAt ?? new Date(),
+    });
+  }
+
+  const immediateRecipients = Array.from(immediateSet);
+  if (!immediateRecipients.length) return { immediateEmailEnqueued: false };
+
+  const link = buildRequestLink(settings.appBaseUrl, requestId);
+  const groups = await groupRecipientsByPreferredLanguage(pool, immediateRecipients);
+  for (const [lang, groupEmails] of groups) {
+    const vars = getNotificationTemplateVars({
+      request,
+      requestId,
+      status: normalizedStatus,
+      previousStatus,
+      lang,
+      actorName,
+    });
+    const subjectFallback = applyTemplateVars(getDefaultTemplateForEvent(eventType, lang)?.subject ?? "", vars);
+    const template = getTemplateForEvent(settings, eventType, lang);
+    const subjectTpl = applyTemplateVars(template.subject, vars);
+    const html = renderStatusEmailHtml({
+      request,
+      eventType,
+      newStatus: normalizedStatus,
+      previousStatus,
+      actorName,
+      comment,
+      link,
+      dashboardLink: buildDashboardLink(settings.appBaseUrl),
+      logoCid: "monroc-logo",
+      template,
+      introOverride: template.intro,
+      lang,
+    });
+    await pool.query(
+      `
+      INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+      VALUES ($1,$2,$3,$4,$5,$6)
+      `,
+      [randomUUID(), eventType, requestId, groupEmails.join(", "), subjectTpl || subjectFallback, html]
+    );
+  }
+
+  return { immediateEmailEnqueued: true };
 };
 
 const IN_APP_ROLES_BY_STATUS = Object.freeze({
@@ -1663,6 +1806,8 @@ const normalizeRequestData = (data, nowIso) => {
     priority: normalizeRequestPriority(data.priority),
     attachments,
     designResultComments: typeof data.designResultComments === "string" ? data.designResultComments : "",
+    designResultBomFolderLink:
+      typeof data.designResultBomFolderLink === "string" ? data.designResultBomFolderLink : "",
     designResultAttachments,
     city: typeof data.city === "string" ? data.city : "",
     incoterm: typeof data.incoterm === "string" ? data.incoterm : "",
@@ -6594,49 +6739,17 @@ export const apiRouter = (() => {
             getM365TokenState(pool),
           ]);
           if (settings.enabled && tokenState.hasRefreshToken) {
-            const to = resolveRecipientsForStatus(settings, createdStatus);
-            if (to.length) {
-              const link = buildRequestLink(settings.appBaseUrl, id);
-
-              const groups = await groupRecipientsByPreferredLanguage(pool, to);
-              for (const [lang, groupEmails] of groups) {
-                const vars = getNotificationTemplateVars({
-                  request: requestData,
-                  requestId: id,
-                  status: createdStatus,
-                  previousStatus: "",
-                  lang,
-                  actorName: createdByName,
-                });
-                const subjectFallback = applyTemplateVars(
-                  getDefaultTemplateForEvent("request_created", lang)?.subject ?? "",
-                  vars
-                );
-                const template = getTemplateForEvent(settings, "request_created", lang);
-                const subjectTpl = applyTemplateVars(template.subject, vars);
-                const html = renderStatusEmailHtml({
-                  request: requestData,
-                  eventType: "request_created",
-                  newStatus: createdStatus,
-                  previousStatus: "",
-                  actorName: createdByName,
-                  comment: "",
-                  link,
-                  dashboardLink: buildDashboardLink(settings.appBaseUrl),
-                  logoCid: "monroc-logo",
-                  template,
-                  introOverride: template.intro,
-                  lang,
-                });
-                await pool.query(
-                  `
-                  INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
-                  VALUES ($1,$2,$3,$4,$5,$6)
-                  `,
-                  [randomUUID(), "request_created", id, groupEmails.join(", "), subjectTpl || subjectFallback, html]
-                );
-              }
-            }
+            await enqueueRequestEmailByPolicy(pool, {
+              settings,
+              request: requestData,
+              requestId: id,
+              eventType: "request_created",
+              status: createdStatus,
+              previousStatus: "",
+              actorName: createdByName,
+              comment: "",
+              eventAt: new Date(),
+            });
           }
         }
       } catch (e) {
@@ -6707,6 +6820,13 @@ export const apiRouter = (() => {
       if (requestedStatus === "gm_approval_pending" && hasGmRejected && !comment) {
         res.status(400).json({ error: "Sales comment required when resubmitting after GM rejection" });
         return;
+      }
+      if (requestedStatus === "design_result") {
+        const bomFolderLink = String(existing.designResultBomFolderLink ?? "").trim();
+        if (!bomFolderLink) {
+          res.status(400).json({ error: "BOM Folder Link is required before submitting Design Result" });
+          return;
+        }
       }
 
       // Workflow rule: a GM rejection returns the request to Sales Follow-up (WIP),
@@ -6808,49 +6928,17 @@ export const apiRouter = (() => {
             getM365TokenState(pool),
           ]);
           if (settings.enabled && tokenState.hasRefreshToken) {
-            const to = resolveRecipientsForStatus(settings, emailStatus);
-            if (to.length) {
-              const link = buildRequestLink(settings.appBaseUrl, requestId);
-
-              const groups = await groupRecipientsByPreferredLanguage(pool, to);
-              for (const [lang, groupEmails] of groups) {
-                const vars = getNotificationTemplateVars({
-                  request: updated,
-                  requestId,
-                  status: emailStatus,
-                  previousStatus,
-                  lang,
-                  actorName: body.userName ?? "",
-                });
-                const subjectFallback = applyTemplateVars(
-                  getDefaultTemplateForEvent("request_status_changed", lang)?.subject ?? "",
-                  vars
-                );
-                const template = getTemplateForEvent(settings, "request_status_changed", lang);
-                const subjectTpl = applyTemplateVars(template.subject, vars);
-                const html = renderStatusEmailHtml({
-                  request: updated,
-                  eventType: "request_status_changed",
-                  newStatus: emailStatus,
-                  previousStatus,
-                  actorName: body.userName ?? "",
-                  comment,
-                  link,
-                  dashboardLink: buildDashboardLink(settings.appBaseUrl),
-                  logoCid: "monroc-logo",
-                  template,
-                  introOverride: template.intro,
-                  lang,
-                });
-                await pool.query(
-                  `
-                  INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
-                  VALUES ($1,$2,$3,$4,$5,$6)
-                  `,
-                  [randomUUID(), "request_status_changed", requestId, groupEmails.join(", "), subjectTpl || subjectFallback, html]
-                );
-              }
-            }
+            await enqueueRequestEmailByPolicy(pool, {
+              settings,
+              request: updated,
+              requestId,
+              eventType: "request_status_changed",
+              status: emailStatus,
+              previousStatus,
+              actorName: body.userName ?? "",
+              comment,
+              eventAt: new Date(nowIso),
+            });
           }
         }
       } catch (e) {
@@ -6940,40 +7028,17 @@ export const apiRouter = (() => {
         if (!to.length) {
           emailReason = "no_recipients";
         } else {
-          const link = buildRequestLink(settings.appBaseUrl, requestId);
-
-          const groups = await groupRecipientsByPreferredLanguage(pool, to);
-          for (const [lang, groupEmails] of groups) {
-            const vars = getNotificationTemplateVars({ request: existing, requestId, status, previousStatus, lang, actorName });
-            const subjectFallback = applyTemplateVars(
-              getDefaultTemplateForEvent(eventType, lang)?.subject ?? "",
-              vars
-            ) || `[CRA] Request ${requestId} updated`;
-            const template = getTemplateForEvent(settings, eventType, lang);
-            const subjectTpl = applyTemplateVars(template.subject, vars);
-            const html = renderStatusEmailHtml({
-              request: existing,
-              eventType,
-              newStatus: status,
-              previousStatus,
-              actorName,
-              comment,
-              link,
-              dashboardLink: buildDashboardLink(settings.appBaseUrl),
-              logoCid: "monroc-logo",
-              template,
-              introOverride: template.intro,
-              lang,
-            });
-
-            await pool.query(
-              `
-              INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
-              VALUES ($1,$2,$3,$4,$5,$6)
-              `,
-              [randomUUID(), eventType, requestId, groupEmails.join(", "), subjectTpl || subjectFallback, html]
-            );
-          }
+          await enqueueRequestEmailByPolicy(pool, {
+            settings,
+            request: existing,
+            requestId,
+            eventType,
+            status,
+            previousStatus,
+            actorName,
+            comment,
+            eventAt: new Date(),
+          });
           emailEnqueued = true;
         }
       }

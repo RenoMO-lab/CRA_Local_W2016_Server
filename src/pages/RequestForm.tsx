@@ -152,6 +152,7 @@ const getInitialFormData = (): Partial<CustomerRequest> => ({
   products: [getInitialProduct()],
   status: 'draft',
   priority: 'normal',
+  designResultBomFolderLink: '',
 });
 
 const buildDuplicateDraftFromRequest = (source: CustomerRequest): Partial<CustomerRequest> => {
@@ -169,6 +170,7 @@ const buildDuplicateDraftFromRequest = (source: CustomerRequest): Partial<Custom
     salesAttachments: [],
     history: [],
     designNotes: '',
+    designResultBomFolderLink: '',
     designResultComments: '',
     clarificationComment: '',
     clarificationResponse: '',
@@ -253,6 +255,7 @@ const RequestForm: React.FC = () => {
   const [isUpdating, setIsUpdating] = useState(false);
   const [showSubmitSuccess, setShowSubmitSuccess] = useState(false);
   const [designResultComments, setDesignResultComments] = useState('');
+  const [designResultBomFolderLink, setDesignResultBomFolderLink] = useState('');
   const [designResultAttachments, setDesignResultAttachments] = useState<Attachment[]>([]);
   const [designResultDirty, setDesignResultDirty] = useState(false);
   const [designPreviewAttachment, setDesignPreviewAttachment] = useState<Attachment | null>(null);
@@ -390,6 +393,7 @@ const RequestForm: React.FC = () => {
   useEffect(() => {
     if (!existingRequest) {
       setDesignResultComments('');
+      setDesignResultBomFolderLink('');
       setDesignResultAttachments([]);
       setDesignResultDirty(false);
       designResultRequestIdRef.current = null;
@@ -403,6 +407,7 @@ const RequestForm: React.FC = () => {
     }
 
     if (requestChanged || !designResultDirty) {
+      setDesignResultBomFolderLink(existingRequest.designResultBomFolderLink ?? '');
       setDesignResultComments(existingRequest.designResultComments ?? '');
       setDesignResultAttachments(
         Array.isArray(existingRequest.designResultAttachments)
@@ -412,6 +417,7 @@ const RequestForm: React.FC = () => {
     }
   }, [
     existingRequest?.id,
+    existingRequest?.designResultBomFolderLink,
     existingRequest?.designResultComments,
     existingRequest?.designResultAttachments,
     designResultDirty,
@@ -1348,7 +1354,8 @@ const RequestForm: React.FC = () => {
   );
   const hasDesignInfo = Boolean(
     existingRequest &&
-      ((existingRequest.designResultComments ?? '').trim().length > 0 ||
+      ((existingRequest.designResultBomFolderLink ?? '').trim().length > 0 ||
+        (existingRequest.designResultComments ?? '').trim().length > 0 ||
         (Array.isArray(existingRequest.designResultAttachments) && existingRequest.designResultAttachments.length > 0))
   );
   const showDesignSummary = Boolean(existingRequest && hasDesignInfo);
@@ -1667,8 +1674,13 @@ const RequestForm: React.FC = () => {
               </div>
 
               <DesignResultSection
+                bomFolderLink={designResultBomFolderLink}
                 comments={designResultComments}
                 attachments={designResultAttachments}
+                onBomFolderLinkChange={(value) => {
+                  setDesignResultBomFolderLink(value);
+                  setDesignResultDirty(true);
+                }}
                 onCommentsChange={(value) => {
                   setDesignResultComments(value);
                   setDesignResultDirty(true);
@@ -1679,11 +1691,13 @@ const RequestForm: React.FC = () => {
                 }}
                 isReadOnly={false}
                 showEmptyState={true}
+                showRequiredMarker={true}
               />
 
               <Button
                 onClick={async () => {
                   await handleDesignResultEditSave({
+                    bomFolderLink: designResultBomFolderLink,
                     comments: designResultComments,
                     attachments: designResultAttachments,
                   });
@@ -1759,12 +1773,17 @@ const RequestForm: React.FC = () => {
 
               <div className="border-t border-border/60 pt-6 space-y-4">
                 <DesignResultSection
+                  bomFolderLink={canEditDesignResult ? designResultBomFolderLink : (existingRequest.designResultBomFolderLink ?? '')}
                   comments={canEditDesignResult ? designResultComments : (existingRequest.designResultComments ?? '')}
                   attachments={canEditDesignResult
                     ? designResultAttachments
                     : Array.isArray(existingRequest.designResultAttachments)
                       ? existingRequest.designResultAttachments
                       : []}
+                  onBomFolderLinkChange={canEditDesignResult ? (value) => {
+                    setDesignResultBomFolderLink(value);
+                    setDesignResultDirty(true);
+                  } : undefined}
                   onCommentsChange={canEditDesignResult ? (value) => {
                     setDesignResultComments(value);
                     setDesignResultDirty(true);
@@ -1775,11 +1794,13 @@ const RequestForm: React.FC = () => {
                   } : undefined}
                   isReadOnly={!canEditDesignResult}
                   showEmptyState={true}
+                  showRequiredMarker={canEditDesignResult}
                 />
                 {canEditDesignResult && (
                   <Button
                     onClick={async () => {
                       const ok = await handleDesignResultSave({
+                        bomFolderLink: designResultBomFolderLink,
                         comments: designResultComments,
                         attachments: designResultAttachments,
                       });
@@ -1927,6 +1948,12 @@ const RequestForm: React.FC = () => {
               {existingRequest.designResultComments}
             </p>
           )}
+          {(existingRequest.designResultBomFolderLink ?? '').trim() ? (
+            <p className="text-sm text-foreground">
+              <span className="text-muted-foreground">{t.panels.designResultBomFolderLink}:</span>{' '}
+              {existingRequest.designResultBomFolderLink}
+            </p>
+          ) : null}
         </div>
 
         {hasReviewNotes && (
@@ -1997,11 +2024,20 @@ const RequestForm: React.FC = () => {
     );
   };
 
-  const handleDesignResultSave = async (payload: { comments: string; attachments: Attachment[] }) => {
+  const handleDesignResultSave = async (payload: { bomFolderLink: string; comments: string; attachments: Attachment[] }) => {
     if (!existingRequest) return false;
+    if (!payload.bomFolderLink.trim()) {
+      toast({
+        title: t.request.validationError,
+        description: t.request.designResultBomRequired,
+        variant: 'destructive',
+      });
+      return false;
+    }
     setIsUpdating(true);
     try {
       await updateRequest(existingRequest.id, {
+        designResultBomFolderLink: payload.bomFolderLink,
         designResultComments: payload.comments,
         designResultAttachments: payload.attachments,
       });
@@ -2025,11 +2061,12 @@ const RequestForm: React.FC = () => {
     }
   };
 
-  const handleDesignResultEditSave = async (payload: { comments: string; attachments: Attachment[] }) => {
+  const handleDesignResultEditSave = async (payload: { bomFolderLink: string; comments: string; attachments: Attachment[] }) => {
     if (!existingRequest) return false;
     setIsUpdating(true);
     try {
       await updateRequest(existingRequest.id, {
+        designResultBomFolderLink: payload.bomFolderLink,
         designResultComments: payload.comments,
         designResultAttachments: payload.attachments,
         historyEvent: 'edited',
@@ -2705,12 +2742,17 @@ const RequestForm: React.FC = () => {
 
                   <div className="border-t border-border/60 pt-6 space-y-4">
                     <DesignResultSection
+                      bomFolderLink={canEditDesignResult ? designResultBomFolderLink : (existingRequest.designResultBomFolderLink ?? '')}
                       comments={canEditDesignResult ? designResultComments : (existingRequest.designResultComments ?? '')}
                       attachments={canEditDesignResult
                         ? designResultAttachments
                         : Array.isArray(existingRequest.designResultAttachments)
                           ? existingRequest.designResultAttachments
                           : []}
+                      onBomFolderLinkChange={canEditDesignResult ? (value) => {
+                        setDesignResultBomFolderLink(value);
+                        setDesignResultDirty(true);
+                      } : undefined}
                       onCommentsChange={canEditDesignResult ? (value) => {
                         setDesignResultComments(value);
                         setDesignResultDirty(true);
@@ -2721,10 +2763,12 @@ const RequestForm: React.FC = () => {
                       } : undefined}
                       isReadOnly={!canEditDesignResult}
                       showEmptyState={true}
+                      showRequiredMarker={canEditDesignResult}
                     />
                     {canEditDesignResult && (
                       <Button
                         onClick={() => handleDesignResultSave({
+                          bomFolderLink: designResultBomFolderLink,
                           comments: designResultComments,
                           attachments: designResultAttachments,
                         })}
@@ -2767,6 +2811,7 @@ const RequestForm: React.FC = () => {
 
               <div className="border-t border-border/60 pt-6 space-y-4">
                 <DesignResultSection
+                  bomFolderLink={existingRequest.designResultBomFolderLink ?? ''}
                   comments={existingRequest.designResultComments ?? ''}
                   attachments={Array.isArray(existingRequest.designResultAttachments)
                     ? existingRequest.designResultAttachments

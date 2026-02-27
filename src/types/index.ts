@@ -171,6 +171,7 @@ export interface CustomerRequest {
   acceptanceMessage?: string;
   expectedDesignReplyDate?: Date;
   designResultComments?: string;
+  designResultBomFolderLink?: string;
   designResultAttachments?: Attachment[];
   
   // Clarification

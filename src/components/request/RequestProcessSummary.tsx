@@ -230,6 +230,7 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
   const hasDesignData = Boolean(
     request.expectedDesignReplyDate ||
       (request.acceptanceMessage ?? "").trim() ||
+      (request.designResultBomFolderLink ?? "").trim() ||
       (request.designResultComments ?? "").trim() ||
       (Array.isArray(request.designResultAttachments) && request.designResultAttachments.length > 0)
   );
@@ -371,6 +372,10 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
             <FieldLine
               label={t.panels.acceptanceMessage}
               value={request.acceptanceMessage?.trim() ? <div className="whitespace-pre-line text-right">{request.acceptanceMessage}</div> : "-"}
+            />
+            <FieldLine
+              label={t.panels.designResultBomFolderLink}
+              value={request.designResultBomFolderLink?.trim() ? <div className="whitespace-pre-line text-right">{request.designResultBomFolderLink}</div> : "-"}
             />
             <FieldLine
               label={t.panels.designResultComments}

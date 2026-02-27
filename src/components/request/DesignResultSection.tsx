@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -8,21 +9,27 @@ import { Attachment } from '@/types';
 import { useLanguage } from '@/context/LanguageContext';
 
 interface DesignResultSectionProps {
+  bomFolderLink: string;
   comments: string;
   attachments: Attachment[];
+  onBomFolderLinkChange?: (value: string) => void;
   onCommentsChange?: (value: string) => void;
   onAttachmentsChange?: (attachments: Attachment[]) => void;
   isReadOnly?: boolean;
   showEmptyState?: boolean;
+  showRequiredMarker?: boolean;
 }
 
 const DesignResultSection: React.FC<DesignResultSectionProps> = ({
+  bomFolderLink,
   comments,
   attachments,
+  onBomFolderLinkChange,
   onCommentsChange,
   onAttachmentsChange,
   isReadOnly = false,
   showEmptyState = true,
+  showRequiredMarker = false,
 }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
@@ -184,7 +191,9 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
     onAttachmentsChange(attachments.filter(a => a.id !== id));
   };
 
-  const hasContent = comments.trim().length > 0 || attachments.length > 0;
+  const hasContent = bomFolderLink.trim().length > 0 || comments.trim().length > 0 || attachments.length > 0;
+  const bomLink = String(bomFolderLink ?? '').trim();
+  const isHttpBomLink = bomLink.startsWith('http://') || bomLink.startsWith('https://');
 
   return (
     <div className="space-y-4">
@@ -198,6 +207,28 @@ const DesignResultSection: React.FC<DesignResultSectionProps> = ({
           {t.panels.designResultEmpty}
         </div>
       )}
+
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">
+          {t.panels.designResultBomFolderLink}
+          {showRequiredMarker ? <span className="ml-1 text-destructive">*</span> : null}
+        </Label>
+        <div className="flex gap-2">
+          <Input
+            value={bomFolderLink}
+            onChange={(e) => onBomFolderLinkChange?.(e.target.value)}
+            placeholder={t.panels.designResultBomFolderPlaceholder}
+            disabled={isReadOnly}
+          />
+          {isHttpBomLink ? (
+            <Button type="button" variant="outline" asChild>
+              <a href={bomLink} target="_blank" rel="noreferrer">
+                {t.common.openLink}
+              </a>
+            </Button>
+          ) : null}
+        </div>
+      </div>
 
       <div className="space-y-2">
         <Label className="text-sm font-medium">{t.panels.designResultComments}</Label>

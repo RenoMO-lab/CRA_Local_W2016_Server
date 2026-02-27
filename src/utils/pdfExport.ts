@@ -1348,14 +1348,19 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   // Design notes + result card(s).
   const designAttachments = Array.isArray(request.designResultAttachments) ? request.designResultAttachments : [];
   const hasDesignNotes = (request.designNotes ?? "").trim().length > 0;
+  const hasDesignResultBomFolderLink = (request.designResultBomFolderLink ?? "").trim().length > 0;
   const hasDesignResultComments = (request.designResultComments ?? "").trim().length > 0;
   const hasDesignAttachments = designAttachments.length > 0;
-  if (hasDesignNotes || hasDesignResultComments || hasDesignAttachments) {
+  if (hasDesignNotes || hasDesignResultBomFolderLink || hasDesignResultComments || hasDesignAttachments) {
     beginCard(`4. ${t.panels.designResult}`);
 
     if (hasDesignNotes) {
       drawSubheading(t.pdf.designNotesTitle);
       drawParagraph(request.designNotes ?? "");
+    }
+    if (hasDesignResultBomFolderLink) {
+      drawSubheading(t.panels.designResultBomFolderLink);
+      drawParagraph(request.designResultBomFolderLink ?? "");
     }
     if (hasDesignResultComments) {
       drawSubheading(t.panels.designResultComments);
