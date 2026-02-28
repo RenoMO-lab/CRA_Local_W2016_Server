@@ -63,9 +63,9 @@ const PDF_TYPE = {
   micro: 8.5,
 } as const;
 const PDF_SPACE = {
-  s1: 2.8,
-  s2: 5.6,
-  s3: 8.4,
+  s1: 2.2,
+  s2: 4.2,
+  s3: 6.3,
 } as const;
 const PDF_COLOR = {
   ink: '#0F172A',
@@ -475,6 +475,15 @@ const formatMoney = (value: number | null, currency: string) => {
   return `${currency} ${value.toFixed(2)}`;
 };
 
+const sanitizeFileToken = (value: string, fallback: string) => {
+  const cleaned = String(value ?? '')
+    .trim()
+    .replace(/[^a-zA-Z0-9-_]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned || fallback;
+};
+
 const normalizeNumber = (value: unknown): number | null => {
   const parsed = parseOptionalNumber(value);
   if (parsed === null || !Number.isFinite(parsed)) return null;
@@ -517,13 +526,6 @@ const normalizeTermsForPdf = (request: CustomerRequest, t: any): NormalizedTerms
     {
       label: String(t.panels.paymentTerms),
       value: buildPaymentTermsValue(request),
-    },
-    {
-      label: String(t.panels.salesFinalPrice),
-      value:
-        typeof request.salesFinalPrice === 'number'
-          ? formatMoney(request.salesFinalPrice, request.salesCurrency || 'EUR')
-          : '-',
     },
   ];
 
@@ -755,18 +757,18 @@ export const generateClientOfferPDF = async (
   };
 
   const drawSectionTitle = (title: string) => {
-    ensureSpace(10);
+    ensureSpace(8.4);
     pdf.setFontSize(PDF_TYPE.section);
     setFont('bold');
     const [ir, ig, ib] = rgb(PDF_COLOR.ink);
     const [lr, lg, lb] = rgb(PDF_COLOR.line);
     pdf.setTextColor(ir, ig, ib);
     pdf.text(title, margin, y);
-    y += 5;
+    y += 4.2;
     pdf.setDrawColor(lr, lg, lb);
     pdf.setLineWidth(0.3);
     pdf.line(margin, y, pageWidth - margin, y);
-    y += 4;
+    y += 3;
     pdf.setTextColor(0, 0, 0);
     setFont('normal');
   };
@@ -779,7 +781,7 @@ export const generateClientOfferPDF = async (
     const lines = pdf.splitTextToSize(raw, contentWidth) as string[];
     const lh = lineHeightMm(fontSize);
     for (const line of lines) {
-      ensureSpace(lh + 1);
+      ensureSpace(lh + 0.8);
       pdf.text(line, margin, y);
       y += lh;
     }
@@ -787,7 +789,7 @@ export const generateClientOfferPDF = async (
   };
 
   const drawTitleCard = (offerDate: string) => {
-    const cardH = 18;
+    const cardH = 15.5;
     const [cr, cg, cb] = rgb(PDF_COLOR.card);
     const [lr, lg, lb] = rgb(PDF_COLOR.line);
     const [mr, mg, mb] = rgb(PDF_COLOR.muted);
@@ -800,26 +802,26 @@ export const generateClientOfferPDF = async (
     pdf.setFontSize(PDF_TYPE.title);
     setFont('bold');
     pdf.setTextColor(...rgb(PDF_COLOR.ink));
-    pdf.text(String(t.clientOffer.pdfTitle), margin + 3, y + 6.5);
+    pdf.text(String(t.clientOffer.pdfTitle), margin + 3, y + 5.8);
 
     const labelX = margin + contentWidth - 56;
     const valueX = margin + contentWidth - 3;
     pdf.setFontSize(PDF_TYPE.micro);
     pdf.setTextColor(mr, mg, mb);
     setFont('bold');
-    pdf.text(`${String(t.clientOffer.offerNumber).toUpperCase()}:`, labelX, y + 6.2);
-    pdf.text(`${String(t.clientOffer.offerDate).toUpperCase()}:`, labelX, y + 11.2);
+    pdf.text(`${String(t.clientOffer.offerNumber).toUpperCase()}:`, labelX, y + 5.7);
+    pdf.text(`${String(t.clientOffer.offerDate).toUpperCase()}:`, labelX, y + 10.2);
     setFont('normal');
     pdf.setTextColor(...rgb(PDF_COLOR.ink));
-    pdf.text(String(config.offerNumber || request.id || '-'), valueX, y + 6.2, { align: 'right' });
-    pdf.text(String(offerDate), valueX, y + 11.2, { align: 'right' });
+    pdf.text(String(config.offerNumber || request.id || '-'), valueX, y + 5.7, { align: 'right' });
+    pdf.text(String(offerDate), valueX, y + 10.2, { align: 'right' });
 
     y += cardH + PDF_SPACE.s2;
   };
 
   const drawMetaRows = (rows: Array<{ label: string; value: string }>) => {
     const labelWidth = 34;
-    const rowH = 6.8;
+    const rowH = 5.8;
     const [mr, mg, mb] = rgb(PDF_COLOR.muted);
     const [lr, lg, lb] = rgb(PDF_COLOR.line);
     for (const row of rows) {
@@ -830,11 +832,11 @@ export const generateClientOfferPDF = async (
       pdf.setFontSize(PDF_TYPE.micro);
       setFont('bold');
       pdf.setTextColor(mr, mg, mb);
-      pdf.text(String(row.label || '-').toUpperCase(), margin, y + 4.4);
+      pdf.text(String(row.label || '-').toUpperCase(), margin, y + 3.8);
       pdf.setFontSize(PDF_TYPE.body);
       setFont('normal');
       pdf.setTextColor(...rgb(PDF_COLOR.ink));
-      pdf.text(String(row.value || '-'), margin + labelWidth, y + 4.2);
+      pdf.text(String(row.value || '-'), margin + labelWidth, y + 3.8);
       y += rowH;
     }
     pdf.setDrawColor(lr, lg, lb);
@@ -1012,20 +1014,20 @@ export const generateClientOfferPDF = async (
     });
 
     const summaryWidth = 68;
-    const rowH = 6.2;
+    const rowH = 5.6;
     const summaryRows: Array<{ label: string; value: string; bold?: boolean }> = [
       { label: String(t.clientOffer.subtotal || 'Subtotal'), value: formatMoney(summary.subtotal, request.salesCurrency || 'EUR') },
       { label: String(t.clientOffer.discount || 'Discount'), value: formatMoney(summary.discount, request.salesCurrency || 'EUR') },
       { label: String(t.clientOffer.taxes || 'Taxes'), value: formatMoney(summary.tax, request.salesCurrency || 'EUR') },
       { label: String(t.common.total), value: formatMoney(summary.total, request.salesCurrency || 'EUR'), bold: true },
     ];
-    const summaryHeight = rowH * summaryRows.length + 4;
+    const summaryHeight = rowH * summaryRows.length + 3.2;
     ensureSpace(summaryHeight + PDF_SPACE.s2);
     const x = pageWidth - margin - summaryWidth;
     pdf.setDrawColor(...rgb(PDF_COLOR.line));
     pdf.setFillColor(...rgb(PDF_COLOR.card));
     pdf.roundedRect(x, y, summaryWidth, summaryHeight, 1.6, 1.6, 'FD');
-    let sy = y + 4.4;
+    let sy = y + 3.8;
     for (const row of summaryRows) {
       pdf.setFontSize(PDF_TYPE.table);
       setFont(row.bold ? 'bold' : 'normal');
@@ -1053,11 +1055,27 @@ export const generateClientOfferPDF = async (
     const dualCards = showCommercial && showDelivery;
     const gap = 4;
     const cardW = dualCards ? (contentWidth - gap) / 2 : contentWidth;
-    const cardTitleH = 6.5;
-    const termRowH = 6.2;
-    const maxRows = 3;
-    const cardH = cardTitleH + maxRows * termRowH + 3.4;
-    ensureSpace(cardH + PDF_SPACE.s2);
+    const cardTitleH = 5.4;
+    const rowLabelGap = 2.5;
+    const rowAfterGap = 1.5;
+
+    const estimateCardHeight = (rows: Array<{ label: string; value: string }>) => {
+      let h = cardTitleH + 2.2;
+      for (const row of rows) {
+        const wrapped = pdf.splitTextToSize(row.value, cardW - 4.4) as string[];
+        const shownLines = Math.max(1, Math.min(2, wrapped.length));
+        h += rowLabelGap + shownLines * lineHeightMm(PDF_TYPE.table) + rowAfterGap;
+      }
+      return h + 1.4;
+    };
+
+    const commercialRows = normalizedTerms.commercial;
+    const deliveryRows = normalizedTerms.delivery;
+    const cardH = Math.max(
+      showCommercial ? estimateCardHeight(commercialRows) : 0,
+      showDelivery ? estimateCardHeight(deliveryRows) : 0
+    );
+    ensureSpace(cardH + PDF_SPACE.s1);
 
     const drawTermCard = (x: number, title: string, rows: Array<{ label: string; value: string }>) => {
       pdf.setFillColor(...rgb(PDF_COLOR.card));
@@ -1066,8 +1084,8 @@ export const generateClientOfferPDF = async (
       pdf.setFontSize(PDF_TYPE.micro);
       setFont('bold');
       pdf.setTextColor(...rgb(PDF_COLOR.muted));
-      pdf.text(title.toUpperCase(), x + 2.2, y + 4.4);
-      let ry = y + cardTitleH + 3.2;
+      pdf.text(title.toUpperCase(), x + 2.2, y + 3.9);
+      let ry = y + cardTitleH + 1.8;
       for (const row of rows) {
         pdf.setFontSize(PDF_TYPE.micro);
         setFont('bold');
@@ -1077,18 +1095,20 @@ export const generateClientOfferPDF = async (
         setFont('normal');
         pdf.setTextColor(...rgb(PDF_COLOR.ink));
         const wrapped = pdf.splitTextToSize(row.value, cardW - 4.4) as string[];
-        pdf.text(wrapped[0] || '-', x + 2.2, ry + 3.2);
-        ry += termRowH;
+        const shown = wrapped.slice(0, 2);
+        const valueY = ry + rowLabelGap;
+        pdf.text(shown.length ? shown : ['-'], x + 2.2, valueY);
+        ry = valueY + Math.max(1, shown.length) * lineHeightMm(PDF_TYPE.table) + rowAfterGap;
       }
     };
 
     if (showCommercial) {
-      drawTermCard(margin, String(t.clientOffer.commercialTermsTitle), normalizedTerms.commercial);
+      drawTermCard(margin, String(t.clientOffer.commercialTermsTitle), commercialRows);
     }
     if (showDelivery) {
-      drawTermCard(showCommercial && dualCards ? margin + cardW + gap : margin, String(t.clientOffer.deliveryTermsTitle), normalizedTerms.delivery);
+      drawTermCard(showCommercial && dualCards ? margin + cardW + gap : margin, String(t.clientOffer.deliveryTermsTitle), deliveryRows);
     }
-    y += cardH + PDF_SPACE.s2;
+    y += cardH + PDF_SPACE.s1;
   }
 
   if (config.sectionVisibility.appendix && selectedAttachments.length) {
@@ -1179,6 +1199,7 @@ export const generateClientOfferPDF = async (
     pdf.setTextColor(0, 0, 0);
   }
 
-  const safeOfferNumber = String(config.offerNumber || request.id || 'client-offer').replace(/[^a-zA-Z0-9-_]+/g, '_');
-  pdf.save(`${safeOfferNumber}_client_offer.pdf`);
+  const safeOfferNumber = sanitizeFileToken(String(config.offerNumber || request.id || 'offer'), 'offer');
+  const safeClientName = sanitizeFileToken(String(config.recipientName || request.clientName || 'client'), 'client');
+  pdf.save(`${safeOfferNumber}_${safeClientName}.pdf`);
 };
