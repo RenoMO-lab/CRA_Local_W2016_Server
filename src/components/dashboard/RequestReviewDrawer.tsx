@@ -204,7 +204,7 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
     if (!request) return "";
     const client = request.clientName?.trim() ? request.clientName : "-";
     const country = request.country?.trim() ? translateOption(request.country) : "-";
-    return `${client} 鈥?${country}`;
+    return `${client} - ${country}`;
   }, [request, translateOption]);
 
   const formatDateTime = (d: Date | string | undefined) => {

@@ -263,14 +263,18 @@ const resolveRoleFlagsForStatus = (status, flowEntry) => {
   }
 };
 
+const resolveRoleFlagsFromSettings = (settings, status) => {
+  const flowMap = settings?.flowMap && typeof settings.flowMap === "object" ? settings.flowMap : null;
+  const entry = flowMap ? flowMap[String(status ?? "")] : null;
+  return resolveRoleFlagsForStatus(status, entry);
+};
+
 const resolveRoleRecipientsForStatus = (settings, status) => {
   const sales = parseEmailList(settings.recipientsSales);
   const design = parseEmailList(settings.recipientsDesign);
   const costing = parseEmailList(settings.recipientsCosting);
   const admin = parseEmailList(settings.recipientsAdmin);
-  const flowMap = settings.flowMap && typeof settings.flowMap === "object" ? settings.flowMap : null;
-  const entry = flowMap ? flowMap[String(status ?? "")] : null;
-  const roleFlags = resolveRoleFlagsForStatus(status, entry);
+  const roleFlags = resolveRoleFlagsFromSettings(settings, status);
   const testRecipients = settings.testMode
     ? // If test recipient is not provided, default to sender mailbox to prevent silent "no recipient" situations.
       parseEmailList(settings.testEmail || settings.senderUpn)
@@ -292,6 +296,35 @@ const resolveRecipientsForStatus = (settings, status) => {
   roleRecipients.costing.forEach((v) => recipients.add(v));
   roleRecipients.admin.forEach((v) => recipients.add(v));
   return Array.from(recipients);
+};
+
+const resolveSalesOwnerRecipient = async (pool, { request, fallbackEmails }) => {
+  const fallback = Array.isArray(fallbackEmails) ? fallbackEmails : [];
+  const ownerUserId = String(request?.createdBy ?? "").trim();
+  if (!ownerUserId) {
+    return { emails: fallback, source: "fallback" };
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT email
+        FROM app_users
+       WHERE id = $1
+         AND is_active = true
+       LIMIT 1
+      `,
+      [ownerUserId]
+    );
+    const ownerEmail = String(rows?.[0]?.email ?? "").trim();
+    if (ownerEmail) {
+      return { emails: [ownerEmail], source: "owner" };
+    }
+  } catch (e) {
+    console.error("Failed to resolve sales owner recipient:", e);
+  }
+
+  return { emails: fallback, source: "fallback" };
 };
 
 const ADMIN_IMMEDIATE_EMAIL_STATUSES = new Set(["gm_approval_pending"]);
@@ -352,17 +385,41 @@ const enqueueRequestEmailByPolicy = async (
   pool,
   { settings, request, requestId, eventType, status, previousStatus, actorName, comment, eventAt }
 ) => {
+  const roleFlags = resolveRoleFlagsFromSettings(settings, status);
   const roleRecipients = resolveRoleRecipientsForStatus(settings, status);
+  let salesRecipientSource = "disabled";
+  if (roleFlags.sales) {
+    const salesResolution = await resolveSalesOwnerRecipient(pool, {
+      request,
+      fallbackEmails: parseEmailList(settings.recipientsSales),
+    });
+    salesRecipientSource = salesResolution.source;
+    roleRecipients.sales = settings.testMode
+      ? parseEmailList(settings.testEmail || settings.senderUpn)
+      : salesResolution.emails;
+    console.info(
+      "[notifications] sales email recipients resolved",
+      JSON.stringify({
+        requestId: String(requestId ?? ""),
+        status: String(status ?? ""),
+        source: salesRecipientSource,
+        count: roleRecipients.sales.length,
+        testMode: Boolean(settings.testMode),
+      })
+    );
+  }
+
   const immediateSet = new Set();
   roleRecipients.sales.forEach((email) => immediateSet.add(email));
   roleRecipients.design.forEach((email) => immediateSet.add(email));
   roleRecipients.costing.forEach((email) => immediateSet.add(email));
 
   const normalizedStatus = String(status ?? "").trim();
+  let digestEnqueued = false;
   if (ADMIN_IMMEDIATE_EMAIL_STATUSES.has(normalizedStatus)) {
     roleRecipients.admin.forEach((email) => immediateSet.add(email));
   } else if (roleRecipients.admin.length) {
-    await enqueueAdminDigestNotifications(pool, {
+    const digestInserted = await enqueueAdminDigestNotifications(pool, {
       eventType,
       requestId,
       status: normalizedStatus,
@@ -373,10 +430,18 @@ const enqueueRequestEmailByPolicy = async (
       digestDate: computeAdminDigestDate(eventAt ?? new Date()),
       eventAt: eventAt ?? new Date(),
     });
+    digestEnqueued = digestInserted > 0;
   }
 
   const immediateRecipients = Array.from(immediateSet);
-  if (!immediateRecipients.length) return { immediateEmailEnqueued: false };
+  if (!immediateRecipients.length) {
+    return {
+      immediateEmailEnqueued: false,
+      digestEmailEnqueued: digestEnqueued,
+      emailEnqueued: digestEnqueued,
+      salesRecipientSource,
+    };
+  }
 
   const link = buildRequestLink(settings.appBaseUrl, requestId);
   const groups = await groupRecipientsByPreferredLanguage(pool, immediateRecipients);
@@ -415,7 +480,12 @@ const enqueueRequestEmailByPolicy = async (
     );
   }
 
-  return { immediateEmailEnqueued: true };
+  return {
+    immediateEmailEnqueued: true,
+    digestEmailEnqueued: digestEnqueued,
+    emailEnqueued: true,
+    salesRecipientSource,
+  };
 };
 
 const IN_APP_ROLES_BY_STATUS = Object.freeze({
@@ -544,18 +614,81 @@ const enqueueInAppNotifications = async (
   if (!roles.length) return 0;
 
   const actorId = String(actorUserId ?? "").trim();
-  const { rows: recipients } = await pool.query(
-    `
-    SELECT id
-      FROM app_users
-     WHERE is_active = true
-       AND role = ANY($1::text[])
-       AND ($2 = '' OR id <> $2)
-    `,
-    [roles, actorId]
-  );
+  const recipientIds = new Set();
+  const includesSales = roles.includes("sales");
+  const nonSalesRoles = roles.filter((role) => role !== "sales");
 
-  if (!recipients?.length) return 0;
+  if (includesSales) {
+    const ownerUserId = String(request?.createdBy ?? "").trim();
+    let ownerTargeted = false;
+    if (ownerUserId && ownerUserId !== actorId) {
+      try {
+        const { rows } = await pool.query(
+          `
+          SELECT id
+            FROM app_users
+           WHERE is_active = true
+             AND id = $1
+           LIMIT 1
+          `,
+          [ownerUserId]
+        );
+        const resolvedOwnerId = String(rows?.[0]?.id ?? "").trim();
+        if (resolvedOwnerId) {
+          recipientIds.add(resolvedOwnerId);
+          ownerTargeted = true;
+        }
+      } catch (e) {
+        console.error("Failed to resolve in-app sales owner recipient:", e);
+      }
+    }
+
+    if (!ownerTargeted) {
+      const { rows: salesRecipients } = await pool.query(
+        `
+        SELECT id
+          FROM app_users
+         WHERE is_active = true
+           AND role = 'sales'
+           AND ($1 = '' OR id <> $1)
+        `,
+        [actorId]
+      );
+      for (const row of salesRecipients ?? []) {
+        const id = String(row?.id ?? "").trim();
+        if (id) recipientIds.add(id);
+      }
+    }
+
+    console.info(
+      "[notifications] sales in-app recipients resolved",
+      JSON.stringify({
+        requestId: String(requestId ?? request?.id ?? ""),
+        status: String(status ?? request?.status ?? ""),
+        source: ownerTargeted ? "owner" : "fallback",
+        count: ownerTargeted ? 1 : recipientIds.size,
+      })
+    );
+  }
+
+  if (nonSalesRoles.length) {
+    const { rows: recipients } = await pool.query(
+      `
+      SELECT id
+        FROM app_users
+       WHERE is_active = true
+         AND role = ANY($1::text[])
+         AND ($2 = '' OR id <> $2)
+      `,
+      [nonSalesRoles, actorId]
+    );
+    for (const row of recipients ?? []) {
+      const id = String(row?.id ?? "").trim();
+      if (id) recipientIds.add(id);
+    }
+  }
+
+  if (!recipientIds.size) return 0;
 
   const text = buildInAppNotificationText({
     eventType,
@@ -575,7 +708,7 @@ const enqueueInAppNotifications = async (
     comment: typeof comment === "string" && comment.trim() ? comment.trim() : null,
   };
 
-  for (const row of recipients) {
+  for (const userId of recipientIds) {
     await pool.query(
       `
       INSERT INTO app_notifications (id, user_id, notification_type, title, body, request_id, payload_json)
@@ -583,7 +716,7 @@ const enqueueInAppNotifications = async (
       `,
       [
         randomUUID(),
-        String(row.id),
+        String(userId),
         String(eventType || "request_status_changed"),
         text.title,
         text.body,
@@ -593,7 +726,7 @@ const enqueueInAppNotifications = async (
     );
   }
 
-  return recipients.length;
+  return recipientIds.size;
 };
 
 const groupRecipientsByPreferredLanguage = async (pool, emails) => {
@@ -7444,22 +7577,20 @@ export const apiRouter = (() => {
       } else if (!tokenState.hasRefreshToken) {
         emailReason = "not_connected";
       } else {
-        const to = resolveRecipientsForStatus(settings, status);
-        if (!to.length) {
+        const enqueueResult = await enqueueRequestEmailByPolicy(pool, {
+          settings,
+          request: existing,
+          requestId,
+          eventType,
+          status,
+          previousStatus,
+          actorName,
+          comment,
+          eventAt: new Date(),
+        });
+        emailEnqueued = Boolean(enqueueResult?.emailEnqueued);
+        if (!emailEnqueued) {
           emailReason = "no_recipients";
-        } else {
-          await enqueueRequestEmailByPolicy(pool, {
-            settings,
-            request: existing,
-            requestId,
-            eventType,
-            status,
-            previousStatus,
-            actorName,
-            comment,
-            eventAt: new Date(),
-          });
-          emailEnqueued = true;
         }
       }
 
