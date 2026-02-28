@@ -67,10 +67,11 @@ const MobileTopNav: React.FC = () => {
   const filteredNavItems = navItems.filter((item) => user && item.roles.includes(user.role));
   const adminNavItems =
     user?.role === 'admin'
-      ? [
+        ? [
           { tab: 'export', label: t.settings.export },
           { tab: 'lists', label: t.settings.systemLists },
           { tab: 'users', label: t.settings.usersRoles },
+          { tab: 'offer-profile', label: t.settings.offerProfileTab },
           { tab: 'feedback', label: t.settings.feedbackTab },
           { tab: 'm365', label: t.settings.m365Tab },
           { tab: 'dbmonitor', label: t.settings.dbMonitorTab },

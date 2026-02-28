@@ -7,7 +7,7 @@ import { useAdminSettings } from '@/context/AdminSettingsContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAppShell } from '@/context/AppShellContext';
 import { useToast } from '@/hooks/use-toast';
-import { Attachment, CustomerRequest, FormMode, RequestStatus, RequestProduct, SalesPaymentTerm } from '@/types';
+import { Attachment, ClientOfferConfig, CustomerRequest, FormMode, RequestStatus, RequestProduct, SalesPaymentTerm } from '@/types';
 import SectionGeneralInfo from '@/components/request/SectionGeneralInfo';
 import SectionExpectedDelivery from '@/components/request/SectionExpectedDelivery';
 import SectionClientApplication from '@/components/request/SectionClientApplication';
@@ -21,6 +21,7 @@ import DesignResultSection from '@/components/request/DesignResultSection';
 import SalesFollowupPanel from '@/components/request/SalesFollowupPanel';
 import RequestSummaryView from '@/components/request/RequestSummaryView';
 import RequestProcessSummary from '@/components/request/RequestProcessSummary';
+import ClientOfferGeneratorSheet from '@/components/request/ClientOfferGeneratorSheet';
 import StatusBadge from '@/components/ui/StatusBadge';
 import { ArrowLeft, ArrowRight, CheckCircle, ClipboardCheck, Clock, Download, Eye, File, Loader2, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -153,6 +154,7 @@ const getInitialFormData = (): Partial<CustomerRequest> => ({
   status: 'draft',
   priority: 'normal',
   designResultBomFolderLink: '',
+  clientOfferConfig: undefined,
 });
 
 const buildDuplicateDraftFromRequest = (source: CustomerRequest): Partial<CustomerRequest> => {
@@ -177,6 +179,7 @@ const buildDuplicateDraftFromRequest = (source: CustomerRequest): Partial<Custom
     costingNotes: '',
     acceptanceMessage: '',
     salesFeedbackComment: '',
+    clientOfferConfig: undefined,
   };
 
   delete (duplicated as any).id;
@@ -194,6 +197,13 @@ const generateDraftSessionKey = () => {
     return crypto.randomUUID();
   }
   return `draft-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const hasGmApprovedLifecycle = (request?: CustomerRequest) => {
+  if (!request) return false;
+  if (String(request.status ?? '').trim() === 'gm_approved') return true;
+  const history = Array.isArray(request.history) ? request.history : [];
+  return history.some((entry) => String(entry?.status ?? '').trim() === 'gm_approved');
 };
 
 const RequestForm: React.FC = () => {
@@ -450,6 +460,7 @@ const RequestForm: React.FC = () => {
   const isDesignRole = user?.role === 'design';
   const isSalesRole = user?.role === 'sales';
   const [isMyActionsOpen, setIsMyActionsOpen] = useState(false);
+  const [isClientOfferOpen, setIsClientOfferOpen] = useState(false);
   const [myActionsResult, setMyActionsResult] = useState<null | {
     kind: 'completed' | 'edited';
     status: RequestStatus;
@@ -1407,6 +1418,12 @@ const RequestForm: React.FC = () => {
       (user?.role === 'admin')
     )
   );
+  const canAccessClientOffer = Boolean(
+    existingRequest &&
+      isReadOnly &&
+      (user?.role === 'sales' || user?.role === 'admin') &&
+      hasGmApprovedLifecycle(existingRequest)
+  );
 
   const getTransferTarget = (status: RequestStatus) => {
     // Keep this simple and explicit: the text is used in the completion banner.
@@ -2096,6 +2113,11 @@ const RequestForm: React.FC = () => {
     }
   };
 
+  const handleClientOfferConfigSave = async (config: ClientOfferConfig) => {
+    if (!existingRequest) return;
+    await updateRequest(existingRequest.id, { clientOfferConfig: config });
+  };
+
   const handleCostingEditsSave = async (data: {
     costingNotes?: string;
     sellingPrice?: number;
@@ -2392,6 +2414,11 @@ const RequestForm: React.FC = () => {
                         {t.common.edit}
                       </Button>
                     )}
+                    {canAccessClientOffer && (
+                      <Button variant="outline" onClick={() => setIsClientOfferOpen(true)}>
+                        {t.clientOffer.openButton}
+                      </Button>
+                    )}
                     <Button onClick={() => setIsMyActionsOpen(true)} disabled={!hasMyActions} className="min-w-40">
                       {t.request.openMyActions}
                     </Button>
@@ -2419,6 +2446,15 @@ const RequestForm: React.FC = () => {
                   </div>
                 </SheetContent>
               </Sheet>
+
+              {canAccessClientOffer && (
+                <ClientOfferGeneratorSheet
+                  open={isClientOfferOpen}
+                  onOpenChange={setIsClientOfferOpen}
+                  request={existingRequest}
+                  onSaveConfig={handleClientOfferConfigSave}
+                />
+              )}
             </>
           ) : (
             <>

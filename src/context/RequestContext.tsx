@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { CustomerRequest, RequestProduct, RequestStatus, SalesPaymentTerm } from '@/types';
+import { ClientOfferConfig, ClientOfferLine, CustomerRequest, RequestProduct, RequestStatus, SalesPaymentTerm } from '@/types';
 import { useAuth } from './AuthContext';
 
 type RequestUpdatePayload = Partial<CustomerRequest> & {
@@ -112,6 +112,53 @@ const reviveSalesPaymentTerms = (rawTerms: any, rawCount: any): { count: number;
   return { count, terms };
 };
 
+const parseOptionalNumber = (value: any): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const reviveClientOfferLine = (line: any, index: number): ClientOfferLine => ({
+  id: typeof line?.id === 'string' && line.id.trim() ? line.id.trim() : `line-${index + 1}`,
+  include: line?.include !== false,
+  sourceProductIndex:
+    typeof line?.sourceProductIndex === 'number' && Number.isInteger(line.sourceProductIndex) && line.sourceProductIndex >= 0
+      ? line.sourceProductIndex
+      : null,
+  description: typeof line?.description === 'string' ? line.description : '',
+  specification: typeof line?.specification === 'string' ? line.specification : '',
+  quantity: parseOptionalNumber(line?.quantity),
+  unitPrice: parseOptionalNumber(line?.unitPrice),
+  remark: typeof line?.remark === 'string' ? line.remark : '',
+});
+
+const reviveClientOfferConfig = (raw: any): ClientOfferConfig | undefined => {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const lines = Array.isArray(raw?.lines) ? raw.lines.map((line, index) => reviveClientOfferLine(line, index)) : [];
+  const selectedAttachmentIds = Array.isArray(raw?.selectedAttachmentIds)
+    ? raw.selectedAttachmentIds.map((id: any) => String(id ?? '').trim()).filter(Boolean)
+    : [];
+  return {
+    offerNumber: typeof raw?.offerNumber === 'string' ? raw.offerNumber : '',
+    recipientName: typeof raw?.recipientName === 'string' ? raw.recipientName : '',
+    introText: typeof raw?.introText === 'string' ? raw.introText : '',
+    sectionVisibility: {
+      general: raw?.sectionVisibility?.general !== false,
+      lineItems: raw?.sectionVisibility?.lineItems !== false,
+      commercialTerms: raw?.sectionVisibility?.commercialTerms !== false,
+      deliveryTerms: raw?.sectionVisibility?.deliveryTerms !== false,
+      appendix: raw?.sectionVisibility?.appendix !== false,
+    },
+    lines,
+    selectedAttachmentIds,
+    updatedAt: typeof raw?.updatedAt === 'string' ? raw.updatedAt : undefined,
+    updatedByUserId: typeof raw?.updatedByUserId === 'string' ? raw.updatedByUserId : undefined,
+  };
+};
+
 const reviveRequest = (r: any): CustomerRequest => {
   const attachments = Array.isArray(r?.attachments) ? r.attachments.map(reviveAttachment) : [];
   const rawProducts = Array.isArray(r?.products) ? r.products : [];
@@ -166,6 +213,7 @@ const reviveRequest = (r: any): CustomerRequest => {
     salesAttachments: Array.isArray(r?.salesAttachments)
       ? r.salesAttachments.map(reviveAttachment)
       : [],
+    clientOfferConfig: reviveClientOfferConfig(r?.clientOfferConfig),
     history: Array.isArray(r?.history)
       ? r.history.map((h: any) => ({
           ...h,

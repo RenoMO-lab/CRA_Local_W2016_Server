@@ -348,6 +348,119 @@ const computeAdminDigestDate = (eventDate = new Date()) => {
   return formatLocalDateYmd(local);
 };
 
+const CLIENT_OFFER_PROFILE_DEFAULT = Object.freeze({
+  companyNameLocal: "青岛蒙路可机械有限公司",
+  companyNameEn: "Qingdao Monroc Mechanical Co., LTD",
+  address: "Tonghe Industrial Zone,Pingdu,Qingdao,P.R.C",
+  phone: "+86 132 5688 9718",
+  email: "kevin@sonasia.monroc.com",
+  contactName: "Kevin Zhu",
+});
+
+const sanitizeClientOfferProfileInput = (input) => ({
+  companyNameLocal: typeof input?.companyNameLocal === "string" ? input.companyNameLocal.trim() : "",
+  companyNameEn: typeof input?.companyNameEn === "string" ? input.companyNameEn.trim() : "",
+  address: typeof input?.address === "string" ? input.address.trim() : "",
+  phone: typeof input?.phone === "string" ? input.phone.trim() : "",
+  email: typeof input?.email === "string" ? input.email.trim() : "",
+  contactName: typeof input?.contactName === "string" ? input.contactName.trim() : "",
+});
+
+const mapClientOfferProfileRow = (row) => {
+  const fallback = CLIENT_OFFER_PROFILE_DEFAULT;
+  return {
+    companyNameLocal: String(row?.company_name_local ?? fallback.companyNameLocal),
+    companyNameEn: String(row?.company_name_en ?? fallback.companyNameEn),
+    address: String(row?.address ?? fallback.address),
+    phone: String(row?.phone ?? fallback.phone),
+    email: String(row?.email ?? fallback.email),
+    contactName: String(row?.contact_name ?? fallback.contactName),
+    updatedAt: row?.updated_at ?? null,
+    updatedByUserId: row?.updated_by_user_id ?? null,
+  };
+};
+
+const ensureClientOfferProfileRow = async (pool) => {
+  const fallback = CLIENT_OFFER_PROFILE_DEFAULT;
+  await pool.query(
+    `
+    INSERT INTO client_offer_profile_settings
+      (id, company_name_local, company_name_en, address, phone, email, contact_name)
+    VALUES
+      (1,$1,$2,$3,$4,$5,$6)
+    ON CONFLICT (id) DO NOTHING
+    `,
+    [
+      fallback.companyNameLocal,
+      fallback.companyNameEn,
+      fallback.address,
+      fallback.phone,
+      fallback.email,
+      fallback.contactName,
+    ]
+  );
+};
+
+const getClientOfferProfile = async (pool) => {
+  await ensureClientOfferProfileRow(pool);
+  const { rows } = await pool.query(
+    `
+    SELECT
+      company_name_local,
+      company_name_en,
+      address,
+      phone,
+      email,
+      contact_name,
+      updated_at,
+      updated_by_user_id
+    FROM client_offer_profile_settings
+    WHERE id = 1
+    LIMIT 1
+    `
+  );
+  return mapClientOfferProfileRow(rows?.[0] ?? null);
+};
+
+const updateClientOfferProfile = async (pool, input, actorUserId) => {
+  const next = sanitizeClientOfferProfileInput(input);
+  await ensureClientOfferProfileRow(pool);
+  const { rows } = await pool.query(
+    `
+    UPDATE client_offer_profile_settings
+      SET
+        company_name_local = $1,
+        company_name_en = $2,
+        address = $3,
+        phone = $4,
+        email = $5,
+        contact_name = $6,
+        updated_at = now(),
+        updated_by_user_id = $7
+    WHERE id = 1
+    RETURNING
+      company_name_local,
+      company_name_en,
+      address,
+      phone,
+      email,
+      contact_name,
+      updated_at,
+      updated_by_user_id
+    `,
+    [
+      next.companyNameLocal,
+      next.companyNameEn,
+      next.address,
+      next.phone,
+      next.email,
+      next.contactName,
+      String(actorUserId ?? "").trim() || null,
+    ]
+  );
+  return mapClientOfferProfileRow(rows?.[0] ?? null);
+};
+
 const enqueueAdminDigestNotifications = async (
   pool,
   { eventType, requestId, status, previousStatus, actorName, comment, toEmails, digestDate, eventAt }
@@ -1904,6 +2017,68 @@ const parseOptionalFiniteNumber = (value) => {
   return null;
 };
 
+const hasGmApprovedLifecycle = (request) => {
+  const current = String(request?.status ?? "").trim();
+  if (current === "gm_approved") return true;
+  const history = Array.isArray(request?.history) ? request.history : [];
+  return history.some((entry) => String(entry?.status ?? "").trim() === "gm_approved");
+};
+
+const normalizeClientOfferLine = (raw, index) => {
+  const sourceProductIndexRaw = raw?.sourceProductIndex;
+  const sourceProductIndex =
+    typeof sourceProductIndexRaw === "number" &&
+    Number.isInteger(sourceProductIndexRaw) &&
+    sourceProductIndexRaw >= 0
+      ? sourceProductIndexRaw
+      : null;
+
+  return {
+    id:
+      typeof raw?.id === "string" && raw.id.trim()
+        ? raw.id.trim()
+        : `line-${index + 1}`,
+    include: raw?.include !== false,
+    sourceProductIndex,
+    description: typeof raw?.description === "string" ? raw.description : "",
+    specification: typeof raw?.specification === "string" ? raw.specification : "",
+    quantity: parseOptionalFiniteNumber(raw?.quantity),
+    unitPrice: parseOptionalFiniteNumber(raw?.unitPrice),
+    remark: typeof raw?.remark === "string" ? raw.remark : "",
+  };
+};
+
+const normalizeClientOfferConfig = (raw, nowIso) => {
+  if (!raw || typeof raw !== "object") return undefined;
+  const lines = Array.isArray(raw?.lines) ? raw.lines.map(normalizeClientOfferLine) : [];
+  const selectedAttachmentIds = Array.isArray(raw?.selectedAttachmentIds)
+    ? Array.from(
+        new Set(
+          raw.selectedAttachmentIds
+            .map((value) => String(value ?? "").trim())
+            .filter(Boolean)
+        )
+      )
+    : [];
+
+  return {
+    offerNumber: typeof raw?.offerNumber === "string" ? raw.offerNumber : "",
+    recipientName: typeof raw?.recipientName === "string" ? raw.recipientName : "",
+    introText: typeof raw?.introText === "string" ? raw.introText : "",
+    sectionVisibility: {
+      general: raw?.sectionVisibility?.general !== false,
+      lineItems: raw?.sectionVisibility?.lineItems !== false,
+      commercialTerms: raw?.sectionVisibility?.commercialTerms !== false,
+      deliveryTerms: raw?.sectionVisibility?.deliveryTerms !== false,
+      appendix: raw?.sectionVisibility?.appendix !== false,
+    },
+    lines,
+    selectedAttachmentIds,
+    updatedAt: typeof raw?.updatedAt === "string" ? raw.updatedAt : nowIso,
+    updatedByUserId: typeof raw?.updatedByUserId === "string" ? raw.updatedByUserId : "",
+  };
+};
+
 const normalizeRequestPriority = (value) => {
   const normalized = String(value ?? "").trim().toLowerCase();
   if (normalized === "low" || normalized === "normal" || normalized === "high" || normalized === "urgent") {
@@ -1932,6 +2107,7 @@ const normalizeRequestData = (data, nowIso) => {
   const products = productsPayload.length
     ? productsPayload.map(normalizeProduct)
     : [buildLegacyProduct(data, attachments)];
+  const clientOfferConfig = normalizeClientOfferConfig(data.clientOfferConfig, nowIso);
 
   return {
     ...data,
@@ -1967,6 +2143,7 @@ const normalizeRequestData = (data, nowIso) => {
     salesPaymentTerms,
     salesFeedbackComment: typeof data.salesFeedbackComment === "string" ? data.salesFeedbackComment : "",
     salesAttachments,
+    clientOfferConfig,
     products,
     clientExpectedDeliveryDate: typeof data.clientExpectedDeliveryDate === "string" ? data.clientExpectedDeliveryDate : "",
     createdAt: data.createdAt ?? nowIso,
@@ -4601,6 +4778,39 @@ export const apiRouter = (() => {
       );
 
       res.json(rows.map((row) => ({ id: row.id, value: row.value })));
+    })
+  );
+
+  router.get(
+    "/admin/client-offer-profile",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const pool = await getPool();
+      const profile = await getClientOfferProfile(pool);
+      res.json(profile);
+    })
+  );
+
+  router.put(
+    "/admin/client-offer-profile",
+    requireAdmin,
+    asyncHandler(async (req, res) => {
+      const body = req.body;
+      if (!body || typeof body !== "object") {
+        res.status(400).json({ error: "Invalid JSON body" });
+        return;
+      }
+
+      const pool = await getPool();
+      const profile = await updateClientOfferProfile(pool, body, req.authUser?.id ?? null);
+
+      await writeAuditLogBestEffort(pool, req, {
+        action: "admin.client_offer_profile.updated",
+        targetType: "settings",
+        targetId: "client_offer_profile",
+      });
+
+      res.json(profile);
     })
   );
 
@@ -7643,6 +7853,25 @@ export const apiRouter = (() => {
       const attemptedStatusChange = Boolean(attemptedStatus && attemptedStatus !== persistedStatus);
       const sanitizedBody = { ...body };
       delete sanitizedBody.status;
+      const clientOfferConfigInPayload = Object.prototype.hasOwnProperty.call(
+        sanitizedBody,
+        "clientOfferConfig"
+      );
+      if (clientOfferConfigInPayload) {
+        if (!req.authUser) {
+          res.status(401).json({ error: "Authentication required" });
+          return;
+        }
+        const actorRole = String(req.authUser?.role ?? "").trim().toLowerCase();
+        if (actorRole !== "sales" && actorRole !== "admin") {
+          res.status(403).json({ error: "Client offer configuration is restricted to Sales and Admin" });
+          return;
+        }
+        if (!hasGmApprovedLifecycle(existing)) {
+          res.status(400).json({ error: "Client Offer Generation is available after GM approval only" });
+          return;
+        }
+      }
       const merged = {
         ...existing,
         ...sanitizedBody,
@@ -7723,6 +7952,7 @@ export const apiRouter = (() => {
           attemptedStatusChange,
           attemptedStatus: attemptedStatus || null,
           historyEvent: historyEvent ?? null,
+          clientOfferConfigChanged: clientOfferConfigInPayload,
         },
       });
 

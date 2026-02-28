@@ -99,6 +99,34 @@ export interface SalesPaymentTerm {
   comments: string;
 }
 
+export interface ClientOfferLine {
+  id: string;
+  include: boolean;
+  sourceProductIndex?: number | null;
+  description: string;
+  specification: string;
+  quantity: number | null;
+  unitPrice: number | null;
+  remark: string;
+}
+
+export interface ClientOfferConfig {
+  offerNumber: string;
+  recipientName: string;
+  introText: string;
+  sectionVisibility: {
+    general: boolean;
+    lineItems: boolean;
+    commercialTerms: boolean;
+    deliveryTerms: boolean;
+    appendix: boolean;
+  };
+  lines: ClientOfferLine[];
+  selectedAttachmentIds: string[];
+  updatedAt?: string;
+  updatedByUserId?: string;
+}
+
 export interface CustomerRequest {
   id: string;
   // General Information
@@ -205,6 +233,7 @@ export interface CustomerRequest {
   salesPaymentTerms?: SalesPaymentTerm[];
   salesFeedbackComment?: string;
   salesAttachments?: Attachment[];
+  clientOfferConfig?: ClientOfferConfig;
 }
 
 export interface ReferenceProduct {

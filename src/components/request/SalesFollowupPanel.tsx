@@ -768,75 +768,81 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
                 </Select>
               </div>
             </div>
-            <div className="space-y-3">
-              {paymentTermsForValidation.map((term, index) => (
-                <div key={term.paymentNumber} className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-[96px_minmax(0,2fr)_140px_minmax(0,1.4fr)] gap-3">
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">{t.panels.paymentNumber}</Label>
-                      <Input value={String(term.paymentNumber)} disabled />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">{t.panels.paymentName} *</Label>
-                      <Select
-                        value={term.paymentNamePreset}
-                        onValueChange={(value) => updatePaymentNamePreset(index, value as PaymentNamePreset)}
-                        disabled={readOnly}
-                      >
-                        <SelectTrigger className="w-full bg-background">
-                          <SelectValue placeholder={t.panels.selectPaymentName} />
-                        </SelectTrigger>
-                        <SelectContent className="bg-card border border-border">
-                          <SelectItem value="down_payment">{t.panels.paymentNameDownPayment}</SelectItem>
-                          <SelectItem value="before_delivery">{t.panels.paymentNameBeforeDelivery}</SelectItem>
-                          <SelectItem value="after_delivery">{t.panels.paymentNameAfterDelivery}</SelectItem>
-                          <SelectItem value="other">{t.panels.paymentNameOtherLabel}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      {term.paymentNamePreset === 'other' && (
+            <div className="rounded-lg border border-border bg-muted/10 overflow-hidden">
+              <div className="hidden md:grid md:grid-cols-[96px_minmax(0,2fr)_140px_minmax(0,1.4fr)] gap-3 px-3 py-2 border-b border-border bg-muted/20">
+                <p className="text-xs font-medium text-muted-foreground">{t.panels.paymentNumber}</p>
+                <p className="text-xs font-medium text-muted-foreground">{t.panels.paymentName} *</p>
+                <p className="text-xs font-medium text-muted-foreground">{t.panels.paymentPercent} *</p>
+                <p className="text-xs font-medium text-muted-foreground">{t.panels.paymentComments}</p>
+              </div>
+              <div className="divide-y divide-border">
+                {paymentTermsForValidation.map((term, index) => (
+                  <div key={term.paymentNumber} className="p-3">
+                    <div className="grid grid-cols-1 md:grid-cols-[96px_minmax(0,2fr)_140px_minmax(0,1.4fr)] gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground md:hidden">{t.panels.paymentNumber}</Label>
+                        <Input value={String(term.paymentNumber)} disabled />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground md:hidden">{t.panels.paymentName} *</Label>
+                        <Select
+                          value={term.paymentNamePreset}
+                          onValueChange={(value) => updatePaymentNamePreset(index, value as PaymentNamePreset)}
+                          disabled={readOnly}
+                        >
+                          <SelectTrigger className="w-full bg-background">
+                            <SelectValue placeholder={t.panels.selectPaymentName} />
+                          </SelectTrigger>
+                          <SelectContent className="bg-card border border-border">
+                            <SelectItem value="down_payment">{t.panels.paymentNameDownPayment}</SelectItem>
+                            <SelectItem value="before_delivery">{t.panels.paymentNameBeforeDelivery}</SelectItem>
+                            <SelectItem value="after_delivery">{t.panels.paymentNameAfterDelivery}</SelectItem>
+                            <SelectItem value="other">{t.panels.paymentNameOtherLabel}</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {term.paymentNamePreset === 'other' && (
+                          <Input
+                            value={term.paymentNameOther}
+                            onChange={(e) => updatePaymentNameOther(index, e.target.value)}
+                            placeholder={t.panels.enterOtherPaymentName}
+                            disabled={readOnly}
+                            className="bg-background"
+                          />
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground md:hidden">{t.panels.paymentPercent} *</Label>
                         <Input
-                          value={term.paymentNameOther}
-                          onChange={(e) => updatePaymentNameOther(index, e.target.value)}
-                          placeholder={t.panels.enterOtherPaymentName}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={term.paymentPercent ?? ''}
+                          onChange={(e) => updatePaymentTerm(index, 'paymentPercent', e.target.value)}
+                          placeholder={t.panels.enterPaymentPercent}
                           disabled={readOnly}
                           className="bg-background"
                         />
-                      )}
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">{t.panels.paymentPercent} *</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={term.paymentPercent ?? ''}
-                        onChange={(e) => updatePaymentTerm(index, 'paymentPercent', e.target.value)}
-                        placeholder={t.panels.enterPaymentPercent}
-                        disabled={readOnly}
-                        className="bg-background"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs text-muted-foreground">{t.panels.paymentComments}</Label>
-                      <Input
-                        value={term.comments}
-                        onChange={(e) => updatePaymentTerm(index, 'comments', e.target.value)}
-                        placeholder={t.panels.enterPaymentComments}
-                        disabled={readOnly}
-                        className="bg-background"
-                      />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground md:hidden">{t.panels.paymentComments}</Label>
+                        <Input
+                          value={term.comments}
+                          onChange={(e) => updatePaymentTerm(index, 'comments', e.target.value)}
+                          placeholder={t.panels.enterPaymentComments}
+                          disabled={readOnly}
+                          className="bg-background"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-            <div className="rounded-md border border-border bg-background/70 px-3 py-2">
+            <div className="space-y-1">
               <p className={`text-sm font-medium ${paymentTotalToneClass}`}>
                 {t.panels.paymentTermsTotal}: {paymentPercentTotal.toFixed(2)}% / 100%
               </p>
-              <p className="text-xs text-muted-foreground">
-                {t.panels.paymentTotalTarget}
-              </p>
+              <p className="text-xs text-muted-foreground">{t.panels.paymentTotalTarget}</p>
             </div>
             {!paymentTermsRequiredValid && (
               <p className="text-xs text-destructive">{t.panels.paymentTermsRequired}</p>

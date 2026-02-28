@@ -75,6 +75,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
       { tab: 'export', label: t.settings.export, icon: FileText },
       { tab: 'lists', label: t.settings.systemLists, icon: Settings },
       { tab: 'users', label: t.settings.usersRoles, icon: Users },
+      { tab: 'offer-profile', label: t.settings.offerProfileTab, icon: FileText },
       { tab: 'feedback', label: t.settings.feedbackTab, icon: MessageCircle },
       { tab: 'm365', label: t.settings.m365Tab, icon: Mail },
       { tab: 'dbmonitor', label: t.settings.dbMonitorTab, icon: Database },

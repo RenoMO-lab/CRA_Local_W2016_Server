@@ -194,6 +194,17 @@ interface FeedbackItem {
   updatedAt?: string;
 }
 
+interface ClientOfferProfile {
+  companyNameLocal: string;
+  companyNameEn: string;
+  address: string;
+  phone: string;
+  email: string;
+  contactName: string;
+  updatedAt?: string | null;
+  updatedByUserId?: string | null;
+}
+
 interface DeployInfo {
   git: {
     hash: string;
@@ -493,6 +504,7 @@ const Settings: React.FC = () => {
     'export',
     'lists',
     'users',
+    'offer-profile',
     'feedback',
     'm365',
     'dbmonitor',
@@ -536,6 +548,18 @@ const Settings: React.FC = () => {
   const [isAccessEmailPreviewLoading, setIsAccessEmailPreviewLoading] = useState(false);
   const [isAccessEmailSending, setIsAccessEmailSending] = useState(false);
   const [isLegacyUserImporting, setIsLegacyUserImporting] = useState(false);
+  const [clientOfferProfile, setClientOfferProfile] = useState<ClientOfferProfile>({
+    companyNameLocal: '',
+    companyNameEn: '',
+    address: '',
+    phone: '',
+    email: '',
+    contactName: '',
+    updatedAt: null,
+    updatedByUserId: null,
+  });
+  const [isClientOfferProfileLoading, setIsClientOfferProfileLoading] = useState(false);
+  const [isClientOfferProfileSaving, setIsClientOfferProfileSaving] = useState(false);
   const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
   const [hasFeedbackError, setHasFeedbackError] = useState(false);
@@ -949,6 +973,80 @@ const Settings: React.FC = () => {
     testEmail: '',
     flowMap: DEFAULT_FLOW_MAP,
     templates: null,
+  };
+
+  const loadClientOfferProfile = async () => {
+    const startedAt = Date.now();
+    setIsClientOfferProfileLoading(true);
+    try {
+      const res = await fetch('/api/admin/client-offer-profile');
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to load offer profile: ${res.status}`);
+      }
+      setClientOfferProfile({
+        companyNameLocal: String(data?.companyNameLocal ?? ''),
+        companyNameEn: String(data?.companyNameEn ?? ''),
+        address: String(data?.address ?? ''),
+        phone: String(data?.phone ?? ''),
+        email: String(data?.email ?? ''),
+        contactName: String(data?.contactName ?? ''),
+        updatedAt: data?.updatedAt ?? null,
+        updatedByUserId: data?.updatedByUserId ?? null,
+      });
+    } catch (error) {
+      console.error('Failed to load client offer profile:', error);
+      toast({
+        title: t.request.error,
+        description: t.clientOffer.profileLoadFailed,
+        variant: 'destructive',
+      });
+    } finally {
+      await ensureMinSpinnerMs(startedAt);
+      setIsClientOfferProfileLoading(false);
+    }
+  };
+
+  const saveClientOfferProfile = async () => {
+    setIsClientOfferProfileSaving(true);
+    try {
+      const res = await fetch('/api/admin/client-offer-profile', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          companyNameLocal: clientOfferProfile.companyNameLocal,
+          companyNameEn: clientOfferProfile.companyNameEn,
+          address: clientOfferProfile.address,
+          phone: clientOfferProfile.phone,
+          email: clientOfferProfile.email,
+          contactName: clientOfferProfile.contactName,
+        }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to save offer profile: ${res.status}`);
+      }
+      setClientOfferProfile({
+        companyNameLocal: String(data?.companyNameLocal ?? ''),
+        companyNameEn: String(data?.companyNameEn ?? ''),
+        address: String(data?.address ?? ''),
+        phone: String(data?.phone ?? ''),
+        email: String(data?.email ?? ''),
+        contactName: String(data?.contactName ?? ''),
+        updatedAt: data?.updatedAt ?? null,
+        updatedByUserId: data?.updatedByUserId ?? null,
+      });
+      toast({ title: t.common.save, description: t.clientOffer.profileSaved });
+    } catch (error) {
+      console.error('Failed to save client offer profile:', error);
+      toast({
+        title: t.request.error,
+        description: String((error as any)?.message ?? t.clientOffer.profileSaveFailed),
+        variant: 'destructive',
+      });
+    } finally {
+      setIsClientOfferProfileSaving(false);
+    }
   };
 
   const loadM365Info = async () => {
@@ -1515,10 +1613,16 @@ const Settings: React.FC = () => {
     loadDbMonitor();
     loadDbBackups();
     loadDbBackupConfig();
+    loadClientOfferProfile();
     refreshUsers().catch((error) => {
       console.error('Failed to load users:', error);
     });
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'offer-profile') return;
+    loadClientOfferProfile();
+  }, [activeTab]);
 
   const loadFeedback = useCallback(async () => {
     const startedAt = Date.now();
@@ -2883,6 +2987,85 @@ const Settings: React.FC = () => {
             </DialogContent>
           </Dialog>
 
+        </TabsContent>
+
+        <TabsContent value="offer-profile" className="space-y-6">
+          <div className="bg-card rounded-lg border border-border p-4 md:p-6 space-y-4">
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold text-foreground">{t.clientOffer.profileTitle}</h3>
+              <p className="text-sm text-muted-foreground">{t.clientOffer.profileDescription}</p>
+            </div>
+
+            {isClientOfferProfileLoading ? (
+              <p className="text-sm text-muted-foreground">{t.common.loading}</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>{t.clientOffer.companyNameLocal}</Label>
+                  <Input
+                    value={clientOfferProfile.companyNameLocal}
+                    onChange={(e) =>
+                      setClientOfferProfile((prev) => ({ ...prev, companyNameLocal: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.clientOffer.companyNameEn}</Label>
+                  <Input
+                    value={clientOfferProfile.companyNameEn}
+                    onChange={(e) =>
+                      setClientOfferProfile((prev) => ({ ...prev, companyNameEn: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>{t.clientOffer.address}</Label>
+                  <Input
+                    value={clientOfferProfile.address}
+                    onChange={(e) =>
+                      setClientOfferProfile((prev) => ({ ...prev, address: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.clientOffer.phone}</Label>
+                  <Input
+                    value={clientOfferProfile.phone}
+                    onChange={(e) =>
+                      setClientOfferProfile((prev) => ({ ...prev, phone: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.clientOffer.email}</Label>
+                  <Input
+                    value={clientOfferProfile.email}
+                    onChange={(e) =>
+                      setClientOfferProfile((prev) => ({ ...prev, email: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.clientOffer.contactName}</Label>
+                  <Input
+                    value={clientOfferProfile.contactName}
+                    onChange={(e) =>
+                      setClientOfferProfile((prev) => ({ ...prev, contactName: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <Button onClick={saveClientOfferProfile} disabled={isClientOfferProfileLoading || isClientOfferProfileSaving}>
+                {isClientOfferProfileSaving ? t.common.saving : t.settings.saveChanges}
+              </Button>
+              <Button variant="outline" onClick={loadClientOfferProfile} disabled={isClientOfferProfileLoading}>
+                {t.common.refresh}
+              </Button>
+            </div>
+          </div>
         </TabsContent>
 
         <TabsContent value="feedback" className="space-y-6">
