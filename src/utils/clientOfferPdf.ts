@@ -27,10 +27,55 @@ type OfferAttachment = {
   source: 'general' | 'technical' | 'design' | 'costing' | 'sales';
 };
 
+type NormalizedPdfLine = {
+  index: number;
+  itemNo: string;
+  description: string;
+  specification: string[];
+  quantity: number | null;
+  unitPrice: number | null;
+  lineTotal: number | null;
+  remark: string;
+};
+
+type FinancialSummary = {
+  subtotal: number;
+  discount: number;
+  tax: number;
+  total: number;
+};
+
+type NormalizedTerms = {
+  commercial: Array<{ label: string; value: string }>;
+  delivery: Array<{ label: string; value: string }>;
+};
+
 const LOGO_URL = '/monroc-logo.png';
 const CHINESE_FONT_FILE = '/fonts/simhei.ttf';
 const CHINESE_FONT_NAME = 'simhei';
 const MONROC_RED = '#FA0000';
+const PDF_TYPE = {
+  title: 18,
+  section: 12,
+  body: 11,
+  table: 9.5,
+  footer: 9,
+  micro: 8.5,
+} as const;
+const PDF_SPACE = {
+  s1: 2.8,
+  s2: 5.6,
+  s3: 8.4,
+} as const;
+const PDF_COLOR = {
+  ink: '#0F172A',
+  muted: '#64748B',
+  line: '#CBD5E1',
+  card: '#F8FAFC',
+  zebra: '#F1F5F9',
+  footerBg: '#F8FAFC',
+} as const;
+const FOOTER_RESERVED_HEIGHT = 12;
 
 let chineseFontLoaded = false;
 
@@ -430,6 +475,122 @@ const formatMoney = (value: number | null, currency: string) => {
   return `${currency} ${value.toFixed(2)}`;
 };
 
+const normalizeNumber = (value: unknown): number | null => {
+  const parsed = parseOptionalNumber(value);
+  if (parsed === null || !Number.isFinite(parsed)) return null;
+  if (parsed < 0) return 0;
+  return Math.round((parsed + Number.EPSILON) * 100) / 100;
+};
+
+const toSpecBullets = (specification: string) => {
+  const chunks = String(specification ?? '')
+    .split('|')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!chunks.length) return ['-'];
+  return chunks.map((entry) => `• ${entry}`);
+};
+
+const normalizeTermValue = (value: unknown) => {
+  const text = String(value ?? '').trim();
+  return text || '-';
+};
+
+const buildPaymentTermsValue = (request: CustomerRequest) => {
+  if (!Array.isArray(request.salesPaymentTerms) || !request.salesPaymentTerms.length) return '-';
+  const parts = request.salesPaymentTerms
+    .filter((term) => (term.paymentName ?? '').trim() || term.paymentPercent !== null)
+    .map((term) => {
+      const name = normalizeTermValue(term.paymentName);
+      const percent = typeof term.paymentPercent === 'number' ? `${term.paymentPercent}%` : '-';
+      return `${name} (${percent})`;
+    });
+  return parts.length ? parts.join('; ') : '-';
+};
+
+const normalizeTermsForPdf = (request: CustomerRequest, t: any): NormalizedTerms => {
+  const commercial: Array<{ label: string; value: string }> = [
+    {
+      label: String(t.panels.offerValidityPeriod),
+      value: normalizeTermValue(request.salesOfferValidityPeriod),
+    },
+    {
+      label: String(t.panels.paymentTerms),
+      value: buildPaymentTermsValue(request),
+    },
+    {
+      label: String(t.panels.salesFinalPrice),
+      value:
+        typeof request.salesFinalPrice === 'number'
+          ? formatMoney(request.salesFinalPrice, request.salesCurrency || 'EUR')
+          : '-',
+    },
+  ];
+
+  const incoterm = request.salesIncoterm === 'other' ? request.salesIncotermOther : request.salesIncoterm;
+  const delivery: Array<{ label: string; value: string }> = [
+    {
+      label: String(t.panels.salesExpectedDeliveryDate),
+      value: normalizeTermValue(request.salesExpectedDeliveryDate),
+    },
+    {
+      label: String(t.panels.incoterm),
+      value: normalizeTermValue(incoterm),
+    },
+    {
+      label: String(t.panels.warrantyPeriod),
+      value: normalizeTermValue(request.salesWarrantyPeriod),
+    },
+  ];
+
+  return { commercial, delivery };
+};
+
+const validateAndNormalizeOfferPdfData = (
+  lines: ClientOfferLine[],
+  request: CustomerRequest
+): {
+  lines: NormalizedPdfLine[];
+  summary: FinancialSummary;
+  warnings: string[];
+} => {
+  const warnings: string[] = [];
+  const normalizedLines: NormalizedPdfLine[] = lines.map((line, index) => {
+    const quantity = normalizeNumber(line.quantity);
+    const unitPrice = normalizeNumber(line.unitPrice);
+    const lineTotal = quantity !== null && unitPrice !== null ? Math.round((quantity * unitPrice + Number.EPSILON) * 100) / 100 : null;
+
+    if (line.quantity !== quantity && line.quantity !== null) {
+      warnings.push(`Line ${index + 1}: quantity normalized from "${String(line.quantity)}" to "${String(quantity)}".`);
+    }
+    if (line.unitPrice !== unitPrice && line.unitPrice !== null) {
+      warnings.push(`Line ${index + 1}: unit price normalized from "${String(line.unitPrice)}" to "${String(unitPrice)}".`);
+    }
+
+    return {
+      index,
+      itemNo: String(index + 1),
+      description: String(line.description || '-').trim() || '-',
+      specification: toSpecBullets(String(line.specification || '')),
+      quantity,
+      unitPrice,
+      lineTotal,
+      remark: String(line.remark || '-').trim() || '-',
+    };
+  });
+
+  const subtotal = Math.round(
+    (normalizedLines.reduce((sum, line) => sum + (line.lineTotal ?? 0), 0) + Number.EPSILON) * 100
+  ) / 100;
+  const discount = 0;
+  const vatRate = request.salesVatMode === 'with' ? normalizeNumber(request.salesVatRate) : 0;
+  const tax = Math.round((((subtotal - discount) * (vatRate ?? 0)) / 100 + Number.EPSILON) * 100) / 100;
+  const total = Math.round((subtotal - discount + tax + Number.EPSILON) * 100) / 100;
+
+  const summary: FinancialSummary = { subtotal, discount, tax, total };
+  return { lines: normalizedLines, summary, warnings };
+};
+
 const sourceLabelForPdf = (source: OfferAttachment['source'], t: any) => {
   if (source === 'technical') return String(t.clientOffer.sourceTechnical);
   if (source === 'design') return String(t.clientOffer.sourceDesign);
@@ -479,9 +640,10 @@ export const generateClientOfferPDF = async (
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const margin = 14;
-  const bottomMargin = 14;
+  const bottomMargin = 14 + FOOTER_RESERVED_HEIGHT;
+  const contentBottomY = pageHeight - bottomMargin;
   const contentWidth = pageWidth - margin * 2;
-  const pageHeaderHeight = 26;
+  const pageHeaderHeight = 28;
   const ptToMm = (pt: number) => (pt * 25.4) / 72;
   const lineHeightMm = (fontSizePt: number) => ptToMm(fontSizePt) * pdf.getLineHeightFactor();
   const rgb = (hex: string) => {
@@ -499,8 +661,8 @@ export const generateClientOfferPDF = async (
   let y = pageHeaderHeight + 6;
 
   const drawWatermark = () => {
-    const line1 = String(t.pdf.watermarkLine1 ?? 'CONFIDENTIAL - INTERNAL USE ONLY');
-    const line2 = String(t.pdf.watermarkLine2 ?? 'PROPERTY OF MONROC');
+    const line1 = String(profile.companyNameEn || profile.companyNameLocal || 'MONROC');
+    const line2 = String(t.clientOffer.pdfTitle || 'Client Offer');
     const centerX = pageWidth / 2;
     const centerY = pageHeight / 2;
     const angle = -35;
@@ -511,18 +673,18 @@ export const generateClientOfferPDF = async (
     } catch {}
 
     if (hasGState) {
-      const gs1 = new (pdf as any).GState({ opacity: 0.05, fillOpacity: 0.05, strokeOpacity: 0.05 });
+      const gs1 = new (pdf as any).GState({ opacity: 0.035, fillOpacity: 0.035, strokeOpacity: 0.035 });
       (pdf as any).setGState(gs1);
       pdf.setFontSize(36);
       setFont('bold');
       pdf.text(line1, centerX, centerY, { align: 'center', angle } as any);
 
-      const gs2 = new (pdf as any).GState({ opacity: 0.035, fillOpacity: 0.035, strokeOpacity: 0.035 });
+      const gs2 = new (pdf as any).GState({ opacity: 0.025, fillOpacity: 0.025, strokeOpacity: 0.025 });
       (pdf as any).setGState(gs2);
       pdf.setFontSize(18);
       pdf.text(line2, centerX, centerY + 10, { align: 'center', angle } as any);
     } else {
-      pdf.setTextColor(230, 230, 230);
+      pdf.setTextColor(236, 240, 244);
       pdf.setFontSize(36);
       setFont('bold');
       pdf.text(line1, centerX, centerY, { align: 'center', angle } as any);
@@ -543,7 +705,10 @@ export const generateClientOfferPDF = async (
     pdf.setLineWidth(1.1);
     pdf.line(0, 0.8, pageWidth, 0.8);
 
-    pdf.setFillColor(248, 250, 252);
+    const [cr, cg, cb] = rgb(PDF_COLOR.card);
+    const [lr, lg, lb] = rgb(PDF_COLOR.line);
+    const [mr, mg, mb] = rgb(PDF_COLOR.muted);
+    pdf.setFillColor(cr, cg, cb);
     pdf.rect(0, 0, pageWidth, pageHeaderHeight, 'F');
 
     if (logo) {
@@ -556,12 +721,25 @@ export const generateClientOfferPDF = async (
       pdf.addImage(logo.dataUrl, 'PNG', margin, logoY, width, height);
     }
 
-    pdf.setFontSize(8.5);
+    const headerLeftX = margin + 42;
+    const headerRightX = pageWidth - margin;
+
+    pdf.setTextColor(mr, mg, mb);
+    pdf.setFontSize(PDF_TYPE.micro);
+    setFont('bold');
+    pdf.text(String(profile.companyNameEn || profile.companyNameLocal || '-').toUpperCase(), headerLeftX, 9);
     setFont('normal');
-    pdf.setTextColor(100, 116, 139);
-    pdf.text(profile.companyNameEn || profile.companyNameLocal, pageWidth - margin, 9, { align: 'right' });
-    pdf.text(profile.address || '-', pageWidth - margin, 13.5, { align: 'right' });
-    pdf.text(`${profile.phone || '-'} | ${profile.email || '-'}`, pageWidth - margin, 18, { align: 'right' });
+    pdf.text(String(profile.address || '-'), headerLeftX, 13.8);
+
+    setFont('bold');
+    pdf.text(String(t.clientOffer.contactName || 'Contact').toUpperCase(), headerRightX, 9, { align: 'right' });
+    setFont('normal');
+    pdf.text(`${String(t.clientOffer.phone || 'Phone')}: ${profile.phone || '-'}`, headerRightX, 13.8, { align: 'right' });
+    pdf.text(`${String(t.clientOffer.email || 'Email')}: ${profile.email || '-'}`, headerRightX, 18, { align: 'right' });
+
+    pdf.setDrawColor(lr, lg, lb);
+    pdf.setLineWidth(0.25);
+    pdf.line(margin, pageHeaderHeight - 1.4, pageWidth - margin, pageHeaderHeight - 1.4);
     pdf.setTextColor(0, 0, 0);
   };
 
@@ -572,18 +750,20 @@ export const generateClientOfferPDF = async (
   };
 
   const ensureSpace = (height: number) => {
-    if (y + height <= pageHeight - bottomMargin) return;
+    if (y + height <= contentBottomY) return;
     addPage();
   };
 
   const drawSectionTitle = (title: string) => {
     ensureSpace(10);
-    pdf.setFontSize(12);
+    pdf.setFontSize(PDF_TYPE.section);
     setFont('bold');
-    pdf.setTextColor(15, 23, 42);
+    const [ir, ig, ib] = rgb(PDF_COLOR.ink);
+    const [lr, lg, lb] = rgb(PDF_COLOR.line);
+    pdf.setTextColor(ir, ig, ib);
     pdf.text(title, margin, y);
     y += 5;
-    pdf.setDrawColor(226, 232, 240);
+    pdf.setDrawColor(lr, lg, lb);
     pdf.setLineWidth(0.3);
     pdf.line(margin, y, pageWidth - margin, y);
     y += 4;
@@ -591,7 +771,7 @@ export const generateClientOfferPDF = async (
     setFont('normal');
   };
 
-  const drawParagraph = (text: string, fontSize = 10) => {
+  const drawParagraph = (text: string, fontSize = PDF_TYPE.body) => {
     const raw = String(text ?? '').trim();
     if (!raw) return;
     pdf.setFontSize(fontSize);
@@ -603,50 +783,106 @@ export const generateClientOfferPDF = async (
       pdf.text(line, margin, y);
       y += lh;
     }
-    y += 2;
+    y += PDF_SPACE.s1;
   };
 
-  const drawMetaTable = (rows: Array<{ label: string; value: string }>) => {
-    const labelWidth = 40;
-    const rowH = 7;
+  const drawTitleCard = (offerDate: string) => {
+    const cardH = 18;
+    const [cr, cg, cb] = rgb(PDF_COLOR.card);
+    const [lr, lg, lb] = rgb(PDF_COLOR.line);
+    const [mr, mg, mb] = rgb(PDF_COLOR.muted);
+    ensureSpace(cardH + PDF_SPACE.s2);
+    pdf.setFillColor(cr, cg, cb);
+    pdf.setDrawColor(lr, lg, lb);
+    pdf.setLineWidth(0.35);
+    pdf.roundedRect(margin, y, contentWidth, cardH, 1.8, 1.8, 'FD');
+
+    pdf.setFontSize(PDF_TYPE.title);
+    setFont('bold');
+    pdf.setTextColor(...rgb(PDF_COLOR.ink));
+    pdf.text(String(t.clientOffer.pdfTitle), margin + 3, y + 6.5);
+
+    const labelX = margin + contentWidth - 56;
+    const valueX = margin + contentWidth - 3;
+    pdf.setFontSize(PDF_TYPE.micro);
+    pdf.setTextColor(mr, mg, mb);
+    setFont('bold');
+    pdf.text(`${String(t.clientOffer.offerNumber).toUpperCase()}:`, labelX, y + 6.2);
+    pdf.text(`${String(t.clientOffer.offerDate).toUpperCase()}:`, labelX, y + 11.2);
+    setFont('normal');
+    pdf.setTextColor(...rgb(PDF_COLOR.ink));
+    pdf.text(String(config.offerNumber || request.id || '-'), valueX, y + 6.2, { align: 'right' });
+    pdf.text(String(offerDate), valueX, y + 11.2, { align: 'right' });
+
+    y += cardH + PDF_SPACE.s2;
+  };
+
+  const drawMetaRows = (rows: Array<{ label: string; value: string }>) => {
+    const labelWidth = 34;
+    const rowH = 6.8;
+    const [mr, mg, mb] = rgb(PDF_COLOR.muted);
+    const [lr, lg, lb] = rgb(PDF_COLOR.line);
     for (const row of rows) {
       ensureSpace(rowH);
-      pdf.setFillColor(248, 250, 252);
-      pdf.rect(margin, y - 5.6, labelWidth, rowH, 'F');
-      pdf.rect(margin + labelWidth, y - 5.6, contentWidth - labelWidth, rowH, 'S');
-      pdf.rect(margin, y - 5.6, labelWidth, rowH, 'S');
-      pdf.setFontSize(9);
+      pdf.setDrawColor(lr, lg, lb);
+      pdf.setLineWidth(0.2);
+      pdf.line(margin, y, pageWidth - margin, y);
+      pdf.setFontSize(PDF_TYPE.micro);
       setFont('bold');
-      pdf.setTextColor(100, 116, 139);
-      pdf.text(row.label, margin + 2, y - 1.3);
+      pdf.setTextColor(mr, mg, mb);
+      pdf.text(String(row.label || '-').toUpperCase(), margin, y + 4.4);
+      pdf.setFontSize(PDF_TYPE.body);
       setFont('normal');
-      pdf.setTextColor(0, 0, 0);
-      pdf.text(String(row.value || '-'), margin + labelWidth + 2, y - 1.3);
+      pdf.setTextColor(...rgb(PDF_COLOR.ink));
+      pdf.text(String(row.value || '-'), margin + labelWidth, y + 4.2);
       y += rowH;
     }
-    y += 2;
+    pdf.setDrawColor(lr, lg, lb);
+    pdf.line(margin, y, pageWidth - margin, y);
+    y += PDF_SPACE.s2;
+    pdf.setTextColor(0, 0, 0);
   };
 
-  const drawTable = (headers: string[], rows: string[][], colWidths: number[]) => {
-    const padX = 1.8;
-    const headerH = 7.5;
+  const drawTable = (
+    headers: string[],
+    rows: string[][],
+    colWidths: number[],
+    opts?: {
+      rightAlignColumns?: number[];
+      bodyFontSize?: number;
+      headerFontSize?: number;
+      rowPaddingY?: number;
+      zebra?: boolean;
+    }
+  ) => {
+    const padX = 2.2;
+    const rowPaddingY = opts?.rowPaddingY ?? 1.8;
+    const bodyFontSize = opts?.bodyFontSize ?? PDF_TYPE.table;
+    const headerFontSize = opts?.headerFontSize ?? PDF_TYPE.micro;
+    const rightAlignColumns = new Set(opts?.rightAlignColumns ?? []);
+    const headerH = 8.8;
     const x = margin;
 
     const drawHeader = () => {
       ensureSpace(headerH);
-      pdf.setFillColor(241, 245, 249);
+      pdf.setFillColor(...rgb(PDF_COLOR.zebra));
       pdf.rect(x, y, contentWidth, headerH, 'F');
-      pdf.setDrawColor(203, 213, 225);
+      pdf.setDrawColor(...rgb(PDF_COLOR.line));
       pdf.setLineWidth(0.2);
       pdf.rect(x, y, contentWidth, headerH, 'S');
 
-      pdf.setFontSize(8.5);
+      pdf.setFontSize(headerFontSize);
       setFont('bold');
-      pdf.setTextColor(71, 85, 105);
+      pdf.setTextColor(...rgb(PDF_COLOR.muted));
       let cx = x;
       for (let idx = 0; idx < headers.length; idx += 1) {
-        pdf.text(headers[idx], cx + padX, y + 4.9);
-        cx += colWidths[idx] ?? 20;
+        const w = colWidths[idx] ?? 20;
+        if (rightAlignColumns.has(idx)) {
+          pdf.text(headers[idx], cx + w - padX, y + 5.6, { align: 'right' });
+        } else {
+          pdf.text(headers[idx], cx + padX, y + 5.6);
+        }
+        cx += w;
       }
       setFont('normal');
       pdf.setTextColor(0, 0, 0);
@@ -659,21 +895,27 @@ export const generateClientOfferPDF = async (
       const row = rows[rowIndex] ?? [];
       const cellLines = row.map((cell, idx) => {
         const width = Math.max(10, (colWidths[idx] ?? 20) - padX * 2);
-        return pdf.splitTextToSize(String(cell ?? '-'), width) as string[];
+        const chunks = String(cell ?? '-').split('\n');
+        const out: string[] = [];
+        for (const chunk of chunks) {
+          const wrapped = pdf.splitTextToSize(chunk, width) as string[];
+          out.push(...(wrapped.length ? wrapped : ['']));
+        }
+        return out;
       });
-      const rowH = Math.max(6.6, Math.max(...cellLines.map((lines) => lines.length)) * lineHeightMm(8.3) + 2.4);
+      const rowH = Math.max(8.6, Math.max(...cellLines.map((lines) => lines.length)) * lineHeightMm(bodyFontSize) + rowPaddingY * 2);
 
-      if (y + rowH > pageHeight - bottomMargin) {
+      if (y + rowH > contentBottomY) {
         addPage();
         drawHeader();
       }
 
-      if (rowIndex % 2 === 1) {
-        pdf.setFillColor(248, 250, 252);
+      if ((opts?.zebra ?? true) && rowIndex % 2 === 1) {
+        pdf.setFillColor(...rgb(PDF_COLOR.card));
         pdf.rect(x, y, contentWidth, rowH, 'F');
       }
 
-      pdf.setDrawColor(203, 213, 225);
+      pdf.setDrawColor(...rgb(PDF_COLOR.line));
       pdf.setLineWidth(0.2);
       pdf.rect(x, y, contentWidth, rowH, 'S');
 
@@ -682,33 +924,47 @@ export const generateClientOfferPDF = async (
         if (c > 0) {
           pdf.line(cx, y, cx, y + rowH);
         }
-        pdf.setFontSize(8.3);
-        pdf.text(cellLines[c], cx + padX, y + 3.8);
-        cx += colWidths[c] ?? 20;
+        pdf.setFontSize(bodyFontSize);
+        const w = colWidths[c] ?? 20;
+        const lines = cellLines[c];
+        if (rightAlignColumns.has(c)) {
+          const lh = lineHeightMm(bodyFontSize);
+          for (let li = 0; li < lines.length; li += 1) {
+            pdf.text(lines[li], cx + w - padX, y + rowPaddingY + 3 + li * lh, { align: 'right' });
+          }
+        } else {
+          pdf.text(lines, cx + padX, y + rowPaddingY + 3);
+        }
+        cx += w;
       }
 
       y += rowH;
     }
 
-    y += 2;
+    y += PDF_SPACE.s1;
   };
 
   const attachmentOptions = collectRequestAttachments(request);
   const selectedAttachmentIds = new Set(config.selectedAttachmentIds);
   const selectedAttachments = attachmentOptions.filter((entry) => selectedAttachmentIds.has(String(entry.attachment.id ?? '').trim()));
 
-  const normalizedLines = (config.lines ?? []).map((line, index) => normalizeOfferLine(line, index));
-  const includedLines = normalizedLines.filter((line) => line.include !== false);
+  const normalizedSourceLines = (config.lines ?? []).map((line, index) => normalizeOfferLine(line, index));
+  const includedLines = normalizedSourceLines.filter((line) => line.include !== false);
+  const normalizedPayload = validateAndNormalizeOfferPdfData(
+    includedLines.length ? includedLines : [{ id: 'line-1', include: true, description: '-', specification: '-', quantity: null, unitPrice: null, remark: '-' }],
+    request
+  );
+  const normalizedRows = normalizedPayload.lines;
+  const summary = normalizedPayload.summary;
+  if (normalizedPayload.warnings.length) {
+    console.warn('[client-offer-pdf] normalized mismatches:', normalizedPayload.warnings);
+  }
+  const normalizedTerms = normalizeTermsForPdf(request, t);
 
   const offerDate = format(new Date(), 'PPP', { locale });
   drawPageHeader();
-
-  pdf.setFontSize(18);
-  setFont('bold');
-  pdf.text(String(t.clientOffer.pdfTitle), margin, y);
-  y += 8;
-
-  drawMetaTable([
+  drawTitleCard(offerDate);
+  drawMetaRows([
     { label: String(t.clientOffer.offerNumber), value: config.offerNumber || request.id },
     { label: String(t.clientOffer.offerDate), value: offerDate },
     { label: String(t.clientOffer.recipientName), value: config.recipientName || request.clientName || '-' },
@@ -733,102 +989,106 @@ export const generateClientOfferPDF = async (
       String(t.clientOffer.specification),
       String(t.clientOffer.quantity),
       String(t.clientOffer.unitPrice),
-      String(t.clientOffer.total),
+      String(t.clientOffer.lineTotal || t.clientOffer.total),
       String(t.clientOffer.remark),
     ];
 
-    const colWidths = [10, 32, 46, 16, 20, 20, contentWidth - (10 + 32 + 46 + 16 + 20 + 20)];
-    const rows: string[][] = [];
-
-    includedLines.forEach((line, index) => {
-      const qty = line.quantity;
-      const price = line.unitPrice;
-      const total = qty !== null && price !== null ? qty * price : null;
-      rows.push([
-        String(index + 1),
-        line.description || '-',
-        line.specification || '-',
-        qty === null ? '-' : String(qty),
-        formatMoney(price, request.salesCurrency || 'EUR'),
-        formatMoney(total, request.salesCurrency || 'EUR'),
-        line.remark || '-',
-      ]);
+    const colWidths = [10, 32, 50, 13, 23, 23, contentWidth - (10 + 32 + 50 + 13 + 23 + 23)];
+    const rows: string[][] = normalizedRows.map((line) => [
+      line.itemNo,
+      line.description,
+      line.specification.join('\n'),
+      line.quantity === null ? '-' : String(Math.trunc(line.quantity)),
+      formatMoney(line.unitPrice, request.salesCurrency || 'EUR'),
+      formatMoney(line.lineTotal, request.salesCurrency || 'EUR'),
+      line.remark,
+    ]);
+    drawTable(headers, rows, colWidths, {
+      rightAlignColumns: [3, 4, 5],
+      bodyFontSize: PDF_TYPE.table,
+      headerFontSize: PDF_TYPE.micro,
+      rowPaddingY: 2.2,
+      zebra: true,
     });
 
-    if (!rows.length) {
-      rows.push(['1', '-', '-', '-', '-', '-', '-']);
+    const summaryWidth = 68;
+    const rowH = 6.2;
+    const summaryRows: Array<{ label: string; value: string; bold?: boolean }> = [
+      { label: String(t.clientOffer.subtotal || 'Subtotal'), value: formatMoney(summary.subtotal, request.salesCurrency || 'EUR') },
+      { label: String(t.clientOffer.discount || 'Discount'), value: formatMoney(summary.discount, request.salesCurrency || 'EUR') },
+      { label: String(t.clientOffer.taxes || 'Taxes'), value: formatMoney(summary.tax, request.salesCurrency || 'EUR') },
+      { label: String(t.common.total), value: formatMoney(summary.total, request.salesCurrency || 'EUR'), bold: true },
+    ];
+    const summaryHeight = rowH * summaryRows.length + 4;
+    ensureSpace(summaryHeight + PDF_SPACE.s2);
+    const x = pageWidth - margin - summaryWidth;
+    pdf.setDrawColor(...rgb(PDF_COLOR.line));
+    pdf.setFillColor(...rgb(PDF_COLOR.card));
+    pdf.roundedRect(x, y, summaryWidth, summaryHeight, 1.6, 1.6, 'FD');
+    let sy = y + 4.4;
+    for (const row of summaryRows) {
+      pdf.setFontSize(PDF_TYPE.table);
+      setFont(row.bold ? 'bold' : 'normal');
+      pdf.setTextColor(...rgb(row.bold ? PDF_COLOR.ink : PDF_COLOR.muted));
+      pdf.text(row.label, x + 2.2, sy);
+      pdf.text(row.value, x + summaryWidth - 2.2, sy, { align: 'right' });
+      sy += rowH;
     }
+    setFont('normal');
+    pdf.setTextColor(0, 0, 0);
+    y += summaryHeight + PDF_SPACE.s2;
+  }
 
-    drawTable(headers, rows, colWidths);
-
-    const grandTotal = includedLines.reduce((sum, line) => {
-      if (line.quantity === null || line.unitPrice === null) return sum;
-      return sum + line.quantity * line.unitPrice;
-    }, 0);
-
-    ensureSpace(8);
-    pdf.setFontSize(10);
-    setFont('bold');
-    pdf.text(
-      `${String(t.common.total)}: ${formatMoney(Number.isFinite(grandTotal) ? grandTotal : null, request.salesCurrency || 'EUR')}`,
-      pageWidth - margin,
-      y,
-      { align: 'right' }
+  if (config.sectionVisibility.commercialTerms || config.sectionVisibility.deliveryTerms) {
+    drawSectionTitle(
+      config.sectionVisibility.commercialTerms && config.sectionVisibility.deliveryTerms
+        ? `${String(t.clientOffer.commercialTermsTitle)} / ${String(t.clientOffer.deliveryTermsTitle)}`
+        : config.sectionVisibility.commercialTerms
+          ? String(t.clientOffer.commercialTermsTitle)
+          : String(t.clientOffer.deliveryTermsTitle)
     );
-    y += 5;
-  }
 
-  const commercialTerms: string[] = [];
-  if (typeof request.salesFinalPrice === 'number') {
-    commercialTerms.push(`${String(t.panels.salesFinalPrice)}: ${formatMoney(request.salesFinalPrice, request.salesCurrency || 'EUR')}`);
-  }
-  if ((request.salesOfferValidityPeriod ?? '').trim()) {
-    commercialTerms.push(`${String(t.panels.offerValidityPeriod)}: ${String(request.salesOfferValidityPeriod).trim()}`);
-  }
-  if (Array.isArray(request.salesPaymentTerms) && request.salesPaymentTerms.length) {
-    const paymentText = request.salesPaymentTerms
-      .filter((term) => (term.paymentName ?? '').trim() || term.paymentPercent !== null)
-      .map((term) => {
-        const percent = typeof term.paymentPercent === 'number' ? `${term.paymentPercent}%` : '-';
-        const name = (term.paymentName ?? '').trim() || '-';
-        return `${name} (${percent})`;
-      })
-      .join('; ');
-    if (paymentText) {
-      commercialTerms.push(`${String(t.panels.paymentTerms)}: ${paymentText}`);
+    const showCommercial = config.sectionVisibility.commercialTerms;
+    const showDelivery = config.sectionVisibility.deliveryTerms;
+    const dualCards = showCommercial && showDelivery;
+    const gap = 4;
+    const cardW = dualCards ? (contentWidth - gap) / 2 : contentWidth;
+    const cardTitleH = 6.5;
+    const termRowH = 6.2;
+    const maxRows = 3;
+    const cardH = cardTitleH + maxRows * termRowH + 3.4;
+    ensureSpace(cardH + PDF_SPACE.s2);
+
+    const drawTermCard = (x: number, title: string, rows: Array<{ label: string; value: string }>) => {
+      pdf.setFillColor(...rgb(PDF_COLOR.card));
+      pdf.setDrawColor(...rgb(PDF_COLOR.line));
+      pdf.roundedRect(x, y, cardW, cardH, 1.6, 1.6, 'FD');
+      pdf.setFontSize(PDF_TYPE.micro);
+      setFont('bold');
+      pdf.setTextColor(...rgb(PDF_COLOR.muted));
+      pdf.text(title.toUpperCase(), x + 2.2, y + 4.4);
+      let ry = y + cardTitleH + 3.2;
+      for (const row of rows) {
+        pdf.setFontSize(PDF_TYPE.micro);
+        setFont('bold');
+        pdf.setTextColor(...rgb(PDF_COLOR.muted));
+        pdf.text(`${row.label}:`, x + 2.2, ry);
+        pdf.setFontSize(PDF_TYPE.table);
+        setFont('normal');
+        pdf.setTextColor(...rgb(PDF_COLOR.ink));
+        const wrapped = pdf.splitTextToSize(row.value, cardW - 4.4) as string[];
+        pdf.text(wrapped[0] || '-', x + 2.2, ry + 3.2);
+        ry += termRowH;
+      }
+    };
+
+    if (showCommercial) {
+      drawTermCard(margin, String(t.clientOffer.commercialTermsTitle), normalizedTerms.commercial);
     }
-  }
-  if (!commercialTerms.length) {
-    commercialTerms.push(String(t.clientOffer.defaultCommercialTerm));
-  }
-
-  const deliveryTerms: string[] = [];
-  if ((request.salesExpectedDeliveryDate ?? '').trim()) {
-    deliveryTerms.push(`${String(t.panels.salesExpectedDeliveryDate)}: ${String(request.salesExpectedDeliveryDate).trim()}`);
-  }
-  const incoterm = request.salesIncoterm === 'other' ? request.salesIncotermOther : request.salesIncoterm;
-  if ((incoterm ?? '').trim()) {
-    deliveryTerms.push(`${String(t.panels.incoterm)}: ${String(incoterm).trim()}`);
-  }
-  if ((request.salesWarrantyPeriod ?? '').trim()) {
-    deliveryTerms.push(`${String(t.panels.warrantyPeriod)}: ${String(request.salesWarrantyPeriod).trim()}`);
-  }
-  if (!deliveryTerms.length) {
-    deliveryTerms.push(String(t.clientOffer.defaultDeliveryTerm));
-  }
-
-  if (config.sectionVisibility.commercialTerms) {
-    drawSectionTitle(String(t.clientOffer.commercialTermsTitle));
-    for (const term of commercialTerms) {
-      drawParagraph(`- ${term}`, 9.5);
+    if (showDelivery) {
+      drawTermCard(showCommercial && dualCards ? margin + cardW + gap : margin, String(t.clientOffer.deliveryTermsTitle), normalizedTerms.delivery);
     }
-  }
-
-  if (config.sectionVisibility.deliveryTerms) {
-    drawSectionTitle(String(t.clientOffer.deliveryTermsTitle));
-    for (const term of deliveryTerms) {
-      drawParagraph(`- ${term}`, 9.5);
-    }
+    y += cardH + PDF_SPACE.s2;
   }
 
   if (config.sectionVisibility.appendix && selectedAttachments.length) {
@@ -858,7 +1118,7 @@ export const generateClientOfferPDF = async (
       });
 
       const availableWidth = pageWidth - margin * 2;
-      const availableHeight = pageHeight - bottomMargin - y;
+      const availableHeight = contentBottomY - y;
       const scale = Math.min(availableWidth / image.width, availableHeight / image.height);
       const renderW = image.width * scale;
       const renderH = image.height * scale;
@@ -898,13 +1158,24 @@ export const generateClientOfferPDF = async (
   for (let page = 1; page <= pageCount; page += 1) {
     pdf.setPage(page);
     drawWatermark();
-    pdf.setFontSize(7.4);
-    pdf.setTextColor(148, 163, 184);
+    const [fr, fg, fb] = rgb(PDF_COLOR.footerBg);
+    const [lr, lg, lb] = rgb(PDF_COLOR.line);
+    const [mr, mg, mb] = rgb(PDF_COLOR.muted);
+    const footerTopY = pageHeight - FOOTER_RESERVED_HEIGHT;
+    pdf.setFillColor(fr, fg, fb);
+    pdf.setDrawColor(lr, lg, lb);
+    pdf.rect(0, footerTopY, pageWidth, FOOTER_RESERVED_HEIGHT, 'FD');
+    pdf.setFontSize(PDF_TYPE.footer);
+    pdf.setTextColor(mr, mg, mb);
     const pageLabel = String(t.pdf.pageOfLabel || 'Page {current} of {total}')
       .replace('{current}', String(page))
       .replace('{total}', String(pageCount));
-    const footer = `${String(t.clientOffer.pdfTitle)} | ${config.offerNumber || request.id} | ${pageLabel}`;
-    pdf.text(footer, pageWidth / 2, pageHeight - 5.5, { align: 'center' });
+    const leftText = String(t.clientOffer.footerConfidential || 'CONFIDENTIAL - INTERNAL USE ONLY');
+    const centerText = String(t.clientOffer.footerPropertyOf || 'PROPERTY OF MONROC');
+    const rightText = `${config.offerNumber || request.id} | ${pageLabel}`;
+    pdf.text(leftText, margin, pageHeight - 4.6);
+    pdf.text(centerText, pageWidth / 2, pageHeight - 4.6, { align: 'center' });
+    pdf.text(rightText, pageWidth - margin, pageHeight - 4.6, { align: 'right' });
     pdf.setTextColor(0, 0, 0);
   }
 
