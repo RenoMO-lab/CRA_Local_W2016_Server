@@ -63,9 +63,9 @@ const PDF_TYPE = {
   micro: 8.5,
 } as const;
 const PDF_SPACE = {
-  s1: 2.2,
-  s2: 4.2,
-  s3: 6.3,
+  s1: 2.6,
+  s2: 4.8,
+  s3: 7.2,
 } as const;
 const PDF_COLOR = {
   ink: '#0F172A',
@@ -757,18 +757,18 @@ export const generateClientOfferPDF = async (
   };
 
   const drawSectionTitle = (title: string) => {
-    ensureSpace(8.4);
+    ensureSpace(9.2);
     pdf.setFontSize(PDF_TYPE.section);
     setFont('bold');
     const [ir, ig, ib] = rgb(PDF_COLOR.ink);
     const [lr, lg, lb] = rgb(PDF_COLOR.line);
     pdf.setTextColor(ir, ig, ib);
     pdf.text(title, margin, y);
-    y += 4.2;
+    y += 4.6;
     pdf.setDrawColor(lr, lg, lb);
     pdf.setLineWidth(0.3);
     pdf.line(margin, y, pageWidth - margin, y);
-    y += 3;
+    y += 3.2;
     pdf.setTextColor(0, 0, 0);
     setFont('normal');
   };
@@ -789,7 +789,7 @@ export const generateClientOfferPDF = async (
   };
 
   const drawTitleCard = (offerDate: string) => {
-    const cardH = 15.5;
+    const cardH = 16.2;
     const [cr, cg, cb] = rgb(PDF_COLOR.card);
     const [lr, lg, lb] = rgb(PDF_COLOR.line);
     const [mr, mg, mb] = rgb(PDF_COLOR.muted);
@@ -802,26 +802,26 @@ export const generateClientOfferPDF = async (
     pdf.setFontSize(PDF_TYPE.title);
     setFont('bold');
     pdf.setTextColor(...rgb(PDF_COLOR.ink));
-    pdf.text(String(t.clientOffer.pdfTitle), margin + 3, y + 5.8);
+    pdf.text(String(t.clientOffer.pdfTitle), margin + 3, y + 6.1);
 
     const labelX = margin + contentWidth - 56;
     const valueX = margin + contentWidth - 3;
     pdf.setFontSize(PDF_TYPE.micro);
     pdf.setTextColor(mr, mg, mb);
     setFont('bold');
-    pdf.text(`${String(t.clientOffer.offerNumber).toUpperCase()}:`, labelX, y + 5.7);
-    pdf.text(`${String(t.clientOffer.offerDate).toUpperCase()}:`, labelX, y + 10.2);
+    pdf.text(`${String(t.clientOffer.offerNumber).toUpperCase()}:`, labelX, y + 6.1);
+    pdf.text(`${String(t.clientOffer.offerDate).toUpperCase()}:`, labelX, y + 10.7);
     setFont('normal');
     pdf.setTextColor(...rgb(PDF_COLOR.ink));
-    pdf.text(String(config.offerNumber || request.id || '-'), valueX, y + 5.7, { align: 'right' });
-    pdf.text(String(offerDate), valueX, y + 10.2, { align: 'right' });
+    pdf.text(String(config.offerNumber || request.id || '-'), valueX, y + 6.1, { align: 'right' });
+    pdf.text(String(offerDate), valueX, y + 10.7, { align: 'right' });
 
     y += cardH + PDF_SPACE.s2;
   };
 
   const drawMetaRows = (rows: Array<{ label: string; value: string }>) => {
     const labelWidth = 34;
-    const rowH = 5.8;
+    const rowH = 6.4;
     const [mr, mg, mb] = rgb(PDF_COLOR.muted);
     const [lr, lg, lb] = rgb(PDF_COLOR.line);
     for (const row of rows) {
@@ -832,11 +832,11 @@ export const generateClientOfferPDF = async (
       pdf.setFontSize(PDF_TYPE.micro);
       setFont('bold');
       pdf.setTextColor(mr, mg, mb);
-      pdf.text(String(row.label || '-').toUpperCase(), margin, y + 3.8);
-      pdf.setFontSize(PDF_TYPE.body);
+      pdf.text(String(row.label || '-').toUpperCase(), margin, y + 4.2);
+      pdf.setFontSize(10.5);
       setFont('normal');
       pdf.setTextColor(...rgb(PDF_COLOR.ink));
-      pdf.text(String(row.value || '-'), margin + labelWidth, y + 3.8);
+      pdf.text(String(row.value || '-'), margin + labelWidth, y + 4.2);
       y += rowH;
     }
     pdf.setDrawColor(lr, lg, lb);
@@ -1055,50 +1055,65 @@ export const generateClientOfferPDF = async (
     const dualCards = showCommercial && showDelivery;
     const gap = 4;
     const cardW = dualCards ? (contentWidth - gap) / 2 : contentWidth;
-    const cardTitleH = 5.4;
-    const rowLabelGap = 2.5;
-    const rowAfterGap = 1.5;
+    const cardTitleH = 5.6;
+    const cardTopPad = 1.4;
+    const cardBottomPad = 1.6;
+    const rowGap = 1.2;
+    const labelColW = dualCards ? 38 : 46;
+    const valueColGap = 1.8;
+    const valueW = Math.max(18, cardW - 4.4 - labelColW - valueColGap);
 
-    const estimateCardHeight = (rows: Array<{ label: string; value: string }>) => {
-      let h = cardTitleH + 2.2;
-      for (const row of rows) {
-        const wrapped = pdf.splitTextToSize(row.value, cardW - 4.4) as string[];
-        const shownLines = Math.max(1, Math.min(2, wrapped.length));
-        h += rowLabelGap + shownLines * lineHeightMm(PDF_TYPE.table) + rowAfterGap;
-      }
-      return h + 1.4;
+    const buildTermRows = (rows: Array<{ label: string; value: string }>) =>
+      rows.map((row) => {
+        const wrapped = (pdf.splitTextToSize(String(row.value || '-'), valueW) as string[]).slice(0, 2);
+        const lines = wrapped.length ? wrapped : ['-'];
+        const textBlockH = Math.max(lineHeightMm(PDF_TYPE.micro), lines.length * lineHeightMm(PDF_TYPE.table));
+        const rowH = 1.3 + textBlockH + 1.2;
+        return {
+          label: `${row.label}:`,
+          valueLines: lines,
+          rowH,
+        };
+      });
+
+    const estimateCardHeight = (rows: ReturnType<typeof buildTermRows>) => {
+      if (!rows.length) return cardTitleH + cardTopPad + cardBottomPad + 2;
+      return (
+        cardTitleH +
+        cardTopPad +
+        rows.reduce((sum, row, index) => sum + row.rowH + (index < rows.length - 1 ? rowGap : 0), 0) +
+        cardBottomPad
+      );
     };
 
-    const commercialRows = normalizedTerms.commercial;
-    const deliveryRows = normalizedTerms.delivery;
+    const commercialRows = buildTermRows(normalizedTerms.commercial);
+    const deliveryRows = buildTermRows(normalizedTerms.delivery);
     const cardH = Math.max(
       showCommercial ? estimateCardHeight(commercialRows) : 0,
       showDelivery ? estimateCardHeight(deliveryRows) : 0
     );
     ensureSpace(cardH + PDF_SPACE.s1);
 
-    const drawTermCard = (x: number, title: string, rows: Array<{ label: string; value: string }>) => {
+    const drawTermCard = (x: number, title: string, rows: ReturnType<typeof buildTermRows>) => {
       pdf.setFillColor(...rgb(PDF_COLOR.card));
       pdf.setDrawColor(...rgb(PDF_COLOR.line));
       pdf.roundedRect(x, y, cardW, cardH, 1.6, 1.6, 'FD');
       pdf.setFontSize(PDF_TYPE.micro);
       setFont('bold');
       pdf.setTextColor(...rgb(PDF_COLOR.muted));
-      pdf.text(title.toUpperCase(), x + 2.2, y + 3.9);
-      let ry = y + cardTitleH + 1.8;
+      pdf.text(title.toUpperCase(), x + 2.2, y + 4.1);
+      let ry = y + cardTitleH + cardTopPad;
       for (const row of rows) {
         pdf.setFontSize(PDF_TYPE.micro);
         setFont('bold');
         pdf.setTextColor(...rgb(PDF_COLOR.muted));
-        pdf.text(`${row.label}:`, x + 2.2, ry);
+        const textY = ry + 2.8;
+        pdf.text(row.label, x + 2.2, textY);
         pdf.setFontSize(PDF_TYPE.table);
         setFont('normal');
         pdf.setTextColor(...rgb(PDF_COLOR.ink));
-        const wrapped = pdf.splitTextToSize(row.value, cardW - 4.4) as string[];
-        const shown = wrapped.slice(0, 2);
-        const valueY = ry + rowLabelGap;
-        pdf.text(shown.length ? shown : ['-'], x + 2.2, valueY);
-        ry = valueY + Math.max(1, shown.length) * lineHeightMm(PDF_TYPE.table) + rowAfterGap;
+        pdf.text(row.valueLines, x + 2.2 + labelColW + valueColGap, textY);
+        ry += row.rowH + rowGap;
       }
     };
 
@@ -1112,23 +1127,6 @@ export const generateClientOfferPDF = async (
   }
 
   if (config.sectionVisibility.appendix && selectedAttachments.length) {
-    addPage();
-    drawSectionTitle(String(t.clientOffer.appendixTitle));
-
-    const indexHeaders = [
-      String(t.pdf.appendixIdLabel),
-      String(t.clientOffer.source),
-      String(t.pdf.fileLabel),
-    ];
-    const indexWidths = [24, 34, contentWidth - (24 + 34)];
-    const indexRows = selectedAttachments.map((entry, index) => [
-      `A.${index + 1}`,
-      sourceLabelForPdf(entry.source, t),
-      String(entry.attachment.filename || '-'),
-    ]);
-
-    drawTable(indexHeaders, indexRows, indexWidths);
-
     const drawImageFit = async (dataUrl: string) => {
       const image = await new Promise<{ width: number; height: number }>((resolve, reject) => {
         const img = new Image();
@@ -1150,27 +1148,27 @@ export const generateClientOfferPDF = async (
 
     for (let index = 0; index < selectedAttachments.length; index += 1) {
       const entry = selectedAttachments[index];
-      addPage();
-      drawSectionTitle(`${String(t.clientOffer.appendixTitle)} A.${index + 1}`);
-      drawParagraph(`${sourceLabelForPdf(entry.source, t)} - ${String(entry.attachment.filename || '-')}`, 9);
-
       const preview = await attachmentToPreview(entry.attachment, t);
       if (preview.kind === 'image' && preview.dataUrls?.length) {
+        addPage();
+        drawSectionTitle(`${String(t.clientOffer.appendixTitle)} A.${index + 1}`);
+        drawParagraph(`${sourceLabelForPdf(entry.source, t)} - ${String(entry.attachment.filename || '-')}`, 9);
         await drawImageFit(preview.dataUrls[0]);
         continue;
       }
       if (preview.kind === 'pdf' && preview.dataUrls?.length) {
         for (let pageIndex = 0; pageIndex < preview.dataUrls.length; pageIndex += 1) {
-          if (pageIndex > 0) {
-            addPage();
+          addPage();
+          if (pageIndex === 0) {
+            drawSectionTitle(`${String(t.clientOffer.appendixTitle)} A.${index + 1}`);
+            drawParagraph(`${sourceLabelForPdf(entry.source, t)} - ${String(entry.attachment.filename || '-')}`, 9);
+          } else {
             drawSectionTitle(`${String(t.clientOffer.appendixTitle)} A.${index + 1} (${pageIndex + 1}/${preview.dataUrls.length})`);
           }
           await drawImageFit(preview.dataUrls[pageIndex]);
         }
         continue;
       }
-
-      drawParagraph(preview.note || String(t.pdf.previewNotAvailableGeneric || 'Preview not available.'), 9.5);
     }
   }
 
