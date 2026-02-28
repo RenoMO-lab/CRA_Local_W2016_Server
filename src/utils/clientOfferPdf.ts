@@ -1133,7 +1133,7 @@ export const generateClientOfferPDF = async (
     const cardTopPad = 1.8;
     const cardBottomPad = 1.8;
     const rowGap = 1.4;
-    const labelColW = dualCards ? 30 : 40;
+    const labelColW = dualCards ? 46 : 56;
     const valueColGap = 2.2;
     const valueW = Math.max(18, cardW - 4.4 - labelColW - valueColGap);
     const labelLineH = lineHeightMm(PDF_TYPE.micro);
@@ -1144,6 +1144,18 @@ export const generateClientOfferPDF = async (
       const clean = String(text || '-').trim() || '-';
       pdf.setFontSize(PDF_TYPE.table);
       setFont('normal');
+      if (pdf.getTextWidth(clean) <= maxWidth) return clean;
+      const ellipsis = '...';
+      let trimmed = clean;
+      while (trimmed.length > 0 && pdf.getTextWidth(`${trimmed}${ellipsis}`) > maxWidth) {
+        trimmed = trimmed.slice(0, -1);
+      }
+      return `${trimmed}${ellipsis}`;
+    };
+    const fitSingleLineLabel = (text: string, maxWidth: number) => {
+      const clean = String(text || '-').trim() || '-';
+      pdf.setFontSize(PDF_TYPE.micro);
+      setFont('bold');
       if (pdf.getTextWidth(clean) <= maxWidth) return clean;
       const ellipsis = '...';
       let trimmed = clean;
@@ -1168,7 +1180,7 @@ export const generateClientOfferPDF = async (
         const contentH = Math.max(labelLineH, lines.length * valueLineH);
         const rowH = rowTopPad + contentH + rowBottomPad;
         return {
-          label: `${row.label}:`,
+          label: fitSingleLineLabel(`${row.label}:`, labelColW),
           valueLines: lines,
           rowH,
         };
