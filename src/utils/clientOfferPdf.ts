@@ -45,9 +45,15 @@ type FinancialSummary = {
   total: number;
 };
 
+type NormalizedTerm = {
+  key: 'validity' | 'payment' | 'deliveryDate' | 'incoterm' | 'warranty';
+  label: string;
+  value: string;
+};
+
 type NormalizedTerms = {
-  commercial: Array<{ label: string; value: string }>;
-  delivery: Array<{ label: string; value: string }>;
+  commercial: NormalizedTerm[];
+  delivery: NormalizedTerm[];
 };
 
 const LOGO_URL = '/monroc-logo.png';
@@ -63,9 +69,12 @@ const PDF_TYPE = {
   micro: 8.5,
 } as const;
 const PDF_SPACE = {
-  s1: 2.6,
-  s2: 4.8,
-  s3: 7.2,
+  base: 2.1,
+  block: 4.2,
+  section: 6.3,
+  tableCellPadY: 2.5,
+  sectionBandH: 6.1,
+  footerGuard: 3.2,
 } as const;
 const PDF_COLOR = {
   ink: '#0F172A',
@@ -505,43 +514,66 @@ const normalizeTermValue = (value: unknown) => {
   return text || '-';
 };
 
+const normalizeNumberUnitSpacing = (value: string) =>
+  String(value ?? '')
+    .replace(/(\d)([A-Za-z]+)/g, '$1 $2')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+const normalizePaymentTermText = (value: string) =>
+  normalizeNumberUnitSpacing(value).replace(/\bblance\b/gi, 'Balance');
+
+const normalizeWarrantyValue = (value: unknown, language: Language) => {
+  const raw = normalizeTermValue(value);
+  if (raw === '-') return raw;
+  const normalized = normalizeNumberUnitSpacing(raw);
+  if (!/^\d+([.,]\d+)?$/.test(normalized)) return normalized;
+  const unit = language === 'fr' ? 'mois' : language === 'zh' ? '个月' : 'months';
+  return `${normalized.replace(',', '.')} ${unit}`;
+};
+
 const buildPaymentTermsValue = (request: CustomerRequest) => {
   if (!Array.isArray(request.salesPaymentTerms) || !request.salesPaymentTerms.length) return '-';
   const parts = request.salesPaymentTerms
     .filter((term) => (term.paymentName ?? '').trim() || term.paymentPercent !== null)
     .map((term) => {
-      const name = normalizeTermValue(term.paymentName);
+      const name = normalizePaymentTermText(normalizeTermValue(term.paymentName));
       const percent = typeof term.paymentPercent === 'number' ? `${term.paymentPercent}%` : '-';
       return `${name} (${percent})`;
     });
-  return parts.length ? parts.join('; ') : '-';
+  return parts.length ? normalizePaymentTermText(parts.join('; ')) : '-';
 };
 
-const normalizeTermsForPdf = (request: CustomerRequest, t: any): NormalizedTerms => {
-  const commercial: Array<{ label: string; value: string }> = [
+const normalizeTermsForPdf = (request: CustomerRequest, t: any, language: Language): NormalizedTerms => {
+  const commercial: NormalizedTerm[] = [
     {
+      key: 'validity',
       label: String(t.panels.offerValidityPeriod),
-      value: normalizeTermValue(request.salesOfferValidityPeriod),
+      value: normalizeNumberUnitSpacing(normalizeTermValue(request.salesOfferValidityPeriod)),
     },
     {
+      key: 'payment',
       label: String(t.panels.paymentTerms),
       value: buildPaymentTermsValue(request),
     },
   ];
 
   const incoterm = request.salesIncoterm === 'other' ? request.salesIncotermOther : request.salesIncoterm;
-  const delivery: Array<{ label: string; value: string }> = [
+  const delivery: NormalizedTerm[] = [
     {
+      key: 'deliveryDate',
       label: String(t.panels.salesExpectedDeliveryDate),
       value: normalizeTermValue(request.salesExpectedDeliveryDate),
     },
     {
+      key: 'incoterm',
       label: String(t.panels.incoterm),
       value: normalizeTermValue(incoterm),
     },
     {
+      key: 'warranty',
       label: String(t.panels.warrantyPeriod),
-      value: normalizeTermValue(request.salesWarrantyPeriod),
+      value: normalizeWarrantyValue(request.salesWarrantyPeriod, language),
     },
   ];
 
@@ -601,6 +633,26 @@ const sourceLabelForPdf = (source: OfferAttachment['source'], t: any) => {
   return String(t.clientOffer.sourceGeneral);
 };
 
+const buildPersonalizedIntro = (language: Language, clientName: string, fallback: string) => {
+  const cleanName = String(clientName ?? '').trim();
+  if (!cleanName) return fallback;
+  if (language === 'fr') {
+    return `Cher/Chere ${cleanName}, nous vous remercions pour votre confiance. Veuillez trouver ci-dessous notre proposition personnalisee.`;
+  }
+  if (language === 'zh') {
+    return `${cleanName}，感谢您对 MONROC 的信任。请查收以下为您准备的专属报价方案。`;
+  }
+  return `Dear ${cleanName}, thank you for your trust in MONROC. Please find your tailored quotation below.`;
+};
+
+const resolvePdfIntroText = (introText: string, defaultIntro: string, personalizedIntro: string) => {
+  const clean = String(introText ?? '').trim();
+  const cleanDefault = String(defaultIntro ?? '').trim();
+  if (!clean) return personalizedIntro;
+  if (cleanDefault && clean === cleanDefault) return personalizedIntro;
+  return clean;
+};
+
 export const generateClientOfferPDF = async (
   request: CustomerRequest,
   configInput: ClientOfferConfig | undefined,
@@ -638,11 +690,18 @@ export const generateClientOfferPDF = async (
     translateOption,
     String(t.clientOffer.defaultIntro)
   );
+  const defaultIntro = String(t.clientOffer.defaultIntro || '');
+  const personalizedIntro = buildPersonalizedIntro(
+    language,
+    String(config.recipientName || request.clientName || ''),
+    defaultIntro
+  );
+  const resolvedIntroText = resolvePdfIntroText(config.introText || '', defaultIntro, personalizedIntro);
 
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const margin = 14;
-  const bottomMargin = 14 + FOOTER_RESERVED_HEIGHT;
+  const bottomMargin = 14 + FOOTER_RESERVED_HEIGHT + PDF_SPACE.footerGuard;
   const contentBottomY = pageHeight - bottomMargin;
   const contentWidth = pageWidth - margin * 2;
   const pageHeaderHeight = 28;
@@ -756,19 +815,22 @@ export const generateClientOfferPDF = async (
     addPage();
   };
 
-  const drawSectionTitle = (title: string) => {
-    ensureSpace(9.2);
+  const drawSectionTitle = (title: string, reserveAfter = 0) => {
+    const sectionBlockHeight = PDF_SPACE.section + PDF_SPACE.sectionBandH + PDF_SPACE.block + reserveAfter;
+    ensureSpace(sectionBlockHeight);
+    y += PDF_SPACE.section;
+    pdf.setFillColor(...rgb(PDF_COLOR.card));
+    pdf.rect(margin, y, contentWidth, PDF_SPACE.sectionBandH, 'F');
     pdf.setFontSize(PDF_TYPE.section);
     setFont('bold');
     const [ir, ig, ib] = rgb(PDF_COLOR.ink);
     const [lr, lg, lb] = rgb(PDF_COLOR.line);
     pdf.setTextColor(ir, ig, ib);
-    pdf.text(title, margin, y);
-    y += 4.6;
+    pdf.text(title, margin + 0.8, y + 4.2);
     pdf.setDrawColor(lr, lg, lb);
     pdf.setLineWidth(0.3);
-    pdf.line(margin, y, pageWidth - margin, y);
-    y += 3.2;
+    pdf.line(margin, y + PDF_SPACE.sectionBandH, pageWidth - margin, y + PDF_SPACE.sectionBandH);
+    y += PDF_SPACE.sectionBandH + PDF_SPACE.block;
     pdf.setTextColor(0, 0, 0);
     setFont('normal');
   };
@@ -785,7 +847,7 @@ export const generateClientOfferPDF = async (
       pdf.text(line, margin, y);
       y += lh;
     }
-    y += PDF_SPACE.s1;
+    y += PDF_SPACE.block;
   };
 
   const drawTitleCard = (offerDate: string) => {
@@ -793,7 +855,7 @@ export const generateClientOfferPDF = async (
     const [cr, cg, cb] = rgb(PDF_COLOR.card);
     const [lr, lg, lb] = rgb(PDF_COLOR.line);
     const [mr, mg, mb] = rgb(PDF_COLOR.muted);
-    ensureSpace(cardH + PDF_SPACE.s2);
+    ensureSpace(cardH + PDF_SPACE.block);
     pdf.setFillColor(cr, cg, cb);
     pdf.setDrawColor(lr, lg, lb);
     pdf.setLineWidth(0.35);
@@ -802,7 +864,8 @@ export const generateClientOfferPDF = async (
     pdf.setFontSize(PDF_TYPE.title);
     setFont('bold');
     pdf.setTextColor(...rgb(PDF_COLOR.ink));
-    pdf.text(String(t.clientOffer.pdfTitle), margin + 3, y + 6.1);
+    const titleBaselineY = y + cardH / 2 + ptToMm(PDF_TYPE.title) * 0.34;
+    pdf.text(String(t.clientOffer.pdfTitle), margin + 3, titleBaselineY);
 
     const labelX = margin + contentWidth - 56;
     const valueX = margin + contentWidth - 3;
@@ -816,12 +879,12 @@ export const generateClientOfferPDF = async (
     pdf.text(String(config.offerNumber || request.id || '-'), valueX, y + 6.1, { align: 'right' });
     pdf.text(String(offerDate), valueX, y + 10.7, { align: 'right' });
 
-    y += cardH + PDF_SPACE.s2;
+    y += cardH + PDF_SPACE.block;
   };
 
   const drawMetaRows = (rows: Array<{ label: string; value: string }>) => {
-    const labelWidth = 34;
-    const rowH = 6.4;
+    const labelWidth = 42;
+    const rowH = 6.6;
     const [mr, mg, mb] = rgb(PDF_COLOR.muted);
     const [lr, lg, lb] = rgb(PDF_COLOR.line);
     for (const row of rows) {
@@ -832,16 +895,16 @@ export const generateClientOfferPDF = async (
       pdf.setFontSize(PDF_TYPE.micro);
       setFont('bold');
       pdf.setTextColor(mr, mg, mb);
-      pdf.text(String(row.label || '-').toUpperCase(), margin, y + 4.2);
+      pdf.text(`${String(row.label || '-').toUpperCase()}:`, margin, y + 4.35);
       pdf.setFontSize(10.5);
       setFont('normal');
       pdf.setTextColor(...rgb(PDF_COLOR.ink));
-      pdf.text(String(row.value || '-'), margin + labelWidth, y + 4.2);
+      pdf.text(String(row.value || '-'), margin + labelWidth, y + 4.35);
       y += rowH;
     }
     pdf.setDrawColor(lr, lg, lb);
     pdf.line(margin, y, pageWidth - margin, y);
-    y += PDF_SPACE.s2;
+    y += PDF_SPACE.block;
     pdf.setTextColor(0, 0, 0);
   };
 
@@ -855,14 +918,16 @@ export const generateClientOfferPDF = async (
       headerFontSize?: number;
       rowPaddingY?: number;
       zebra?: boolean;
+      bulletColumns?: number[];
     }
   ) => {
     const padX = 2.2;
-    const rowPaddingY = opts?.rowPaddingY ?? 1.8;
+    const rowPaddingY = opts?.rowPaddingY ?? PDF_SPACE.tableCellPadY;
     const bodyFontSize = opts?.bodyFontSize ?? PDF_TYPE.table;
     const headerFontSize = opts?.headerFontSize ?? PDF_TYPE.micro;
     const rightAlignColumns = new Set(opts?.rightAlignColumns ?? []);
-    const headerH = 8.8;
+    const bulletColumns = new Set(opts?.bulletColumns ?? []);
+    const headerH = 9.4;
     const x = margin;
 
     const drawHeader = () => {
@@ -900,12 +965,27 @@ export const generateClientOfferPDF = async (
         const chunks = String(cell ?? '-').split('\n');
         const out: string[] = [];
         for (const chunk of chunks) {
-          const wrapped = pdf.splitTextToSize(chunk, width) as string[];
-          out.push(...(wrapped.length ? wrapped : ['']));
+          const cleanChunk = String(chunk ?? '').trim();
+          if (bulletColumns.has(idx) && cleanChunk.startsWith('•')) {
+            const bulletText = cleanChunk.replace(/^•\s*/, '');
+            const wrapped = pdf.splitTextToSize(bulletText, Math.max(8, width - 2.2)) as string[];
+            if (!wrapped.length) {
+              out.push('•');
+            } else {
+              out.push(`• ${wrapped[0]}`);
+              for (let wi = 1; wi < wrapped.length; wi += 1) {
+                out.push(`  ${wrapped[wi]}`);
+              }
+            }
+          } else {
+            const wrapped = pdf.splitTextToSize(cleanChunk, width) as string[];
+            out.push(...(wrapped.length ? wrapped : ['']));
+          }
         }
         return out;
       });
-      const rowH = Math.max(8.6, Math.max(...cellLines.map((lines) => lines.length)) * lineHeightMm(bodyFontSize) + rowPaddingY * 2);
+      const rowLineHeight = lineHeightMm(bodyFontSize);
+      const rowH = Math.max(10.2, Math.max(...cellLines.map((lines) => lines.length)) * rowLineHeight + rowPaddingY * 2 + 0.6);
 
       if (y + rowH > contentBottomY) {
         addPage();
@@ -929,13 +1009,16 @@ export const generateClientOfferPDF = async (
         pdf.setFontSize(bodyFontSize);
         const w = colWidths[c] ?? 20;
         const lines = cellLines[c];
+        const lh = lineHeightMm(bodyFontSize);
+        const baseY = y + rowPaddingY + 2.9;
         if (rightAlignColumns.has(c)) {
-          const lh = lineHeightMm(bodyFontSize);
           for (let li = 0; li < lines.length; li += 1) {
-            pdf.text(lines[li], cx + w - padX, y + rowPaddingY + 3 + li * lh, { align: 'right' });
+            pdf.text(lines[li], cx + w - padX, baseY + li * lh, { align: 'right' });
           }
         } else {
-          pdf.text(lines, cx + padX, y + rowPaddingY + 3);
+          for (let li = 0; li < lines.length; li += 1) {
+            pdf.text(lines[li], cx + padX, baseY + li * lh);
+          }
         }
         cx += w;
       }
@@ -943,7 +1026,7 @@ export const generateClientOfferPDF = async (
       y += rowH;
     }
 
-    y += PDF_SPACE.s1;
+    y += PDF_SPACE.block;
   };
 
   const attachmentOptions = collectRequestAttachments(request);
@@ -961,14 +1044,12 @@ export const generateClientOfferPDF = async (
   if (normalizedPayload.warnings.length) {
     console.warn('[client-offer-pdf] normalized mismatches:', normalizedPayload.warnings);
   }
-  const normalizedTerms = normalizeTermsForPdf(request, t);
+  const normalizedTerms = normalizeTermsForPdf(request, t, language);
 
   const offerDate = format(new Date(), 'PPP', { locale });
   drawPageHeader();
   drawTitleCard(offerDate);
   drawMetaRows([
-    { label: String(t.clientOffer.offerNumber), value: config.offerNumber || request.id },
-    { label: String(t.clientOffer.offerDate), value: offerDate },
     { label: String(t.clientOffer.recipientName), value: config.recipientName || request.clientName || '-' },
     { label: String(t.table.requestId), value: request.id },
     {
@@ -979,7 +1060,7 @@ export const generateClientOfferPDF = async (
 
   if (config.sectionVisibility.general) {
     drawSectionTitle(String(t.clientOffer.generalInformation));
-    drawParagraph(config.introText || String(t.clientOffer.defaultIntro));
+    drawParagraph(resolvedIntroText);
   }
 
   if (config.sectionVisibility.lineItems) {
@@ -995,7 +1076,7 @@ export const generateClientOfferPDF = async (
       String(t.clientOffer.remark),
     ];
 
-    const colWidths = [10, 32, 50, 13, 23, 23, contentWidth - (10 + 32 + 50 + 13 + 23 + 23)];
+    const colWidths = [10, 34, 52, 14, 21, 22, contentWidth - (10 + 34 + 52 + 14 + 21 + 22)];
     const rows: string[][] = normalizedRows.map((line) => [
       line.itemNo,
       line.description,
@@ -1009,8 +1090,9 @@ export const generateClientOfferPDF = async (
       rightAlignColumns: [3, 4, 5],
       bodyFontSize: PDF_TYPE.table,
       headerFontSize: PDF_TYPE.micro,
-      rowPaddingY: 2.2,
+      rowPaddingY: PDF_SPACE.tableCellPadY,
       zebra: true,
+      bulletColumns: [2],
     });
 
     const summaryWidth = 68;
@@ -1022,7 +1104,7 @@ export const generateClientOfferPDF = async (
       { label: String(t.common.total), value: formatMoney(summary.total, request.salesCurrency || 'EUR'), bold: true },
     ];
     const summaryHeight = rowH * summaryRows.length + 3.2;
-    ensureSpace(summaryHeight + PDF_SPACE.s2);
+    ensureSpace(summaryHeight + PDF_SPACE.block);
     const x = pageWidth - margin - summaryWidth;
     pdf.setDrawColor(...rgb(PDF_COLOR.line));
     pdf.setFillColor(...rgb(PDF_COLOR.card));
@@ -1038,37 +1120,53 @@ export const generateClientOfferPDF = async (
     }
     setFont('normal');
     pdf.setTextColor(0, 0, 0);
-    y += summaryHeight + PDF_SPACE.s2;
+    y += summaryHeight + PDF_SPACE.block;
   }
 
   if (config.sectionVisibility.commercialTerms || config.sectionVisibility.deliveryTerms) {
-    drawSectionTitle(
-      config.sectionVisibility.commercialTerms && config.sectionVisibility.deliveryTerms
-        ? `${String(t.clientOffer.commercialTermsTitle)} / ${String(t.clientOffer.deliveryTermsTitle)}`
-        : config.sectionVisibility.commercialTerms
-          ? String(t.clientOffer.commercialTermsTitle)
-          : String(t.clientOffer.deliveryTermsTitle)
-    );
-
     const showCommercial = config.sectionVisibility.commercialTerms;
     const showDelivery = config.sectionVisibility.deliveryTerms;
     const dualCards = showCommercial && showDelivery;
     const gap = 4;
     const cardW = dualCards ? (contentWidth - gap) / 2 : contentWidth;
-    const cardTitleH = 5.6;
-    const cardTopPad = 1.4;
-    const cardBottomPad = 1.6;
-    const rowGap = 1.2;
-    const labelColW = dualCards ? 38 : 46;
-    const valueColGap = 1.8;
+    const cardTitleH = 5.8;
+    const cardTopPad = 1.8;
+    const cardBottomPad = 1.8;
+    const rowGap = 1.4;
+    const labelColW = dualCards ? 30 : 40;
+    const valueColGap = 2.2;
     const valueW = Math.max(18, cardW - 4.4 - labelColW - valueColGap);
+    const labelLineH = lineHeightMm(PDF_TYPE.micro);
+    const valueLineH = lineHeightMm(PDF_TYPE.table);
+    const rowTopPad = 0.7;
+    const rowBottomPad = 0.9;
+    const fitSingleLineValue = (text: string, maxWidth: number) => {
+      const clean = String(text || '-').trim() || '-';
+      pdf.setFontSize(PDF_TYPE.table);
+      setFont('normal');
+      if (pdf.getTextWidth(clean) <= maxWidth) return clean;
+      const ellipsis = '...';
+      let trimmed = clean;
+      while (trimmed.length > 0 && pdf.getTextWidth(`${trimmed}${ellipsis}`) > maxWidth) {
+        trimmed = trimmed.slice(0, -1);
+      }
+      return `${trimmed}${ellipsis}`;
+    };
 
-    const buildTermRows = (rows: Array<{ label: string; value: string }>) =>
+    const buildTermRows = (rows: NormalizedTerm[]) =>
       rows.map((row) => {
-        const wrapped = (pdf.splitTextToSize(String(row.value || '-'), valueW) as string[]).slice(0, 2);
-        const lines = wrapped.length ? wrapped : ['-'];
-        const textBlockH = Math.max(lineHeightMm(PDF_TYPE.micro), lines.length * lineHeightMm(PDF_TYPE.table));
-        const rowH = 1.3 + textBlockH + 1.2;
+        const rawValue = String(row.value || '-');
+        let lines = (pdf.splitTextToSize(rawValue, valueW) as string[]).filter((line) => line.trim());
+        if (row.key === 'warranty') {
+          lines = [fitSingleLineValue(rawValue, valueW)];
+        } else if (lines.length > 2) {
+          const head = lines[0];
+          const tail = fitSingleLineValue(lines.slice(1).join(' '), valueW);
+          lines = [head, tail];
+        }
+        if (!lines.length) lines = ['-'];
+        const contentH = Math.max(labelLineH, lines.length * valueLineH);
+        const rowH = rowTopPad + contentH + rowBottomPad;
         return {
           label: `${row.label}:`,
           valueLines: lines,
@@ -1092,7 +1190,12 @@ export const generateClientOfferPDF = async (
       showCommercial ? estimateCardHeight(commercialRows) : 0,
       showDelivery ? estimateCardHeight(deliveryRows) : 0
     );
-    ensureSpace(cardH + PDF_SPACE.s1);
+    const termsTitle = showCommercial && showDelivery
+      ? `${String(t.clientOffer.commercialTermsTitle)} / ${String(t.clientOffer.deliveryTermsTitle)}`
+      : showCommercial
+        ? String(t.clientOffer.commercialTermsTitle)
+        : String(t.clientOffer.deliveryTermsTitle);
+    drawSectionTitle(termsTitle, cardH + PDF_SPACE.block);
 
     const drawTermCard = (x: number, title: string, rows: ReturnType<typeof buildTermRows>) => {
       pdf.setFillColor(...rgb(PDF_COLOR.card));
@@ -1107,12 +1210,14 @@ export const generateClientOfferPDF = async (
         pdf.setFontSize(PDF_TYPE.micro);
         setFont('bold');
         pdf.setTextColor(...rgb(PDF_COLOR.muted));
-        const textY = ry + 2.8;
-        pdf.text(row.label, x + 2.2, textY);
+        const baselineY = ry + rowTopPad + Math.max(labelLineH, valueLineH);
+        pdf.text(row.label, x + 2.2, baselineY);
         pdf.setFontSize(PDF_TYPE.table);
         setFont('normal');
         pdf.setTextColor(...rgb(PDF_COLOR.ink));
-        pdf.text(row.valueLines, x + 2.2 + labelColW + valueColGap, textY);
+        for (let i = 0; i < row.valueLines.length; i += 1) {
+          pdf.text(row.valueLines[i], x + 2.2 + labelColW + valueColGap, baselineY + i * valueLineH);
+        }
         ry += row.rowH + rowGap;
       }
     };
@@ -1123,7 +1228,7 @@ export const generateClientOfferPDF = async (
     if (showDelivery) {
       drawTermCard(showCommercial && dualCards ? margin + cardW + gap : margin, String(t.clientOffer.deliveryTermsTitle), deliveryRows);
     }
-    y += cardH + PDF_SPACE.s1;
+    y += cardH + PDF_SPACE.block;
   }
 
   if (config.sectionVisibility.appendix && selectedAttachments.length) {
