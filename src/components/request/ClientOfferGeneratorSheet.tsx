@@ -518,73 +518,70 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                     <p className="text-xs text-muted-foreground">{t.clientOffer.lineItemsLockedNote}</p>
 
                     <div className="space-y-2">
-                      <div className="hidden lg:grid lg:grid-cols-[6rem,minmax(0,1fr),6.5rem,8rem] lg:items-center lg:gap-2 px-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-                        <span>{t.clientOffer.item}</span>
-                        <span>{t.clientOffer.description}</span>
-                        <span className="text-right">{t.clientOffer.quantity}</span>
-                        <span className="text-right">{t.clientOffer.unitPrice}</span>
-                      </div>
-                      <div className="hidden lg:grid lg:grid-cols-[minmax(0,1fr),14rem] lg:items-center lg:gap-2 px-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-                        <span>{t.clientOffer.specification}</span>
-                        <span>{t.clientOffer.remark}</span>
-                      </div>
-
                       {config.lines.map((line, index) => (
                         <div key={line.id} className="rounded-md border border-border p-2">
                           <div className="hidden lg:block space-y-2">
                             <div className="grid grid-cols-[6rem,minmax(0,1fr),6.5rem,8rem] gap-2 items-center">
-                              <div className="h-9 rounded-md border border-border/70 bg-background/40 px-3 flex items-center text-xs text-muted-foreground whitespace-nowrap">
-                                #{index + 1}
+                              <div className="min-h-12 rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.item}</p>
+                                <p className="text-sm text-foreground">#{index + 1}</p>
                               </div>
-                              <div className="h-9 rounded-md border border-border/70 bg-background/40 px-3 flex items-center text-sm truncate">
-                                {line.description?.trim() || '-'}
+                              <div className="min-h-12 rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.description}</p>
+                                <p className="text-sm text-foreground truncate">{line.description?.trim() || '-'}</p>
                               </div>
-                              <div className="h-9 rounded-md border border-border/70 bg-background/40 px-3 flex items-center justify-end text-sm tabular-nums">
-                                {formatLineQuantity(line.quantity)}
+                              <div className="min-h-12 rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground text-right">{t.clientOffer.quantity}</p>
+                                <p className="text-sm text-foreground tabular-nums text-right">{formatLineQuantity(line.quantity)}</p>
                               </div>
-                              <div className="h-9 rounded-md border border-border/70 bg-background/40 px-3 flex items-center justify-end text-sm tabular-nums">
-                                {formatLineUnitPrice(line.unitPrice)}
+                              <div className="min-h-12 rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground text-right">{t.clientOffer.unitPrice}</p>
+                                <p className="text-sm text-foreground tabular-nums text-right">{formatLineUnitPrice(line.unitPrice)}</p>
                               </div>
                             </div>
 
                             <div className="grid grid-cols-[minmax(0,1fr),14rem] gap-2">
-                              <div className="min-h-[3.25rem] rounded-md border border-border/70 bg-background/40 px-3 py-2 text-sm whitespace-pre-wrap break-words">
-                                {line.specification?.trim() || '-'}
+                              <div className="min-h-[3.75rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.specification}</p>
+                                <p className="text-sm text-foreground whitespace-pre-wrap break-words">{line.specification?.trim() || '-'}</p>
                               </div>
-                              <div className="min-h-[3.25rem] rounded-md border border-border/70 bg-background/40 px-3 py-2 text-sm whitespace-pre-wrap break-words">
-                                {line.remark?.trim() || '-'}
+                              <div className="min-h-[3.75rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.remark}</p>
+                                <p className="text-sm text-foreground whitespace-pre-wrap break-words">{line.remark?.trim() || '-'}</p>
                               </div>
                             </div>
                           </div>
 
                           <div className="space-y-1.5 lg:hidden">
-                            <div className="h-8 rounded-md border border-border/70 bg-background/40 px-3 flex items-center text-xs text-muted-foreground">
-                              {t.clientOffer.item} #{index + 1}
+                            <div className="min-h-12 rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.item}</p>
+                              <p className="text-sm text-foreground">#{index + 1}</p>
                             </div>
 
-                            <div className="min-h-9 rounded-md border border-border/70 bg-background/40 px-3 py-2 text-sm whitespace-pre-wrap break-words">
-                              {line.description?.trim() || '-'}
+                            <div className="min-h-12 rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.description}</p>
+                              <p className="text-sm text-foreground whitespace-pre-wrap break-words">{line.description?.trim() || '-'}</p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-2">
-                              <div className="min-h-9 rounded-md border border-border/70 bg-background/40 px-3 py-1.5">
-                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.quantity}</p>
-                                <p className="text-sm tabular-nums text-right">{formatLineQuantity(line.quantity)}</p>
+                              <div className="min-h-12 rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground text-right">{t.clientOffer.quantity}</p>
+                                <p className="text-sm text-foreground tabular-nums text-right">{formatLineQuantity(line.quantity)}</p>
                               </div>
-                              <div className="min-h-9 rounded-md border border-border/70 bg-background/40 px-3 py-1.5">
-                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.unitPrice}</p>
-                                <p className="text-sm tabular-nums text-right">{formatLineUnitPrice(line.unitPrice)}</p>
+                              <div className="min-h-12 rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground text-right">{t.clientOffer.unitPrice}</p>
+                                <p className="text-sm text-foreground tabular-nums text-right">{formatLineUnitPrice(line.unitPrice)}</p>
                               </div>
                             </div>
 
-                            <div className="min-h-[3.25rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
-                              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{t.clientOffer.specification}</p>
-                              <p className="text-sm whitespace-pre-wrap break-words">{line.specification?.trim() || '-'}</p>
+                            <div className="min-h-[3.75rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.specification}</p>
+                              <p className="text-sm text-foreground whitespace-pre-wrap break-words">{line.specification?.trim() || '-'}</p>
                             </div>
 
-                            <div className="min-h-[3.25rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
-                              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{t.clientOffer.remark}</p>
-                              <p className="text-sm whitespace-pre-wrap break-words">{line.remark?.trim() || '-'}</p>
+                            <div className="min-h-[3.75rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.remark}</p>
+                              <p className="text-sm text-foreground whitespace-pre-wrap break-words">{line.remark?.trim() || '-'}</p>
                             </div>
                           </div>
                         </div>
