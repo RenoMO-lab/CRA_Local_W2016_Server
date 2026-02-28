@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
-import { Download, FileText, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { Download, FileText, Loader2, Save } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
@@ -78,6 +78,26 @@ const normalizeLineUnitPrice = (value: unknown): number | null => {
   if (parsed === null) return null;
   const clamped = clampNumber(parsed, 0, MAX_UNIT_PRICE);
   return Math.round((clamped + Number.EPSILON) * 100) / 100;
+};
+
+const toCanonicalLines = (
+  request: CustomerRequest,
+  translateOption: (value: string) => string
+): ClientOfferLine[] => seedLinesFromProducts(request, translateOption).map((line) => ({
+  ...line,
+  include: true,
+  quantity: normalizeLineQuantity(line.quantity),
+  unitPrice: normalizeLineUnitPrice(line.unitPrice),
+}));
+
+const formatLineQuantity = (value: number | null) => {
+  const normalized = normalizeLineQuantity(value);
+  return normalized === null ? '-' : String(normalized);
+};
+
+const formatLineUnitPrice = (value: number | null) => {
+  const normalized = normalizeLineUnitPrice(value);
+  return normalized === null ? '-' : normalized.toFixed(2);
 };
 
 const resolveOther = (value: string | undefined | null, other?: string | null) => {
@@ -228,25 +248,7 @@ const normalizeConfig = (
   defaultIntro: string
 ): ClientOfferConfig => {
   const source = input && typeof input === 'object' ? input : undefined;
-  const lines = (Array.isArray(source?.lines) && source?.lines.length
-    ? source.lines.map((line, index) => ({
-        id: typeof line?.id === 'string' && line.id.trim() ? line.id.trim() : `line-${index + 1}`,
-        include: line?.include !== false,
-        sourceProductIndex:
-          typeof line?.sourceProductIndex === 'number' && Number.isInteger(line.sourceProductIndex) && line.sourceProductIndex >= 0
-            ? line.sourceProductIndex
-            : null,
-        description: typeof line?.description === 'string' ? line.description : '',
-        specification: typeof line?.specification === 'string' ? line.specification : '',
-        quantity: normalizeLineQuantity(line?.quantity),
-        unitPrice: normalizeLineUnitPrice(line?.unitPrice),
-        remark: typeof line?.remark === 'string' ? line.remark : '',
-      }))
-    : seedLinesFromProducts(request, translateOption)).map((line) => ({
-    ...line,
-    quantity: normalizeLineQuantity(line.quantity),
-    unitPrice: normalizeLineUnitPrice(line.unitPrice),
-  }));
+  const lines = toCanonicalLines(request, translateOption);
 
   return {
     offerNumber: String(source?.offerNumber ?? request.id ?? '').trim() || request.id,
@@ -350,63 +352,6 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
     };
   }, [open, request.id, t.clientOffer.profileLoadFailed, t.request.error, toast]);
 
-  const updateLine = (lineId: string, patch: Partial<ClientOfferLine>) => {
-    const normalizedPatch: Partial<ClientOfferLine> = { ...patch };
-    if (Object.prototype.hasOwnProperty.call(patch, 'quantity')) {
-      normalizedPatch.quantity = normalizeLineQuantity(patch.quantity);
-    }
-    if (Object.prototype.hasOwnProperty.call(patch, 'unitPrice')) {
-      normalizedPatch.unitPrice = normalizeLineUnitPrice(patch.unitPrice);
-    }
-
-    setConfig((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        lines: prev.lines.map((line) =>
-          line.id === lineId
-            ? {
-                ...line,
-                ...normalizedPatch,
-              }
-            : line
-        ),
-      };
-    });
-  };
-
-  const removeLine = (lineId: string) => {
-    setConfig((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        lines: prev.lines.filter((line) => line.id !== lineId),
-      };
-    });
-  };
-
-  const addLine = () => {
-    setConfig((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        lines: [
-          ...prev.lines,
-          {
-            id: `line-${Date.now()}`,
-            include: true,
-            sourceProductIndex: null,
-            description: '',
-            specification: '',
-            quantity: null,
-            unitPrice: null,
-            remark: '',
-          },
-        ],
-      };
-    });
-  };
-
   const toggleAttachment = (attachmentId: string, checked: boolean) => {
     setConfig((prev) => {
       if (!prev) return prev;
@@ -426,11 +371,7 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
     try {
       const payload: ClientOfferConfig = {
         ...config,
-        lines: config.lines.map((line) => ({
-          ...line,
-          quantity: normalizeLineQuantity(line.quantity),
-          unitPrice: normalizeLineUnitPrice(line.unitPrice),
-        })),
+        lines: toCanonicalLines(request, translateOption),
         updatedAt: new Date().toISOString(),
         updatedByUserId: String(user?.id ?? ''),
       };
@@ -574,20 +515,14 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                 </AccordionTrigger>
                 <AccordionContent className="pt-1 pb-2">
                   <div className="space-y-2.5">
-                    <div className="flex items-center justify-end">
-                      <Button variant="outline" size="sm" onClick={addLine} className="h-9">
-                        <Plus size={14} className="mr-2" />
-                        {t.clientOffer.addLine}
-                      </Button>
-                    </div>
+                    <p className="text-xs text-muted-foreground">{t.clientOffer.lineItemsLockedNote}</p>
 
                     <div className="space-y-2">
-                      <div className="hidden lg:grid lg:grid-cols-[auto,minmax(0,1fr),6.5rem,8rem,auto] lg:items-center lg:gap-2 px-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+                      <div className="hidden lg:grid lg:grid-cols-[6rem,minmax(0,1fr),6.5rem,8rem] lg:items-center lg:gap-2 px-2 text-[11px] uppercase tracking-wide text-muted-foreground">
                         <span>{t.clientOffer.item}</span>
                         <span>{t.clientOffer.description}</span>
                         <span className="text-right">{t.clientOffer.quantity}</span>
                         <span className="text-right">{t.clientOffer.unitPrice}</span>
-                        <span className="sr-only">{t.common.delete}</span>
                       </div>
                       <div className="hidden lg:grid lg:grid-cols-[minmax(0,1fr),14rem] lg:items-center lg:gap-2 px-2 text-[11px] uppercase tracking-wide text-muted-foreground">
                         <span>{t.clientOffer.specification}</span>
@@ -597,141 +532,59 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                       {config.lines.map((line, index) => (
                         <div key={line.id} className="rounded-md border border-border p-2">
                           <div className="hidden lg:block space-y-2">
-                            <div className="grid grid-cols-[auto,minmax(0,1fr),6.5rem,8rem,auto] gap-2 items-center">
-                              <label className="flex items-center gap-2">
-                                <Checkbox
-                                  checked={line.include}
-                                  onCheckedChange={(checked) => updateLine(line.id, { include: checked === true })}
-                                />
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">#{index + 1}</span>
-                              </label>
-
-                              <Input
-                                value={line.description}
-                                onChange={(e) => updateLine(line.id, { description: e.target.value })}
-                                className="h-9"
-                              />
-
-                              <Input
-                                type="number"
-                                min={0}
-                                max={MAX_LINE_QTY}
-                                step={1}
-                                inputMode="numeric"
-                                value={line.quantity ?? ''}
-                                onChange={(e) => updateLine(line.id, { quantity: e.target.value })}
-                                className="h-9 w-[6.5rem] justify-self-end text-right tabular-nums"
-                              />
-
-                              <Input
-                                type="number"
-                                min={0}
-                                max={MAX_UNIT_PRICE}
-                                step={0.01}
-                                inputMode="decimal"
-                                value={line.unitPrice ?? ''}
-                                onChange={(e) => updateLine(line.id, { unitPrice: e.target.value })}
-                                className="h-9 w-[8rem] justify-self-end text-right tabular-nums"
-                              />
-
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeLine(line.id)}
-                                className="h-9 px-2"
-                                title={t.common.delete}
-                              >
-                                <Trash2 size={14} />
-                                <span className="sr-only">{t.common.delete}</span>
-                              </Button>
+                            <div className="grid grid-cols-[6rem,minmax(0,1fr),6.5rem,8rem] gap-2 items-center">
+                              <div className="h-9 rounded-md border border-border/70 bg-background/40 px-3 flex items-center text-xs text-muted-foreground whitespace-nowrap">
+                                #{index + 1}
+                              </div>
+                              <div className="h-9 rounded-md border border-border/70 bg-background/40 px-3 flex items-center text-sm truncate">
+                                {line.description?.trim() || '-'}
+                              </div>
+                              <div className="h-9 rounded-md border border-border/70 bg-background/40 px-3 flex items-center justify-end text-sm tabular-nums">
+                                {formatLineQuantity(line.quantity)}
+                              </div>
+                              <div className="h-9 rounded-md border border-border/70 bg-background/40 px-3 flex items-center justify-end text-sm tabular-nums">
+                                {formatLineUnitPrice(line.unitPrice)}
+                              </div>
                             </div>
 
                             <div className="grid grid-cols-[minmax(0,1fr),14rem] gap-2">
-                              <Textarea
-                                value={line.specification}
-                                onChange={(e) => updateLine(line.id, { specification: e.target.value })}
-                                rows={2}
-                                className="min-h-[3.25rem] resize-y leading-5"
-                              />
-
-                              <Input
-                                value={line.remark}
-                                onChange={(e) => updateLine(line.id, { remark: e.target.value })}
-                                className="h-9 self-end"
-                              />
+                              <div className="min-h-[3.25rem] rounded-md border border-border/70 bg-background/40 px-3 py-2 text-sm whitespace-pre-wrap break-words">
+                                {line.specification?.trim() || '-'}
+                              </div>
+                              <div className="min-h-[3.25rem] rounded-md border border-border/70 bg-background/40 px-3 py-2 text-sm whitespace-pre-wrap break-words">
+                                {line.remark?.trim() || '-'}
+                              </div>
                             </div>
                           </div>
 
-                          <div className="space-y-2 lg:hidden">
-                            <div className="flex items-center justify-between gap-2">
-                              <label className="flex items-center gap-2">
-                                <Checkbox
-                                  checked={line.include}
-                                  onCheckedChange={(checked) => updateLine(line.id, { include: checked === true })}
-                                />
-                                <span className="text-xs text-muted-foreground">{t.clientOffer.item} #{index + 1}</span>
-                              </label>
-                              <Button variant="ghost" size="sm" onClick={() => removeLine(line.id)} className="h-8 px-2.5">
-                                <Trash2 size={14} className="mr-1.5" />
-                                {t.common.delete}
-                              </Button>
+                          <div className="space-y-1.5 lg:hidden">
+                            <div className="h-8 rounded-md border border-border/70 bg-background/40 px-3 flex items-center text-xs text-muted-foreground">
+                              {t.clientOffer.item} #{index + 1}
                             </div>
 
-                            <div className="space-y-1">
-                              <Label className="text-xs">{t.clientOffer.description}</Label>
-                              <Input
-                                value={line.description}
-                                onChange={(e) => updateLine(line.id, { description: e.target.value })}
-                                className="h-9"
-                              />
+                            <div className="min-h-9 rounded-md border border-border/70 bg-background/40 px-3 py-2 text-sm whitespace-pre-wrap break-words">
+                              {line.description?.trim() || '-'}
                             </div>
 
                             <div className="grid grid-cols-2 gap-2">
-                              <div className="space-y-1">
-                                <Label className="text-xs">{t.clientOffer.quantity}</Label>
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  max={MAX_LINE_QTY}
-                                  step={1}
-                                  inputMode="numeric"
-                                  value={line.quantity ?? ''}
-                                  onChange={(e) => updateLine(line.id, { quantity: e.target.value })}
-                                  className="h-9 text-right tabular-nums"
-                                />
+                              <div className="min-h-9 rounded-md border border-border/70 bg-background/40 px-3 py-1.5">
+                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.quantity}</p>
+                                <p className="text-sm tabular-nums text-right">{formatLineQuantity(line.quantity)}</p>
                               </div>
-                              <div className="space-y-1">
-                                <Label className="text-xs">{t.clientOffer.unitPrice}</Label>
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  max={MAX_UNIT_PRICE}
-                                  step={0.01}
-                                  inputMode="decimal"
-                                  value={line.unitPrice ?? ''}
-                                  onChange={(e) => updateLine(line.id, { unitPrice: e.target.value })}
-                                  className="h-9 text-right tabular-nums"
-                                />
+                              <div className="min-h-9 rounded-md border border-border/70 bg-background/40 px-3 py-1.5">
+                                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.unitPrice}</p>
+                                <p className="text-sm tabular-nums text-right">{formatLineUnitPrice(line.unitPrice)}</p>
                               </div>
                             </div>
 
-                            <div className="space-y-1">
-                              <Label className="text-xs">{t.clientOffer.specification}</Label>
-                              <Textarea
-                                value={line.specification}
-                                onChange={(e) => updateLine(line.id, { specification: e.target.value })}
-                                rows={2}
-                                className="min-h-[3.25rem] resize-y leading-5"
-                              />
+                            <div className="min-h-[3.25rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{t.clientOffer.specification}</p>
+                              <p className="text-sm whitespace-pre-wrap break-words">{line.specification?.trim() || '-'}</p>
                             </div>
 
-                            <div className="space-y-1">
-                              <Label className="text-xs">{t.clientOffer.remark}</Label>
-                              <Input
-                                value={line.remark}
-                                onChange={(e) => updateLine(line.id, { remark: e.target.value })}
-                                className="h-9 w-full"
-                              />
+                            <div className="min-h-[3.25rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
+                              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{t.clientOffer.remark}</p>
+                              <p className="text-sm whitespace-pre-wrap break-words">{line.remark?.trim() || '-'}</p>
                             </div>
                           </div>
                         </div>
