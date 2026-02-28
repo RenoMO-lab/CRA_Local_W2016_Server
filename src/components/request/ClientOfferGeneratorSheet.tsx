@@ -62,6 +62,24 @@ const parseOptionalNumber = (value: unknown): number | null => {
   return null;
 };
 
+const MAX_LINE_QTY = 10000;
+const MAX_UNIT_PRICE = 1000000;
+
+const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const normalizeLineQuantity = (value: unknown): number | null => {
+  const parsed = parseOptionalNumber(value);
+  if (parsed === null) return null;
+  return clampNumber(Math.trunc(parsed), 0, MAX_LINE_QTY);
+};
+
+const normalizeLineUnitPrice = (value: unknown): number | null => {
+  const parsed = parseOptionalNumber(value);
+  if (parsed === null) return null;
+  const clamped = clampNumber(parsed, 0, MAX_UNIT_PRICE);
+  return Math.round((clamped + Number.EPSILON) * 100) / 100;
+};
+
 const resolveOther = (value: string | undefined | null, other?: string | null) => {
   if (!value) return '';
   if (value === 'other') return String(other ?? '').trim();
@@ -210,7 +228,7 @@ const normalizeConfig = (
   defaultIntro: string
 ): ClientOfferConfig => {
   const source = input && typeof input === 'object' ? input : undefined;
-  const lines = Array.isArray(source?.lines) && source?.lines.length
+  const lines = (Array.isArray(source?.lines) && source?.lines.length
     ? source.lines.map((line, index) => ({
         id: typeof line?.id === 'string' && line.id.trim() ? line.id.trim() : `line-${index + 1}`,
         include: line?.include !== false,
@@ -220,11 +238,15 @@ const normalizeConfig = (
             : null,
         description: typeof line?.description === 'string' ? line.description : '',
         specification: typeof line?.specification === 'string' ? line.specification : '',
-        quantity: parseOptionalNumber(line?.quantity),
-        unitPrice: parseOptionalNumber(line?.unitPrice),
+        quantity: normalizeLineQuantity(line?.quantity),
+        unitPrice: normalizeLineUnitPrice(line?.unitPrice),
         remark: typeof line?.remark === 'string' ? line.remark : '',
       }))
-    : seedLinesFromProducts(request, translateOption);
+    : seedLinesFromProducts(request, translateOption)).map((line) => ({
+    ...line,
+    quantity: normalizeLineQuantity(line.quantity),
+    unitPrice: normalizeLineUnitPrice(line.unitPrice),
+  }));
 
   return {
     offerNumber: String(source?.offerNumber ?? request.id ?? '').trim() || request.id,
@@ -329,6 +351,14 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
   }, [open, request.id, t.clientOffer.profileLoadFailed, t.request.error, toast]);
 
   const updateLine = (lineId: string, patch: Partial<ClientOfferLine>) => {
+    const normalizedPatch: Partial<ClientOfferLine> = { ...patch };
+    if (Object.prototype.hasOwnProperty.call(patch, 'quantity')) {
+      normalizedPatch.quantity = normalizeLineQuantity(patch.quantity);
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'unitPrice')) {
+      normalizedPatch.unitPrice = normalizeLineUnitPrice(patch.unitPrice);
+    }
+
     setConfig((prev) => {
       if (!prev) return prev;
       return {
@@ -337,7 +367,7 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
           line.id === lineId
             ? {
                 ...line,
-                ...patch,
+                ...normalizedPatch,
               }
             : line
         ),
@@ -396,6 +426,11 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
     try {
       const payload: ClientOfferConfig = {
         ...config,
+        lines: config.lines.map((line) => ({
+          ...line,
+          quantity: normalizeLineQuantity(line.quantity),
+          unitPrice: normalizeLineUnitPrice(line.unitPrice),
+        })),
         updatedAt: new Date().toISOString(),
         updatedByUserId: String(user?.id ?? ''),
       };
@@ -545,60 +580,150 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                       </Button>
                     </div>
 
-                    <div className="space-y-2.5">
+                    <div className="space-y-2">
+                      <div className="hidden lg:grid lg:grid-cols-[auto,minmax(11rem,1.3fr),minmax(12rem,1.5fr),6.75rem,8rem,minmax(10rem,1fr),auto] lg:items-center lg:gap-2 px-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+                        <span>{t.clientOffer.item}</span>
+                        <span>{t.clientOffer.description}</span>
+                        <span>{t.clientOffer.specification}</span>
+                        <span className="text-right">{t.clientOffer.quantity}</span>
+                        <span className="text-right">{t.clientOffer.unitPrice}</span>
+                        <span>{t.clientOffer.remark}</span>
+                        <span className="sr-only">{t.common.delete}</span>
+                      </div>
+
                       {config.lines.map((line, index) => (
-                        <div key={line.id} className="rounded-md border border-border p-2.5 space-y-2.5">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2.5">
+                        <div key={line.id} className="rounded-md border border-border p-2">
+                          <div className="hidden lg:grid lg:grid-cols-[auto,minmax(11rem,1.3fr),minmax(12rem,1.5fr),6.75rem,8rem,minmax(10rem,1fr),auto] lg:items-start lg:gap-2">
+                            <label className="flex items-center gap-2 pt-2">
                               <Checkbox
                                 checked={line.include}
                                 onCheckedChange={(checked) => updateLine(line.id, { include: checked === true })}
                               />
-                              <span className="text-xs text-muted-foreground">{t.clientOffer.item} #{index + 1}</span>
-                            </div>
-                            <Button variant="ghost" size="sm" onClick={() => removeLine(line.id)} className="h-8 px-2.5">
-                              <Trash2 size={14} className="mr-1.5" />
-                              {t.common.delete}
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">#{index + 1}</span>
+                            </label>
+
+                            <Input
+                              value={line.description}
+                              onChange={(e) => updateLine(line.id, { description: e.target.value })}
+                              className="h-9"
+                            />
+
+                            <Textarea
+                              value={line.specification}
+                              onChange={(e) => updateLine(line.id, { specification: e.target.value })}
+                              rows={1}
+                              className="min-h-9 h-9 resize-y leading-5"
+                            />
+
+                            <Input
+                              type="number"
+                              min={0}
+                              max={MAX_LINE_QTY}
+                              step={1}
+                              inputMode="numeric"
+                              value={line.quantity ?? ''}
+                              onChange={(e) => updateLine(line.id, { quantity: e.target.value })}
+                              className="h-9 text-right tabular-nums"
+                            />
+
+                            <Input
+                              type="number"
+                              min={0}
+                              max={MAX_UNIT_PRICE}
+                              step={0.01}
+                              inputMode="decimal"
+                              value={line.unitPrice ?? ''}
+                              onChange={(e) => updateLine(line.id, { unitPrice: e.target.value })}
+                              className="h-9 text-right tabular-nums"
+                            />
+
+                            <Input
+                              value={line.remark}
+                              onChange={(e) => updateLine(line.id, { remark: e.target.value })}
+                              className="h-9"
+                            />
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeLine(line.id)}
+                              className="h-9 px-2"
+                              title={t.common.delete}
+                            >
+                              <Trash2 size={14} />
+                              <span className="sr-only">{t.common.delete}</span>
                             </Button>
                           </div>
 
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                            <div className="space-y-1.5 md:col-span-2">
-                              <Label>{t.clientOffer.description}</Label>
+                          <div className="space-y-2.5 lg:hidden">
+                            <div className="flex items-center justify-between gap-2">
+                              <label className="flex items-center gap-2">
+                                <Checkbox
+                                  checked={line.include}
+                                  onCheckedChange={(checked) => updateLine(line.id, { include: checked === true })}
+                                />
+                                <span className="text-xs text-muted-foreground">{t.clientOffer.item} #{index + 1}</span>
+                              </label>
+                              <Button variant="ghost" size="sm" onClick={() => removeLine(line.id)} className="h-8 px-2.5">
+                                <Trash2 size={14} className="mr-1.5" />
+                                {t.common.delete}
+                              </Button>
+                            </div>
+
+                            <div className="space-y-1">
+                              <Label className="text-xs">{t.clientOffer.description}</Label>
                               <Input
                                 value={line.description}
                                 onChange={(e) => updateLine(line.id, { description: e.target.value })}
+                                className="h-9"
                               />
                             </div>
-                            <div className="space-y-1.5 md:col-span-2">
-                              <Label>{t.clientOffer.specification}</Label>
+
+                            <div className="space-y-1">
+                              <Label className="text-xs">{t.clientOffer.specification}</Label>
                               <Textarea
                                 value={line.specification}
                                 onChange={(e) => updateLine(line.id, { specification: e.target.value })}
-                                rows={2}
+                                rows={1}
+                                className="min-h-9 h-9 resize-y leading-5"
                               />
                             </div>
-                            <div className="space-y-1.5">
-                              <Label>{t.clientOffer.quantity}</Label>
-                              <Input
-                                type="number"
-                                value={line.quantity ?? ''}
-                                onChange={(e) => updateLine(line.id, { quantity: parseOptionalNumber(e.target.value) })}
-                              />
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="space-y-1">
+                                <Label className="text-xs">{t.clientOffer.quantity}</Label>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={MAX_LINE_QTY}
+                                  step={1}
+                                  inputMode="numeric"
+                                  value={line.quantity ?? ''}
+                                  onChange={(e) => updateLine(line.id, { quantity: e.target.value })}
+                                  className="h-9 text-right tabular-nums"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-xs">{t.clientOffer.unitPrice}</Label>
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={MAX_UNIT_PRICE}
+                                  step={0.01}
+                                  inputMode="decimal"
+                                  value={line.unitPrice ?? ''}
+                                  onChange={(e) => updateLine(line.id, { unitPrice: e.target.value })}
+                                  className="h-9 text-right tabular-nums"
+                                />
+                              </div>
                             </div>
-                            <div className="space-y-1.5">
-                              <Label>{t.clientOffer.unitPrice}</Label>
-                              <Input
-                                type="number"
-                                value={line.unitPrice ?? ''}
-                                onChange={(e) => updateLine(line.id, { unitPrice: parseOptionalNumber(e.target.value) })}
-                              />
-                            </div>
-                            <div className="space-y-1.5 md:col-span-2">
-                              <Label>{t.clientOffer.remark}</Label>
+
+                            <div className="space-y-1">
+                              <Label className="text-xs">{t.clientOffer.remark}</Label>
                               <Input
                                 value={line.remark}
                                 onChange={(e) => updateLine(line.id, { remark: e.target.value })}
+                                className="h-9"
                               />
                             </div>
                           </div>

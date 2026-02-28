@@ -2402,18 +2402,18 @@ const RequestForm: React.FC = () => {
           {existingRequest && isReadOnly ? (
             <>
               <div className="bg-card rounded-lg border border-border p-4 md:p-6">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_auto] items-start xl:items-center gap-3 md:gap-4">
                   <div className="space-y-1">
                     <h2 className="text-base md:text-lg font-semibold text-foreground">{t.request.myActionsTitle}</h2>
                     <p className="text-xs md:text-sm text-muted-foreground">{t.request.myActionsDesc}</p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:flex items-center gap-2 w-full xl:w-auto">
                     {user?.role === 'admin' && (
                       <Button
                         variant="outline"
                         onClick={() => navigate(`/requests/${existingRequest.id}/edit`)}
-                        className="h-11 min-w-32"
+                        className="h-10 px-3 sm:px-4 justify-center xl:justify-start whitespace-nowrap"
                       >
                         <Pencil size={16} className="mr-2" />
                         {t.common.edit}
@@ -2423,13 +2423,17 @@ const RequestForm: React.FC = () => {
                       <Button
                         variant="outline"
                         onClick={() => setIsClientOfferOpen(true)}
-                        className="h-11 min-w-44"
+                        className="h-10 px-3 sm:px-4 justify-center xl:justify-start whitespace-nowrap"
                       >
                         <FileText size={16} className="mr-2" />
                         {t.clientOffer.openButton}
                       </Button>
                     )}
-                    <Button onClick={() => setIsMyActionsOpen(true)} disabled={!hasMyActions} className="h-11 min-w-40">
+                    <Button
+                      onClick={() => setIsMyActionsOpen(true)}
+                      disabled={!hasMyActions}
+                      className="h-10 px-3 sm:px-4 justify-center xl:justify-start whitespace-nowrap"
+                    >
                       <ExternalLink size={16} className="mr-2" />
                       {t.request.openMyActions}
                     </Button>
