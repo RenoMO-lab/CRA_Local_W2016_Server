@@ -491,17 +491,17 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
             {t.common.loading}
           </div>
         ) : (
-          <div className="mt-5 space-y-4">
+          <div className="mt-4 space-y-2.5">
             <Accordion
               type="multiple"
               defaultValue={['line-items', 'appendix', 'export-actions']}
-              className="space-y-3"
+              className="space-y-2"
             >
-              <AccordionItem value="offer-basics" className="border border-border rounded-lg bg-card px-4 border-b-0">
-                <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+              <AccordionItem value="offer-basics" className="border border-border rounded-lg bg-card px-3 border-b-0">
+                <AccordionTrigger className="py-2.5 text-sm font-semibold hover:no-underline">
                   {t.clientOffer.offerBasics}
                 </AccordionTrigger>
-                <AccordionContent className="pt-1 pb-3">
+                <AccordionContent className="pt-1 pb-2">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label>{t.clientOffer.offerNumber}</Label>
@@ -530,12 +530,12 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                 </AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="visibility" className="border border-border rounded-lg bg-card px-4 border-b-0">
-                <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+              <AccordionItem value="visibility" className="border border-border rounded-lg bg-card px-3 border-b-0">
+                <AccordionTrigger className="py-2.5 text-sm font-semibold hover:no-underline">
                   {t.clientOffer.sections}
                 </AccordionTrigger>
-                <AccordionContent className="pt-1 pb-3">
-                  <div className="space-y-2">
+                <AccordionContent className="pt-1 pb-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5">
                     {([
                       ['general', t.clientOffer.generalInformation],
                       ['lineItems', t.clientOffer.lineItemsTitle],
@@ -543,9 +543,10 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                       ['deliveryTerms', t.clientOffer.deliveryTermsTitle],
                       ['appendix', t.clientOffer.appendixTitle],
                     ] as Array<[keyof ClientOfferConfig['sectionVisibility'], string]>).map(([key, label]) => (
-                      <div key={key} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                        <span className="text-sm">{label}</span>
+                      <div key={key} className="h-9 rounded-md border border-border px-2.5 flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium leading-none truncate">{label}</span>
                         <Switch
+                          className="scale-90 origin-right shrink-0"
                           checked={Boolean(config.sectionVisibility[key])}
                           onCheckedChange={(checked) =>
                             setConfig((prev) =>
@@ -567,12 +568,12 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                 </AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="line-items" className="border border-border rounded-lg bg-card px-4 border-b-0">
-                <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+              <AccordionItem value="line-items" className="border border-border rounded-lg bg-card px-3 border-b-0">
+                <AccordionTrigger className="py-2.5 text-sm font-semibold hover:no-underline">
                   {t.clientOffer.lineItemsTitle}
                 </AccordionTrigger>
-                <AccordionContent className="pt-1 pb-3">
-                  <div className="space-y-3">
+                <AccordionContent className="pt-1 pb-2">
+                  <div className="space-y-2.5">
                     <div className="flex items-center justify-end">
                       <Button variant="outline" size="sm" onClick={addLine} className="h-9">
                         <Plus size={14} className="mr-2" />
@@ -581,81 +582,87 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                     </div>
 
                     <div className="space-y-2">
-                      <div className="hidden lg:grid lg:grid-cols-[auto,minmax(11rem,1.3fr),minmax(12rem,1.5fr),6.75rem,8rem,minmax(10rem,1fr),auto] lg:items-center lg:gap-2 px-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+                      <div className="hidden lg:grid lg:grid-cols-[auto,minmax(0,1fr),6.5rem,8rem,auto] lg:items-center lg:gap-2 px-2 text-[11px] uppercase tracking-wide text-muted-foreground">
                         <span>{t.clientOffer.item}</span>
                         <span>{t.clientOffer.description}</span>
-                        <span>{t.clientOffer.specification}</span>
                         <span className="text-right">{t.clientOffer.quantity}</span>
                         <span className="text-right">{t.clientOffer.unitPrice}</span>
-                        <span>{t.clientOffer.remark}</span>
                         <span className="sr-only">{t.common.delete}</span>
+                      </div>
+                      <div className="hidden lg:grid lg:grid-cols-[minmax(0,1fr),14rem] lg:items-center lg:gap-2 px-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+                        <span>{t.clientOffer.specification}</span>
+                        <span>{t.clientOffer.remark}</span>
                       </div>
 
                       {config.lines.map((line, index) => (
                         <div key={line.id} className="rounded-md border border-border p-2">
-                          <div className="hidden lg:grid lg:grid-cols-[auto,minmax(11rem,1.3fr),minmax(12rem,1.5fr),6.75rem,8rem,minmax(10rem,1fr),auto] lg:items-start lg:gap-2">
-                            <label className="flex items-center gap-2 pt-2">
-                              <Checkbox
-                                checked={line.include}
-                                onCheckedChange={(checked) => updateLine(line.id, { include: checked === true })}
+                          <div className="hidden lg:block space-y-2">
+                            <div className="grid grid-cols-[auto,minmax(0,1fr),6.5rem,8rem,auto] gap-2 items-center">
+                              <label className="flex items-center gap-2">
+                                <Checkbox
+                                  checked={line.include}
+                                  onCheckedChange={(checked) => updateLine(line.id, { include: checked === true })}
+                                />
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">#{index + 1}</span>
+                              </label>
+
+                              <Input
+                                value={line.description}
+                                onChange={(e) => updateLine(line.id, { description: e.target.value })}
+                                className="h-9"
                               />
-                              <span className="text-xs text-muted-foreground whitespace-nowrap">#{index + 1}</span>
-                            </label>
 
-                            <Input
-                              value={line.description}
-                              onChange={(e) => updateLine(line.id, { description: e.target.value })}
-                              className="h-9"
-                            />
+                              <Input
+                                type="number"
+                                min={0}
+                                max={MAX_LINE_QTY}
+                                step={1}
+                                inputMode="numeric"
+                                value={line.quantity ?? ''}
+                                onChange={(e) => updateLine(line.id, { quantity: e.target.value })}
+                                className="h-9 w-[6.5rem] justify-self-end text-right tabular-nums"
+                              />
 
-                            <Textarea
-                              value={line.specification}
-                              onChange={(e) => updateLine(line.id, { specification: e.target.value })}
-                              rows={1}
-                              className="min-h-9 h-9 resize-y leading-5"
-                            />
+                              <Input
+                                type="number"
+                                min={0}
+                                max={MAX_UNIT_PRICE}
+                                step={0.01}
+                                inputMode="decimal"
+                                value={line.unitPrice ?? ''}
+                                onChange={(e) => updateLine(line.id, { unitPrice: e.target.value })}
+                                className="h-9 w-[8rem] justify-self-end text-right tabular-nums"
+                              />
 
-                            <Input
-                              type="number"
-                              min={0}
-                              max={MAX_LINE_QTY}
-                              step={1}
-                              inputMode="numeric"
-                              value={line.quantity ?? ''}
-                              onChange={(e) => updateLine(line.id, { quantity: e.target.value })}
-                              className="h-9 text-right tabular-nums"
-                            />
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeLine(line.id)}
+                                className="h-9 px-2"
+                                title={t.common.delete}
+                              >
+                                <Trash2 size={14} />
+                                <span className="sr-only">{t.common.delete}</span>
+                              </Button>
+                            </div>
 
-                            <Input
-                              type="number"
-                              min={0}
-                              max={MAX_UNIT_PRICE}
-                              step={0.01}
-                              inputMode="decimal"
-                              value={line.unitPrice ?? ''}
-                              onChange={(e) => updateLine(line.id, { unitPrice: e.target.value })}
-                              className="h-9 text-right tabular-nums"
-                            />
+                            <div className="grid grid-cols-[minmax(0,1fr),14rem] gap-2">
+                              <Textarea
+                                value={line.specification}
+                                onChange={(e) => updateLine(line.id, { specification: e.target.value })}
+                                rows={2}
+                                className="min-h-[3.25rem] resize-y leading-5"
+                              />
 
-                            <Input
-                              value={line.remark}
-                              onChange={(e) => updateLine(line.id, { remark: e.target.value })}
-                              className="h-9"
-                            />
-
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeLine(line.id)}
-                              className="h-9 px-2"
-                              title={t.common.delete}
-                            >
-                              <Trash2 size={14} />
-                              <span className="sr-only">{t.common.delete}</span>
-                            </Button>
+                              <Input
+                                value={line.remark}
+                                onChange={(e) => updateLine(line.id, { remark: e.target.value })}
+                                className="h-9 self-end"
+                              />
+                            </div>
                           </div>
 
-                          <div className="space-y-2.5 lg:hidden">
+                          <div className="space-y-2 lg:hidden">
                             <div className="flex items-center justify-between gap-2">
                               <label className="flex items-center gap-2">
                                 <Checkbox
@@ -676,16 +683,6 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                                 value={line.description}
                                 onChange={(e) => updateLine(line.id, { description: e.target.value })}
                                 className="h-9"
-                              />
-                            </div>
-
-                            <div className="space-y-1">
-                              <Label className="text-xs">{t.clientOffer.specification}</Label>
-                              <Textarea
-                                value={line.specification}
-                                onChange={(e) => updateLine(line.id, { specification: e.target.value })}
-                                rows={1}
-                                className="min-h-9 h-9 resize-y leading-5"
                               />
                             </div>
 
@@ -719,11 +716,21 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                             </div>
 
                             <div className="space-y-1">
+                              <Label className="text-xs">{t.clientOffer.specification}</Label>
+                              <Textarea
+                                value={line.specification}
+                                onChange={(e) => updateLine(line.id, { specification: e.target.value })}
+                                rows={2}
+                                className="min-h-[3.25rem] resize-y leading-5"
+                              />
+                            </div>
+
+                            <div className="space-y-1">
                               <Label className="text-xs">{t.clientOffer.remark}</Label>
                               <Input
                                 value={line.remark}
                                 onChange={(e) => updateLine(line.id, { remark: e.target.value })}
-                                className="h-9"
+                                className="h-9 w-full"
                               />
                             </div>
                           </div>
@@ -734,11 +741,11 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                 </AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="appendix" className="border border-border rounded-lg bg-card px-4 border-b-0">
-                <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+              <AccordionItem value="appendix" className="border border-border rounded-lg bg-card px-3 border-b-0">
+                <AccordionTrigger className="py-2.5 text-sm font-semibold hover:no-underline">
                   {t.clientOffer.availableAppendix}
                 </AccordionTrigger>
-                <AccordionContent className="pt-1 pb-3">
+                <AccordionContent className="pt-1 pb-2">
                   <div className="space-y-2.5">
                     <p className="text-xs text-muted-foreground">{selectedAppendixCountText}</p>
                     {attachments.length === 0 ? (
@@ -768,11 +775,11 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                 </AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="export-actions" className="border border-border rounded-lg bg-card px-4 border-b-0">
-                <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+              <AccordionItem value="export-actions" className="border border-border rounded-lg bg-card px-3 border-b-0">
+                <AccordionTrigger className="py-2.5 text-sm font-semibold hover:no-underline">
                   {t.clientOffer.exportActions}
                 </AccordionTrigger>
-                <AccordionContent className="pt-1 pb-3">
+                <AccordionContent className="pt-1 pb-2">
                   <div className="space-y-3">
                     <div className="space-y-1.5">
                       <Label>{t.table.pdfLanguage}</Label>
