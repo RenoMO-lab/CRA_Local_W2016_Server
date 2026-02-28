@@ -23,7 +23,7 @@ import RequestSummaryView from '@/components/request/RequestSummaryView';
 import RequestProcessSummary from '@/components/request/RequestProcessSummary';
 import ClientOfferGeneratorSheet from '@/components/request/ClientOfferGeneratorSheet';
 import StatusBadge from '@/components/ui/StatusBadge';
-import { ArrowLeft, ArrowRight, CheckCircle, ClipboardCheck, Clock, Download, Eye, File, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle, ClipboardCheck, Clock, Download, Eye, ExternalLink, File, FileText, Loader2, Pencil, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -2410,16 +2410,27 @@ const RequestForm: React.FC = () => {
 
                   <div className="flex flex-wrap items-center gap-2">
                     {user?.role === 'admin' && (
-                      <Button variant="outline" onClick={() => navigate(`/requests/${existingRequest.id}/edit`)}>
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate(`/requests/${existingRequest.id}/edit`)}
+                        className="h-11 min-w-32"
+                      >
+                        <Pencil size={16} className="mr-2" />
                         {t.common.edit}
                       </Button>
                     )}
                     {canAccessClientOffer && (
-                      <Button variant="outline" onClick={() => setIsClientOfferOpen(true)}>
+                      <Button
+                        variant="outline"
+                        onClick={() => setIsClientOfferOpen(true)}
+                        className="h-11 min-w-44"
+                      >
+                        <FileText size={16} className="mr-2" />
                         {t.clientOffer.openButton}
                       </Button>
                     )}
-                    <Button onClick={() => setIsMyActionsOpen(true)} disabled={!hasMyActions} className="min-w-40">
+                    <Button onClick={() => setIsMyActionsOpen(true)} disabled={!hasMyActions} className="h-11 min-w-40">
+                      <ExternalLink size={16} className="mr-2" />
                       {t.request.openMyActions}
                     </Button>
                   </div>

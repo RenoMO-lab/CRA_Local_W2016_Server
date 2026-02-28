@@ -1,5 +1,5 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
-import { Loader2, Plus, Trash2 } from 'lucide-react';
+import { Download, FileText, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import {
   Select,
   SelectContent,
@@ -247,14 +248,6 @@ const normalizeConfig = (
   };
 };
 
-const sourceLabel = (source: OfferAttachmentOption['source'], t: any) => {
-  if (source === 'technical') return t.clientOffer.sourceTechnical;
-  if (source === 'design') return t.clientOffer.sourceDesign;
-  if (source === 'costing') return t.clientOffer.sourceCosting;
-  if (source === 'sales') return t.clientOffer.sourceSales;
-  return t.clientOffer.sourceGeneral;
-};
-
 const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
   open,
   onOpenChange,
@@ -273,6 +266,14 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
   const [pdfLanguage, setPdfLanguage] = useState<Language>(language);
 
   const attachments = useMemo(() => collectRequestAttachments(request), [request]);
+  const selectedAttachmentCount = useMemo(() => {
+    if (!config) return 0;
+    const selected = new Set(config.selectedAttachmentIds);
+    return attachments.filter((entry) => selected.has(entry.id)).length;
+  }, [attachments, config]);
+  const selectedAppendixCountText = String(t.clientOffer.selectedAppendixCount ?? '')
+    .replace('{selected}', String(selectedAttachmentCount))
+    .replace('{total}', String(attachments.length));
 
   useEffect(() => {
     if (!open) return;
@@ -455,196 +456,231 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
             {t.common.loading}
           </div>
         ) : (
-          <div className="mt-6 space-y-6">
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>{t.clientOffer.offerNumber}</Label>
-                  <Input
-                    value={config.offerNumber}
-                    onChange={(e) => setConfig((prev) => prev ? { ...prev, offerNumber: e.target.value } : prev)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t.clientOffer.recipientName}</Label>
-                  <Input
-                    value={config.recipientName}
-                    onChange={(e) => setConfig((prev) => prev ? { ...prev, recipientName: e.target.value } : prev)}
-                    placeholder={request.clientName || ''}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>{t.clientOffer.introText}</Label>
-                <Textarea
-                  value={config.introText}
-                  onChange={(e) => setConfig((prev) => prev ? { ...prev, introText: e.target.value } : prev)}
-                  rows={4}
-                />
-              </div>
-            </div>
+          <div className="mt-5 space-y-4">
+            <Accordion
+              type="multiple"
+              defaultValue={['line-items', 'appendix', 'export-actions']}
+              className="space-y-3"
+            >
+              <AccordionItem value="offer-basics" className="border border-border rounded-lg bg-card px-4 border-b-0">
+                <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+                  {t.clientOffer.offerBasics}
+                </AccordionTrigger>
+                <AccordionContent className="pt-1 pb-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>{t.clientOffer.offerNumber}</Label>
+                      <Input
+                        value={config.offerNumber}
+                        onChange={(e) => setConfig((prev) => prev ? { ...prev, offerNumber: e.target.value } : prev)}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>{t.clientOffer.recipientName}</Label>
+                      <Input
+                        value={config.recipientName}
+                        onChange={(e) => setConfig((prev) => prev ? { ...prev, recipientName: e.target.value } : prev)}
+                        placeholder={request.clientName || ''}
+                      />
+                    </div>
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label>{t.clientOffer.introText}</Label>
+                      <Textarea
+                        value={config.introText}
+                        onChange={(e) => setConfig((prev) => prev ? { ...prev, introText: e.target.value } : prev)}
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
 
-            <div className="rounded-lg border border-border p-4 space-y-3">
-              <h4 className="text-sm font-semibold text-foreground">{t.clientOffer.sections}</h4>
-              {([
-                ['general', t.clientOffer.generalInformation],
-                ['lineItems', t.clientOffer.lineItemsTitle],
-                ['commercialTerms', t.clientOffer.commercialTermsTitle],
-                ['deliveryTerms', t.clientOffer.deliveryTermsTitle],
-                ['appendix', t.clientOffer.appendixTitle],
-              ] as Array<[keyof ClientOfferConfig['sectionVisibility'], string]>).map(([key, label]) => (
-                <div key={key} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
-                  <span className="text-sm">{label}</span>
-                  <Switch
-                    checked={Boolean(config.sectionVisibility[key])}
-                    onCheckedChange={(checked) =>
-                      setConfig((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              sectionVisibility: {
-                                ...prev.sectionVisibility,
-                                [key]: Boolean(checked),
-                              },
-                            }
-                          : prev
-                      )
-                    }
-                  />
-                </div>
-              ))}
-            </div>
-
-            <div className="rounded-lg border border-border p-4 space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <h4 className="text-sm font-semibold text-foreground">{t.clientOffer.lineItemsTitle}</h4>
-                <Button variant="outline" size="sm" onClick={addLine}>
-                  <Plus size={14} className="mr-2" />
-                  {t.clientOffer.addLine}
-                </Button>
-              </div>
-
-              <div className="space-y-3">
-                {config.lines.map((line, index) => (
-                  <div key={line.id} className="rounded-md border border-border p-3 space-y-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-3">
-                        <Checkbox
-                          checked={line.include}
-                          onCheckedChange={(checked) => updateLine(line.id, { include: checked === true })}
+              <AccordionItem value="visibility" className="border border-border rounded-lg bg-card px-4 border-b-0">
+                <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+                  {t.clientOffer.sections}
+                </AccordionTrigger>
+                <AccordionContent className="pt-1 pb-3">
+                  <div className="space-y-2">
+                    {([
+                      ['general', t.clientOffer.generalInformation],
+                      ['lineItems', t.clientOffer.lineItemsTitle],
+                      ['commercialTerms', t.clientOffer.commercialTermsTitle],
+                      ['deliveryTerms', t.clientOffer.deliveryTermsTitle],
+                      ['appendix', t.clientOffer.appendixTitle],
+                    ] as Array<[keyof ClientOfferConfig['sectionVisibility'], string]>).map(([key, label]) => (
+                      <div key={key} className="flex items-center justify-between rounded-md border border-border px-3 py-2">
+                        <span className="text-sm">{label}</span>
+                        <Switch
+                          checked={Boolean(config.sectionVisibility[key])}
+                          onCheckedChange={(checked) =>
+                            setConfig((prev) =>
+                              prev
+                                ? {
+                                    ...prev,
+                                    sectionVisibility: {
+                                      ...prev.sectionVisibility,
+                                      [key]: Boolean(checked),
+                                    },
+                                  }
+                                : prev
+                            )
+                          }
                         />
-                        <span className="text-xs text-muted-foreground">{t.clientOffer.item} #{index + 1}</span>
                       </div>
-                      <Button variant="ghost" size="sm" onClick={() => removeLine(line.id)}>
-                        <Trash2 size={14} className="mr-2" />
-                        {t.common.delete}
+                    ))}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="line-items" className="border border-border rounded-lg bg-card px-4 border-b-0">
+                <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+                  {t.clientOffer.lineItemsTitle}
+                </AccordionTrigger>
+                <AccordionContent className="pt-1 pb-3">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-end">
+                      <Button variant="outline" size="sm" onClick={addLine} className="h-9">
+                        <Plus size={14} className="mr-2" />
+                        {t.clientOffer.addLine}
                       </Button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div className="space-y-2 md:col-span-2">
-                        <Label>{t.clientOffer.description}</Label>
-                        <Input
-                          value={line.description}
-                          onChange={(e) => updateLine(line.id, { description: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <Label>{t.clientOffer.specification}</Label>
-                        <Textarea
-                          value={line.specification}
-                          onChange={(e) => updateLine(line.id, { specification: e.target.value })}
-                          rows={2}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>{t.clientOffer.quantity}</Label>
-                        <Input
-                          type="number"
-                          value={line.quantity ?? ''}
-                          onChange={(e) => updateLine(line.id, { quantity: parseOptionalNumber(e.target.value) })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>{t.clientOffer.unitPrice}</Label>
-                        <Input
-                          type="number"
-                          value={line.unitPrice ?? ''}
-                          onChange={(e) => updateLine(line.id, { unitPrice: parseOptionalNumber(e.target.value) })}
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <Label>{t.clientOffer.remark}</Label>
-                        <Input
-                          value={line.remark}
-                          onChange={(e) => updateLine(line.id, { remark: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+                    <div className="space-y-2.5">
+                      {config.lines.map((line, index) => (
+                        <div key={line.id} className="rounded-md border border-border p-2.5 space-y-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2.5">
+                              <Checkbox
+                                checked={line.include}
+                                onCheckedChange={(checked) => updateLine(line.id, { include: checked === true })}
+                              />
+                              <span className="text-xs text-muted-foreground">{t.clientOffer.item} #{index + 1}</span>
+                            </div>
+                            <Button variant="ghost" size="sm" onClick={() => removeLine(line.id)} className="h-8 px-2.5">
+                              <Trash2 size={14} className="mr-1.5" />
+                              {t.common.delete}
+                            </Button>
+                          </div>
 
-            <div className="rounded-lg border border-border p-4 space-y-3">
-              <h4 className="text-sm font-semibold text-foreground">{t.clientOffer.attachments}</h4>
-              {attachments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t.clientOffer.noAttachments}</p>
-              ) : (
-                <div className="space-y-2 max-h-56 overflow-y-auto pr-1 scrollbar-thin">
-                  {attachments.map((entry) => {
-                    const checked = config.selectedAttachmentIds.includes(entry.id);
-                    return (
-                      <label
-                        key={entry.id}
-                        className="flex items-start gap-3 rounded-md border border-border px-3 py-2 cursor-pointer"
-                      >
-                        <Checkbox
-                          checked={checked}
-                          onCheckedChange={(next) => toggleAttachment(entry.id, next === true)}
-                        />
-                        <div className="min-w-0">
-                          <div className="text-sm text-foreground truncate">{entry.attachment.filename}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {sourceLabel(entry.source, t)}
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                            <div className="space-y-1.5 md:col-span-2">
+                              <Label>{t.clientOffer.description}</Label>
+                              <Input
+                                value={line.description}
+                                onChange={(e) => updateLine(line.id, { description: e.target.value })}
+                              />
+                            </div>
+                            <div className="space-y-1.5 md:col-span-2">
+                              <Label>{t.clientOffer.specification}</Label>
+                              <Textarea
+                                value={line.specification}
+                                onChange={(e) => updateLine(line.id, { specification: e.target.value })}
+                                rows={2}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label>{t.clientOffer.quantity}</Label>
+                              <Input
+                                type="number"
+                                value={line.quantity ?? ''}
+                                onChange={(e) => updateLine(line.id, { quantity: parseOptionalNumber(e.target.value) })}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label>{t.clientOffer.unitPrice}</Label>
+                              <Input
+                                type="number"
+                                value={line.unitPrice ?? ''}
+                                onChange={(e) => updateLine(line.id, { unitPrice: parseOptionalNumber(e.target.value) })}
+                              />
+                            </div>
+                            <div className="space-y-1.5 md:col-span-2">
+                              <Label>{t.clientOffer.remark}</Label>
+                              <Input
+                                value={line.remark}
+                                onChange={(e) => updateLine(line.id, { remark: e.target.value })}
+                              />
+                            </div>
                           </div>
                         </div>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                      ))}
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
 
-            <div className="rounded-lg border border-border p-4 space-y-3">
-              <div className="space-y-2">
-                <Label>{t.table.pdfLanguage}</Label>
-                <Select value={pdfLanguage} onValueChange={(value) => setPdfLanguage(value as Language)}>
-                  <SelectTrigger className="w-full sm:w-48">
-                    <SelectValue placeholder={t.table.pdfLanguage} />
-                  </SelectTrigger>
-                  <SelectContent className="bg-card border border-border">
-                    <SelectItem value="en">English</SelectItem>
-                    <SelectItem value="fr">Francais</SelectItem>
-                    <SelectItem value="zh">Chinese</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <AccordionItem value="appendix" className="border border-border rounded-lg bg-card px-4 border-b-0">
+                <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+                  {t.clientOffer.availableAppendix}
+                </AccordionTrigger>
+                <AccordionContent className="pt-1 pb-3">
+                  <div className="space-y-2.5">
+                    <p className="text-xs text-muted-foreground">{selectedAppendixCountText}</p>
+                    {attachments.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">{t.clientOffer.noAttachments}</p>
+                    ) : (
+                      <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1 scrollbar-thin">
+                        {attachments.map((entry) => {
+                          const checked = config.selectedAttachmentIds.includes(entry.id);
+                          return (
+                            <label
+                              key={entry.id}
+                              className="flex items-center gap-2.5 rounded-md border border-border px-2.5 py-2 cursor-pointer"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(next) => toggleAttachment(entry.id, next === true)}
+                              />
+                              <span className="text-sm text-foreground truncate" title={entry.attachment.filename}>
+                                {entry.attachment.filename}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
 
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <Button variant="outline" onClick={handleSave} disabled={isSaving || isGenerating}>
-                  {isSaving && <Loader2 size={14} className="mr-2 animate-spin" />}
-                  {t.clientOffer.saveConfig}
-                </Button>
-                <Button onClick={handleGeneratePdf} disabled={isGenerating || isSaving}>
-                  {isGenerating && <Loader2 size={14} className="mr-2 animate-spin" />}
-                  {t.clientOffer.generatePdf}
-                </Button>
-              </div>
-            </div>
+              <AccordionItem value="export-actions" className="border border-border rounded-lg bg-card px-4 border-b-0">
+                <AccordionTrigger className="py-3 text-sm font-semibold hover:no-underline">
+                  {t.clientOffer.exportActions}
+                </AccordionTrigger>
+                <AccordionContent className="pt-1 pb-3">
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label>{t.table.pdfLanguage}</Label>
+                      <Select value={pdfLanguage} onValueChange={(value) => setPdfLanguage(value as Language)}>
+                        <SelectTrigger className="w-full sm:w-56">
+                          <SelectValue placeholder={t.table.pdfLanguage} />
+                        </SelectTrigger>
+                        <SelectContent className="bg-card border border-border">
+                          <SelectItem value="en">English</SelectItem>
+                          <SelectItem value="fr">Francais</SelectItem>
+                          <SelectItem value="zh">Chinese</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button variant="outline" onClick={handleSave} disabled={isSaving || isGenerating} className="h-10">
+                        {isSaving ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Save size={14} className="mr-2" />}
+                        {t.clientOffer.saveConfig}
+                      </Button>
+                      <Button onClick={handleGeneratePdf} disabled={isGenerating || isSaving} className="h-10">
+                        {isGenerating ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Download size={14} className="mr-2" />}
+                        {t.clientOffer.generatePdf}
+                      </Button>
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
 
             {profile ? (
               <div className="text-xs text-muted-foreground border-t border-border pt-3">
+                <FileText size={12} className="inline-block mr-1.5 align-middle" />
                 {profile.companyNameEn || profile.companyNameLocal} | {profile.contactName} | {profile.email}
               </div>
             ) : null}
