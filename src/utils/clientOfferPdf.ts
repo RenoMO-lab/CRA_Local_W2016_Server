@@ -492,6 +492,14 @@ const formatMoney = (value: number | null, currency: string) => {
   return `${currency} ${amount}`;
 };
 
+const formatAmount = (value: number | null) => {
+  if (value === null || !Number.isFinite(value)) return '-';
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
 const sanitizeFileToken = (value: string, fallback: string) => {
   const cleaned = String(value ?? '')
     .trim()
@@ -1136,18 +1144,19 @@ export const generateClientOfferPDF = async (
 
   if (config.sectionVisibility.lineItems) {
     drawSectionTitle(String(t.clientOffer.lineItemsTitle));
+    const currencyCode = String(request.salesCurrency || 'EUR').trim().toUpperCase();
 
     const headers = [
       String(t.clientOffer.item),
       String(t.clientOffer.description),
       String(t.clientOffer.specification),
       String(t.clientOffer.quantity),
-      String(t.clientOffer.unitPrice),
-      String(t.clientOffer.lineTotal || t.clientOffer.total),
+      `${String(t.clientOffer.unitPrice)} (${currencyCode})`,
+      `${String(t.clientOffer.lineTotal || t.clientOffer.total)} (${currencyCode})`,
       String(t.clientOffer.remark),
     ];
 
-    const columnRatios = [0.06, 0.24, 0.22, 0.08, 0.15, 0.17, 0.08];
+    const columnRatios = [0.06, 0.24, 0.18, 0.08, 0.14, 0.15, 0.15];
     const colWidths = columnRatios.map((ratio) => Number((contentWidth * ratio).toFixed(3)));
     const MIN_UNIT_PRICE_WIDTH = 24;
     const MIN_LINE_TOTAL_WIDTH = 24;
@@ -1160,15 +1169,15 @@ export const generateClientOfferPDF = async (
       line.description,
       line.specification.join('\n'),
       line.quantity === null ? '-' : String(Math.trunc(line.quantity)),
-      formatMoney(line.unitPrice, request.salesCurrency || 'EUR'),
-      formatMoney(line.lineTotal, request.salesCurrency || 'EUR'),
+      formatAmount(line.unitPrice),
+      formatAmount(line.lineTotal),
       line.remark,
     ]);
     drawTable(headers, rows, colWidths, {
       rightAlignColumns: [4, 5],
       centerAlignColumns: [0, 3],
-      noWrapColumns: [0, 3, 4, 5, 6],
-      rightPaddingByColumn: { 4: 4.8, 5: 4.8 },
+      noWrapColumns: [0, 2, 3, 4, 5],
+      rightPaddingByColumn: { 4: 3.8, 5: 3.8 },
       fontWeightByColumn: { 4: 'normal', 5: 'bold' },
       charSpaceByColumn: { 4: -0.06, 5: -0.06 },
       minRowHeight: 14.8,
