@@ -2042,6 +2042,8 @@ const normalizeClientOfferLine = (raw, index) => {
     sourceProductIndex,
     description: typeof raw?.description === "string" ? raw.description : "",
     specification: typeof raw?.specification === "string" ? raw.specification : "",
+    offerDescription: typeof raw?.offerDescription === "string" ? raw.offerDescription : "",
+    offerSpecification: typeof raw?.offerSpecification === "string" ? raw.offerSpecification : "",
     quantity: parseOptionalFiniteNumber(raw?.quantity),
     unitPrice: parseOptionalFiniteNumber(raw?.unitPrice),
     remark: typeof raw?.remark === "string" ? raw.remark : "",

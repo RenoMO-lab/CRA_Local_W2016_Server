@@ -80,17 +80,54 @@ const normalizeLineUnitPrice = (value: unknown): number | null => {
   return Math.round((clamped + Number.EPSILON) * 100) / 100;
 };
 
+const normalizeOfferText = (value: unknown) => (typeof value === 'string' ? value : '');
+
+const getLineKey = (
+  line: Pick<ClientOfferLine, 'id' | 'sourceProductIndex'>,
+  index: number
+) => {
+  if (typeof line.sourceProductIndex === 'number' && Number.isInteger(line.sourceProductIndex) && line.sourceProductIndex >= 0) {
+    return `p:${line.sourceProductIndex}`;
+  }
+  const id = String(line.id ?? '').trim();
+  if (id) return `id:${id}`;
+  return `i:${index}`;
+};
+
 const toCanonicalLines = (
   request: CustomerRequest,
-  translateOption: (value: string) => string
+  translateOption: (value: string) => string,
+  existingLines?: ClientOfferLine[]
 ): ClientOfferLine[] => {
   const gmApprovedUnitPrice = normalizeLineUnitPrice(request.salesFinalPrice);
-  return seedLinesFromProducts(request, translateOption).map((line) => ({
-    ...line,
-    include: true,
-    quantity: normalizeLineQuantity(line.quantity),
-    unitPrice: gmApprovedUnitPrice,
-  }));
+  const existingByKey = new Map<
+    string,
+    Pick<ClientOfferLine, 'offerDescription' | 'offerSpecification' | 'remark'>
+  >();
+
+  if (Array.isArray(existingLines)) {
+    for (let index = 0; index < existingLines.length; index += 1) {
+      const line = existingLines[index];
+      existingByKey.set(getLineKey(line, index), {
+        offerDescription: normalizeOfferText((line as any)?.offerDescription),
+        offerSpecification: normalizeOfferText((line as any)?.offerSpecification),
+        remark: typeof line?.remark === 'string' ? line.remark : '',
+      });
+    }
+  }
+
+  return seedLinesFromProducts(request, translateOption).map((line, index) => {
+    const saved = existingByKey.get(getLineKey(line, index)) ?? existingByKey.get(`i:${index}`);
+    return {
+      ...line,
+      include: true,
+      quantity: normalizeLineQuantity(line.quantity),
+      unitPrice: gmApprovedUnitPrice,
+      offerDescription: normalizeOfferText(saved?.offerDescription),
+      offerSpecification: normalizeOfferText(saved?.offerSpecification),
+      remark: typeof saved?.remark === 'string' ? saved.remark : '',
+    };
+  });
 };
 
 const formatLineQuantity = (value: number | null) => {
@@ -210,6 +247,8 @@ const seedLinesFromProducts = (
       sourceProductIndex: index,
       description: getProductTypeLabel(product, translateOption) || request.applicationVehicle || `Item ${index + 1}`,
       specification: details.join(' | '),
+      offerDescription: '',
+      offerSpecification: '',
       quantity: typeof product.quantity === 'number' ? product.quantity : null,
       unitPrice: null,
       remark: '',
@@ -251,7 +290,7 @@ const normalizeConfig = (
   defaultIntro: string
 ): ClientOfferConfig => {
   const source = input && typeof input === 'object' ? input : undefined;
-  const lines = toCanonicalLines(request, translateOption);
+  const lines = toCanonicalLines(request, translateOption, Array.isArray(source?.lines) ? source.lines : undefined);
 
   return {
     offerNumber: String(source?.offerNumber ?? request.id ?? '').trim() || request.id,
@@ -368,13 +407,24 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
     });
   };
 
+  const updateLineField = (lineIndex: number, patch: Partial<ClientOfferLine>) => {
+    setConfig((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        lines: prev.lines.map((line, index) => (index === lineIndex ? { ...line, ...patch } : line)),
+      };
+    });
+  };
+
   const handleSave = async () => {
     if (!config) return;
     setIsSaving(true);
     try {
+      const canonicalLines = toCanonicalLines(request, translateOption, config.lines);
       const payload: ClientOfferConfig = {
         ...config,
-        lines: toCanonicalLines(request, translateOption),
+        lines: canonicalLines,
         updatedAt: new Date().toISOString(),
         updatedByUserId: String(user?.id ?? ''),
       };
@@ -403,10 +453,31 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
       return;
     }
 
+    const canonicalLines = toCanonicalLines(request, translateOption, config.lines);
+    const hasMissingLineText = canonicalLines.some((line) =>
+      !String(line.offerDescription ?? '').trim() || !String(line.offerSpecification ?? '').trim()
+    );
+    if (hasMissingLineText) {
+      toast({
+        title: t.request.error,
+        description: t.clientOffer.offerLineTextRequired,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setIsGenerating(true);
     try {
       const { generateClientOfferPDF } = await import('@/utils/clientOfferPdf');
-      await generateClientOfferPDF(request, config, profile, pdfLanguage);
+      await generateClientOfferPDF(
+        request,
+        {
+          ...config,
+          lines: canonicalLines,
+        },
+        profile,
+        pdfLanguage
+      );
       toast({ title: t.common.download, description: `${t.common.pdfDownloaded} ${config.offerNumber || request.id}` });
     } catch (error) {
       toast({
@@ -529,8 +600,13 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                               <p className="text-base font-medium text-foreground">#{index + 1}</p>
                             </div>
                             <div className="col-span-6 min-h-14 rounded-md border border-border/70 bg-background/40 px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.description}</p>
-                              <p className="text-sm text-foreground whitespace-pre-wrap break-words">{line.description?.trim() || '-'}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.offerDescription}</p>
+                              <Input
+                                value={line.offerDescription ?? ''}
+                                onChange={(e) => updateLineField(index, { offerDescription: e.target.value })}
+                                placeholder={t.clientOffer.offerDescriptionPlaceholder}
+                                className="mt-1 h-9"
+                              />
                             </div>
                             <div className="col-span-2 min-h-14 rounded-md border border-border/70 bg-background/40 px-3 py-2">
                               <p className="text-[10px] uppercase tracking-wide text-muted-foreground text-right">{t.clientOffer.quantity}</p>
@@ -543,8 +619,14 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                               <p className="text-base font-medium text-foreground tabular-nums text-right">{formatLineUnitPrice(line.unitPrice)}</p>
                             </div>
                             <div className="col-span-8 min-h-[4rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.specification}</p>
-                              <p className="text-sm text-foreground whitespace-pre-wrap break-words">{line.specification?.trim() || '-'}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.offerSpecification}</p>
+                              <Textarea
+                                value={line.offerSpecification ?? ''}
+                                onChange={(e) => updateLineField(index, { offerSpecification: e.target.value })}
+                                placeholder={t.clientOffer.offerSpecificationPlaceholder}
+                                rows={2}
+                                className="mt-1 min-h-[4rem]"
+                              />
                             </div>
                             <div className="col-span-4 min-h-[4rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
                               <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.remark}</p>
@@ -559,8 +641,13 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                             </div>
 
                             <div className="min-h-12 rounded-md border border-border/70 bg-background/40 px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.description}</p>
-                              <p className="text-sm text-foreground whitespace-pre-wrap break-words">{line.description?.trim() || '-'}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.offerDescription}</p>
+                              <Input
+                                value={line.offerDescription ?? ''}
+                                onChange={(e) => updateLineField(index, { offerDescription: e.target.value })}
+                                placeholder={t.clientOffer.offerDescriptionPlaceholder}
+                                className="mt-1 h-9"
+                              />
                             </div>
 
                             <div className="grid grid-cols-2 gap-2">
@@ -577,8 +664,14 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                             </div>
 
                             <div className="min-h-[3.75rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.specification}</p>
-                              <p className="text-sm text-foreground whitespace-pre-wrap break-words">{line.specification?.trim() || '-'}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.offerSpecification}</p>
+                              <Textarea
+                                value={line.offerSpecification ?? ''}
+                                onChange={(e) => updateLineField(index, { offerSpecification: e.target.value })}
+                                placeholder={t.clientOffer.offerSpecificationPlaceholder}
+                                rows={2}
+                                className="mt-1 min-h-[3.75rem]"
+                              />
                             </div>
 
                             <div className="min-h-[3.75rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">

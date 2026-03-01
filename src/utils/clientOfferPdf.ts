@@ -180,6 +180,8 @@ const normalizeOfferLine = (raw: any, index: number): ClientOfferLine => ({
       : null,
   description: typeof raw?.description === 'string' ? raw.description : '',
   specification: typeof raw?.specification === 'string' ? raw.specification : '',
+  offerDescription: typeof raw?.offerDescription === 'string' ? raw.offerDescription : '',
+  offerSpecification: typeof raw?.offerSpecification === 'string' ? raw.offerSpecification : '',
   quantity: parseOptionalNumber(raw?.quantity),
   unitPrice: parseOptionalNumber(raw?.unitPrice),
   remark: typeof raw?.remark === 'string' ? raw.remark : '',
@@ -290,6 +292,8 @@ const seedLinesFromProducts = (request: CustomerRequest, translateOption: (value
       sourceProductIndex: index,
       description: getProductTypeLabel(product, translateOption) || request.applicationVehicle || `Item ${index + 1}`,
       specification: details.join(' | '),
+      offerDescription: '',
+      offerSpecification: '',
       quantity: typeof product.quantity === 'number' ? product.quantity : null,
       unitPrice: null,
       remark: '',
@@ -604,8 +608,8 @@ const validateAndNormalizeOfferPdfData = (
     return {
       index,
       itemNo: String(index + 1),
-      description: String(line.description || '-').trim() || '-',
-      specification: toSpecBullets(String(line.specification || '')),
+      description: String(line.offerDescription || '-').trim() || '-',
+      specification: toSpecBullets(String(line.offerSpecification || '')),
       quantity,
       unitPrice,
       lineTotal,
@@ -1036,7 +1040,19 @@ export const generateClientOfferPDF = async (
   const normalizedSourceLines = (config.lines ?? []).map((line, index) => normalizeOfferLine(line, index));
   const includedLines = normalizedSourceLines.filter((line) => line.include !== false);
   const normalizedPayload = validateAndNormalizeOfferPdfData(
-    includedLines.length ? includedLines : [{ id: 'line-1', include: true, description: '-', specification: '-', quantity: null, unitPrice: null, remark: '-' }],
+    includedLines.length
+      ? includedLines
+      : [{
+          id: 'line-1',
+          include: true,
+          description: '-',
+          specification: '-',
+          offerDescription: '-',
+          offerSpecification: '-',
+          quantity: null,
+          unitPrice: null,
+          remark: '-',
+        }],
     request
   );
   const normalizedRows = normalizedPayload.lines;
@@ -1051,7 +1067,7 @@ export const generateClientOfferPDF = async (
   drawTitleCard(offerDate);
   drawMetaRows([
     { label: String(t.clientOffer.recipientName), value: config.recipientName || request.clientName || '-' },
-    { label: String(t.table.requestId), value: request.id },
+    { label: String(t.table.requestId), value: '-' },
     {
       label: String(t.request.country),
       value: translateOption(resolveOtherValue(request.country, request.countryOther)) || '-',
@@ -1060,6 +1076,7 @@ export const generateClientOfferPDF = async (
 
   if (config.sectionVisibility.general) {
     drawSectionTitle(String(t.clientOffer.generalInformation));
+    y += PDF_SPACE.base;
     drawParagraph(resolvedIntroText);
   }
 

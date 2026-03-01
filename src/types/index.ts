@@ -105,6 +105,8 @@ export interface ClientOfferLine {
   sourceProductIndex?: number | null;
   description: string;
   specification: string;
+  offerDescription: string;
+  offerSpecification: string;
   quantity: number | null;
   unitPrice: number | null;
   remark: string;
