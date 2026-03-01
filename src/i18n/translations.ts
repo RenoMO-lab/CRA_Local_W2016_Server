@@ -983,7 +983,7 @@ export const translations = {
       phone: 'Phone',
       email: 'Email',
       contactName: 'Contact Name',
-      defaultIntro: 'Thank you for your interest. Please find our quotation below.',
+      defaultIntro: 'Thank you for the opportunity to support your project.\nPlease find below our customized quotation, developed to ensure reliability, performance, and cost efficiency in line with your expectations. We are ready to proceed at your convenience.',
       defaultCommercialTerm: 'Commercial terms will be confirmed in final contract.',
       defaultDeliveryTerm: 'Delivery details will be confirmed after order confirmation.',
     },

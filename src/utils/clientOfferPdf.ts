@@ -485,7 +485,11 @@ const attachmentToPreview = async (
 
 const formatMoney = (value: number | null, currency: string) => {
   if (value === null || !Number.isFinite(value)) return '-';
-  return `${currency} ${value.toFixed(2)}`;
+  const amount = value.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${currency} ${amount}`;
 };
 
 const sanitizeFileToken = (value: string, fallback: string) => {
@@ -504,13 +508,13 @@ const normalizeNumber = (value: unknown): number | null => {
   return Math.round((parsed + Number.EPSILON) * 100) / 100;
 };
 
-const toSpecBullets = (specification: string) => {
+const toSpecLines = (specification: string) => {
   const chunks = String(specification ?? '')
     .split('|')
     .map((part) => part.trim())
     .filter(Boolean);
   if (!chunks.length) return ['-'];
-  return chunks.map((entry) => `• ${entry}`);
+  return chunks;
 };
 
 const normalizeTermValue = (value: unknown) => {
@@ -609,7 +613,7 @@ const validateAndNormalizeOfferPdfData = (
       index,
       itemNo: String(index + 1),
       description: String(line.offerDescription || '-').trim() || '-',
-      specification: toSpecBullets(String(line.offerSpecification || '')),
+      specification: toSpecLines(String(line.offerSpecification || '')),
       quantity,
       unitPrice,
       lineTotal,
@@ -637,24 +641,10 @@ const sourceLabelForPdf = (source: OfferAttachment['source'], t: any) => {
   return String(t.clientOffer.sourceGeneral);
 };
 
-const buildPersonalizedIntro = (language: Language, clientName: string, fallback: string) => {
-  const cleanName = String(clientName ?? '').trim();
-  if (!cleanName) return fallback;
-  if (language === 'fr') {
-    return `Cher/Chere ${cleanName}, nous vous remercions pour votre confiance. Veuillez trouver ci-dessous notre proposition personnalisee.`;
-  }
-  if (language === 'zh') {
-    return `${cleanName}，感谢您对 MONROC 的信任。请查收以下为您准备的专属报价方案。`;
-  }
-  return `Dear ${cleanName}, thank you for your trust in MONROC. Please find your tailored quotation below.`;
-};
-
-const resolvePdfIntroText = (introText: string, defaultIntro: string, personalizedIntro: string) => {
+const resolvePdfIntroText = (introText: string, defaultIntro: string) => {
   const clean = String(introText ?? '').trim();
-  const cleanDefault = String(defaultIntro ?? '').trim();
-  if (!clean) return personalizedIntro;
-  if (cleanDefault && clean === cleanDefault) return personalizedIntro;
-  return clean;
+  if (clean) return clean;
+  return String(defaultIntro ?? '').trim();
 };
 
 export const generateClientOfferPDF = async (
@@ -695,12 +685,7 @@ export const generateClientOfferPDF = async (
     String(t.clientOffer.defaultIntro)
   );
   const defaultIntro = String(t.clientOffer.defaultIntro || '');
-  const personalizedIntro = buildPersonalizedIntro(
-    language,
-    String(config.recipientName || request.clientName || ''),
-    defaultIntro
-  );
-  const resolvedIntroText = resolvePdfIntroText(config.introText || '', defaultIntro, personalizedIntro);
+  const resolvedIntroText = resolvePdfIntroText(config.introText || '', defaultIntro);
 
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
@@ -918,11 +903,12 @@ export const generateClientOfferPDF = async (
     colWidths: number[],
     opts?: {
       rightAlignColumns?: number[];
+      centerAlignColumns?: number[];
+      noWrapColumns?: number[];
       bodyFontSize?: number;
       headerFontSize?: number;
       rowPaddingY?: number;
       zebra?: boolean;
-      bulletColumns?: number[];
     }
   ) => {
     const padX = 2.2;
@@ -930,7 +916,8 @@ export const generateClientOfferPDF = async (
     const bodyFontSize = opts?.bodyFontSize ?? PDF_TYPE.table;
     const headerFontSize = opts?.headerFontSize ?? PDF_TYPE.micro;
     const rightAlignColumns = new Set(opts?.rightAlignColumns ?? []);
-    const bulletColumns = new Set(opts?.bulletColumns ?? []);
+    const centerAlignColumns = new Set(opts?.centerAlignColumns ?? []);
+    const noWrapColumns = new Set(opts?.noWrapColumns ?? []);
     const headerH = 9.4;
     const x = margin;
 
@@ -945,13 +932,17 @@ export const generateClientOfferPDF = async (
       pdf.setFontSize(headerFontSize);
       setFont('bold');
       pdf.setTextColor(...rgb(PDF_COLOR.muted));
+      const headerLineH = lineHeightMm(headerFontSize);
+      const headerBaseY = y + (headerH - headerLineH) / 2 + headerLineH * 0.76;
       let cx = x;
       for (let idx = 0; idx < headers.length; idx += 1) {
         const w = colWidths[idx] ?? 20;
-        if (rightAlignColumns.has(idx)) {
-          pdf.text(headers[idx], cx + w - padX, y + 5.6, { align: 'right' });
+        if (centerAlignColumns.has(idx)) {
+          pdf.text(headers[idx], cx + w / 2, headerBaseY, { align: 'center' });
+        } else if (rightAlignColumns.has(idx)) {
+          pdf.text(headers[idx], cx + w - padX, headerBaseY, { align: 'right' });
         } else {
-          pdf.text(headers[idx], cx + padX, y + 5.6);
+          pdf.text(headers[idx], cx + padX, headerBaseY);
         }
         cx += w;
       }
@@ -966,25 +957,16 @@ export const generateClientOfferPDF = async (
       const row = rows[rowIndex] ?? [];
       const cellLines = row.map((cell, idx) => {
         const width = Math.max(10, (colWidths[idx] ?? 20) - padX * 2);
+        if (noWrapColumns.has(idx)) {
+          const singleLine = String(cell ?? '-').replace(/\s+/g, ' ').trim() || '-';
+          return [singleLine];
+        }
         const chunks = String(cell ?? '-').split('\n');
         const out: string[] = [];
         for (const chunk of chunks) {
           const cleanChunk = String(chunk ?? '').trim();
-          if (bulletColumns.has(idx) && cleanChunk.startsWith('•')) {
-            const bulletText = cleanChunk.replace(/^•\s*/, '');
-            const wrapped = pdf.splitTextToSize(bulletText, Math.max(8, width - 2.2)) as string[];
-            if (!wrapped.length) {
-              out.push('•');
-            } else {
-              out.push(`• ${wrapped[0]}`);
-              for (let wi = 1; wi < wrapped.length; wi += 1) {
-                out.push(`  ${wrapped[wi]}`);
-              }
-            }
-          } else {
-            const wrapped = pdf.splitTextToSize(cleanChunk, width) as string[];
-            out.push(...(wrapped.length ? wrapped : ['']));
-          }
+          const wrapped = pdf.splitTextToSize(cleanChunk, width) as string[];
+          out.push(...(wrapped.length ? wrapped : ['']));
         }
         return out;
       });
@@ -1014,8 +996,13 @@ export const generateClientOfferPDF = async (
         const w = colWidths[c] ?? 20;
         const lines = cellLines[c];
         const lh = lineHeightMm(bodyFontSize);
-        const baseY = y + rowPaddingY + 2.9;
-        if (rightAlignColumns.has(c)) {
+        const textBlockHeight = lines.length * lh;
+        const baseY = y + (rowH - textBlockHeight) / 2 + lh * 0.76;
+        if (centerAlignColumns.has(c)) {
+          for (let li = 0; li < lines.length; li += 1) {
+            pdf.text(lines[li], cx + w / 2, baseY + li * lh, { align: 'center' });
+          }
+        } else if (rightAlignColumns.has(c)) {
           for (let li = 0; li < lines.length; li += 1) {
             pdf.text(lines[li], cx + w - padX, baseY + li * lh, { align: 'right' });
           }
@@ -1067,7 +1054,6 @@ export const generateClientOfferPDF = async (
   drawTitleCard(offerDate);
   drawMetaRows([
     { label: String(t.clientOffer.recipientName), value: config.recipientName || request.clientName || '-' },
-    { label: String(t.table.requestId), value: '-' },
     {
       label: String(t.request.country),
       value: translateOption(resolveOtherValue(request.country, request.countryOther)) || '-',
@@ -1093,7 +1079,7 @@ export const generateClientOfferPDF = async (
       String(t.clientOffer.remark),
     ];
 
-    const colWidths = [10, 34, 52, 14, 21, 22, contentWidth - (10 + 34 + 52 + 14 + 21 + 22)];
+    const colWidths = [10, 40, 46, 14, 21, 21, contentWidth - (10 + 40 + 46 + 14 + 21 + 21)];
     const rows: string[][] = normalizedRows.map((line) => [
       line.itemNo,
       line.description,
@@ -1104,12 +1090,13 @@ export const generateClientOfferPDF = async (
       line.remark,
     ]);
     drawTable(headers, rows, colWidths, {
-      rightAlignColumns: [3, 4, 5],
+      rightAlignColumns: [4, 5],
+      centerAlignColumns: [0, 3],
+      noWrapColumns: [4, 5],
       bodyFontSize: PDF_TYPE.table,
       headerFontSize: PDF_TYPE.micro,
-      rowPaddingY: PDF_SPACE.tableCellPadY,
+      rowPaddingY: 3,
       zebra: true,
-      bulletColumns: [2],
     });
 
     const summaryWidth = 68;
