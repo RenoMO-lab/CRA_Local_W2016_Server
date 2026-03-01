@@ -905,27 +905,61 @@ export const generateClientOfferPDF = async (
       rightAlignColumns?: number[];
       centerAlignColumns?: number[];
       noWrapColumns?: number[];
+      rightPaddingByColumn?: Record<number, number>;
+      minRowHeight?: number;
+      cellPaddingX?: number;
+      extraVerticalDividers?: Array<{ afterColumn: number; color?: string; lineWidth?: number }>;
       bodyFontSize?: number;
       headerFontSize?: number;
       rowPaddingY?: number;
       zebra?: boolean;
     }
   ) => {
-    const padX = 2.2;
+    const padX = opts?.cellPaddingX ?? 3.7;
     const rowPaddingY = opts?.rowPaddingY ?? PDF_SPACE.tableCellPadY;
     const bodyFontSize = opts?.bodyFontSize ?? PDF_TYPE.table;
     const headerFontSize = opts?.headerFontSize ?? PDF_TYPE.micro;
+    const minRowHeight = opts?.minRowHeight ?? 14.8;
     const rightAlignColumns = new Set(opts?.rightAlignColumns ?? []);
     const centerAlignColumns = new Set(opts?.centerAlignColumns ?? []);
     const noWrapColumns = new Set(opts?.noWrapColumns ?? []);
-    const headerH = 9.4;
+    const rightPaddingByColumn = opts?.rightPaddingByColumn ?? {};
+    const headerH = 14.8;
     const x = margin;
+    const defaultBorderColor = rgb(PDF_COLOR.line);
+    const drawExtraVerticalDividers = (top: number, height: number) => {
+      const dividers = opts?.extraVerticalDividers ?? [];
+      for (const divider of dividers) {
+        const afterColumn = Number(divider?.afterColumn);
+        if (!Number.isInteger(afterColumn) || afterColumn < 0 || afterColumn >= colWidths.length - 1) continue;
+        let vx = x;
+        for (let idx = 0; idx <= afterColumn; idx += 1) {
+          vx += colWidths[idx] ?? 20;
+        }
+        const dividerColor = divider?.color ? rgb(divider.color) : defaultBorderColor;
+        pdf.setDrawColor(...dividerColor);
+        pdf.setLineWidth(typeof divider?.lineWidth === 'number' ? divider.lineWidth : 0.264);
+        pdf.line(vx, top, vx, top + height);
+      }
+      pdf.setDrawColor(...defaultBorderColor);
+      pdf.setLineWidth(0.2);
+    };
+    const fitSingleLineToWidth = (text: string, maxWidth: number) => {
+      const clean = String(text ?? '').replace(/\s+/g, ' ').trim() || '-';
+      if (pdf.getTextWidth(clean) <= maxWidth) return clean;
+      const ellipsis = '...';
+      let trimmed = clean;
+      while (trimmed.length > 0 && pdf.getTextWidth(`${trimmed}${ellipsis}`) > maxWidth) {
+        trimmed = trimmed.slice(0, -1);
+      }
+      return trimmed ? `${trimmed}${ellipsis}` : ellipsis;
+    };
 
     const drawHeader = () => {
       ensureSpace(headerH);
       pdf.setFillColor(...rgb(PDF_COLOR.zebra));
       pdf.rect(x, y, contentWidth, headerH, 'F');
-      pdf.setDrawColor(...rgb(PDF_COLOR.line));
+      pdf.setDrawColor(...defaultBorderColor);
       pdf.setLineWidth(0.2);
       pdf.rect(x, y, contentWidth, headerH, 'S');
 
@@ -946,6 +980,7 @@ export const generateClientOfferPDF = async (
         }
         cx += w;
       }
+      drawExtraVerticalDividers(y, headerH);
       setFont('normal');
       pdf.setTextColor(0, 0, 0);
       y += headerH;
@@ -958,7 +993,7 @@ export const generateClientOfferPDF = async (
       const cellLines = row.map((cell, idx) => {
         const width = Math.max(10, (colWidths[idx] ?? 20) - padX * 2);
         if (noWrapColumns.has(idx)) {
-          const singleLine = String(cell ?? '-').replace(/\s+/g, ' ').trim() || '-';
+          const singleLine = fitSingleLineToWidth(String(cell ?? '-'), width);
           return [singleLine];
         }
         const chunks = String(cell ?? '-').split('\n');
@@ -971,7 +1006,7 @@ export const generateClientOfferPDF = async (
         return out;
       });
       const rowLineHeight = lineHeightMm(bodyFontSize);
-      const rowH = Math.max(10.2, Math.max(...cellLines.map((lines) => lines.length)) * rowLineHeight + rowPaddingY * 2 + 0.6);
+      const rowH = Math.max(minRowHeight, Math.max(...cellLines.map((lines) => lines.length)) * rowLineHeight + rowPaddingY * 2 + 0.6);
 
       if (y + rowH > contentBottomY) {
         addPage();
@@ -983,7 +1018,7 @@ export const generateClientOfferPDF = async (
         pdf.rect(x, y, contentWidth, rowH, 'F');
       }
 
-      pdf.setDrawColor(...rgb(PDF_COLOR.line));
+      pdf.setDrawColor(...defaultBorderColor);
       pdf.setLineWidth(0.2);
       pdf.rect(x, y, contentWidth, rowH, 'S');
 
@@ -998,13 +1033,14 @@ export const generateClientOfferPDF = async (
         const lh = lineHeightMm(bodyFontSize);
         const textBlockHeight = lines.length * lh;
         const baseY = y + (rowH - textBlockHeight) / 2 + lh * 0.76;
+        const rightPad = rightPaddingByColumn[c] ?? padX;
         if (centerAlignColumns.has(c)) {
           for (let li = 0; li < lines.length; li += 1) {
             pdf.text(lines[li], cx + w / 2, baseY + li * lh, { align: 'center' });
           }
         } else if (rightAlignColumns.has(c)) {
           for (let li = 0; li < lines.length; li += 1) {
-            pdf.text(lines[li], cx + w - padX, baseY + li * lh, { align: 'right' });
+            pdf.text(lines[li], cx + w - rightPad, baseY + li * lh, { align: 'right' });
           }
         } else {
           for (let li = 0; li < lines.length; li += 1) {
@@ -1013,6 +1049,7 @@ export const generateClientOfferPDF = async (
         }
         cx += w;
       }
+      drawExtraVerticalDividers(y, rowH);
 
       y += rowH;
     }
@@ -1079,7 +1116,14 @@ export const generateClientOfferPDF = async (
       String(t.clientOffer.remark),
     ];
 
-    const colWidths = [10, 40, 46, 14, 21, 21, contentWidth - (10 + 40 + 46 + 14 + 21 + 21)];
+    const columnRatios = [0.06, 0.24, 0.22, 0.08, 0.15, 0.17, 0.08];
+    const colWidths = columnRatios.map((ratio) => Number((contentWidth * ratio).toFixed(3)));
+    const MIN_UNIT_PRICE_WIDTH = 24;
+    const MIN_LINE_TOTAL_WIDTH = 24;
+    colWidths[4] = Math.max(colWidths[4], MIN_UNIT_PRICE_WIDTH);
+    colWidths[5] = Math.max(colWidths[5], MIN_LINE_TOTAL_WIDTH);
+    const usedWidth = colWidths.slice(0, 6).reduce((sum, width) => sum + width, 0);
+    colWidths[6] = Math.max(12, contentWidth - usedWidth);
     const rows: string[][] = normalizedRows.map((line) => [
       line.itemNo,
       line.description,
@@ -1092,11 +1136,15 @@ export const generateClientOfferPDF = async (
     drawTable(headers, rows, colWidths, {
       rightAlignColumns: [4, 5],
       centerAlignColumns: [0, 3],
-      noWrapColumns: [4, 5],
+      noWrapColumns: [0, 3, 4, 5, 6],
+      rightPaddingByColumn: { 4: 4.233, 5: 4.233 },
+      minRowHeight: 14.8,
+      cellPaddingX: 3.704,
       bodyFontSize: PDF_TYPE.table,
       headerFontSize: PDF_TYPE.micro,
-      rowPaddingY: 3,
+      rowPaddingY: 3.175,
       zebra: true,
+      extraVerticalDividers: [{ afterColumn: 4, color: '#D1D5DB', lineWidth: 0.264 }],
     });
 
     const summaryWidth = 68;
