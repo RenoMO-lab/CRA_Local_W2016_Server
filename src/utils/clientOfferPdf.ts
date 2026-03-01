@@ -906,9 +906,16 @@ export const generateClientOfferPDF = async (
       centerAlignColumns?: number[];
       noWrapColumns?: number[];
       rightPaddingByColumn?: Record<number, number>;
+      fontWeightByColumn?: Record<number, 'normal' | 'bold'>;
+      charSpaceByColumn?: Record<number, number>;
       minRowHeight?: number;
       cellPaddingX?: number;
       extraVerticalDividers?: Array<{ afterColumn: number; color?: string; lineWidth?: number }>;
+      borderColor?: string;
+      borderLineWidth?: number;
+      headerFillColor?: string;
+      headerBottomBorderColor?: string;
+      headerBottomBorderWidth?: number;
       bodyFontSize?: number;
       headerFontSize?: number;
       rowPaddingY?: number;
@@ -924,9 +931,20 @@ export const generateClientOfferPDF = async (
     const centerAlignColumns = new Set(opts?.centerAlignColumns ?? []);
     const noWrapColumns = new Set(opts?.noWrapColumns ?? []);
     const rightPaddingByColumn = opts?.rightPaddingByColumn ?? {};
+    const fontWeightByColumn = opts?.fontWeightByColumn ?? {};
+    const charSpaceByColumn = opts?.charSpaceByColumn ?? {};
     const headerH = 14.8;
     const x = margin;
-    const defaultBorderColor = rgb(PDF_COLOR.line);
+    const defaultBorderColor = rgb(opts?.borderColor ?? PDF_COLOR.line);
+    const borderLineWidth = typeof opts?.borderLineWidth === 'number' ? opts.borderLineWidth : 0.264;
+    const headerFillColor = rgb(opts?.headerFillColor ?? PDF_COLOR.zebra);
+    const headerBottomBorderColor = rgb(opts?.headerBottomBorderColor ?? opts?.borderColor ?? PDF_COLOR.line);
+    const headerBottomBorderWidth = typeof opts?.headerBottomBorderWidth === 'number' ? opts.headerBottomBorderWidth : 0.53;
+    const setCharSpace = (value: number) => {
+      if (typeof (pdf as any).setCharSpace === 'function') {
+        (pdf as any).setCharSpace(value);
+      }
+    };
     const drawExtraVerticalDividers = (top: number, height: number) => {
       const dividers = opts?.extraVerticalDividers ?? [];
       for (const divider of dividers) {
@@ -942,7 +960,7 @@ export const generateClientOfferPDF = async (
         pdf.line(vx, top, vx, top + height);
       }
       pdf.setDrawColor(...defaultBorderColor);
-      pdf.setLineWidth(0.2);
+      pdf.setLineWidth(borderLineWidth);
     };
     const fitSingleLineToWidth = (text: string, maxWidth: number) => {
       const clean = String(text ?? '').replace(/\s+/g, ' ').trim() || '-';
@@ -957,10 +975,10 @@ export const generateClientOfferPDF = async (
 
     const drawHeader = () => {
       ensureSpace(headerH);
-      pdf.setFillColor(...rgb(PDF_COLOR.zebra));
+      pdf.setFillColor(...headerFillColor);
       pdf.rect(x, y, contentWidth, headerH, 'F');
       pdf.setDrawColor(...defaultBorderColor);
-      pdf.setLineWidth(0.2);
+      pdf.setLineWidth(borderLineWidth);
       pdf.rect(x, y, contentWidth, headerH, 'S');
 
       pdf.setFontSize(headerFontSize);
@@ -974,13 +992,19 @@ export const generateClientOfferPDF = async (
         if (centerAlignColumns.has(idx)) {
           pdf.text(headers[idx], cx + w / 2, headerBaseY, { align: 'center' });
         } else if (rightAlignColumns.has(idx)) {
-          pdf.text(headers[idx], cx + w - padX, headerBaseY, { align: 'right' });
+          const rightPad = rightPaddingByColumn[idx] ?? padX;
+          pdf.text(headers[idx], cx + w - rightPad, headerBaseY, { align: 'right' });
         } else {
           pdf.text(headers[idx], cx + padX, headerBaseY);
         }
         cx += w;
       }
       drawExtraVerticalDividers(y, headerH);
+      pdf.setDrawColor(...headerBottomBorderColor);
+      pdf.setLineWidth(headerBottomBorderWidth);
+      pdf.line(x, y + headerH, x + contentWidth, y + headerH);
+      pdf.setDrawColor(...defaultBorderColor);
+      pdf.setLineWidth(borderLineWidth);
       setFont('normal');
       pdf.setTextColor(0, 0, 0);
       y += headerH;
@@ -991,7 +1015,8 @@ export const generateClientOfferPDF = async (
     for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
       const row = rows[rowIndex] ?? [];
       const cellLines = row.map((cell, idx) => {
-        const width = Math.max(10, (colWidths[idx] ?? 20) - padX * 2);
+        const rightPad = rightPaddingByColumn[idx] ?? padX;
+        const width = Math.max(10, (colWidths[idx] ?? 20) - (padX + rightPad));
         if (noWrapColumns.has(idx)) {
           const singleLine = fitSingleLineToWidth(String(cell ?? '-'), width);
           return [singleLine];
@@ -1019,7 +1044,7 @@ export const generateClientOfferPDF = async (
       }
 
       pdf.setDrawColor(...defaultBorderColor);
-      pdf.setLineWidth(0.2);
+      pdf.setLineWidth(borderLineWidth);
       pdf.rect(x, y, contentWidth, rowH, 'S');
 
       let cx = x;
@@ -1034,6 +1059,10 @@ export const generateClientOfferPDF = async (
         const textBlockHeight = lines.length * lh;
         const baseY = y + (rowH - textBlockHeight) / 2 + lh * 0.76;
         const rightPad = rightPaddingByColumn[c] ?? padX;
+        const weight = fontWeightByColumn[c] ?? 'normal';
+        const charSpace = charSpaceByColumn[c] ?? 0;
+        setFont(weight);
+        setCharSpace(charSpace);
         if (centerAlignColumns.has(c)) {
           for (let li = 0; li < lines.length; li += 1) {
             pdf.text(lines[li], cx + w / 2, baseY + li * lh, { align: 'center' });
@@ -1047,6 +1076,8 @@ export const generateClientOfferPDF = async (
             pdf.text(lines[li], cx + padX, baseY + li * lh);
           }
         }
+        setCharSpace(0);
+        setFont('normal');
         cx += w;
       }
       drawExtraVerticalDividers(y, rowH);
@@ -1137,14 +1168,20 @@ export const generateClientOfferPDF = async (
       rightAlignColumns: [4, 5],
       centerAlignColumns: [0, 3],
       noWrapColumns: [0, 3, 4, 5, 6],
-      rightPaddingByColumn: { 4: 4.233, 5: 4.233 },
+      rightPaddingByColumn: { 4: 4.8, 5: 4.8 },
+      fontWeightByColumn: { 4: 'normal', 5: 'bold' },
+      charSpaceByColumn: { 4: -0.06, 5: -0.06 },
       minRowHeight: 14.8,
       cellPaddingX: 3.704,
+      borderColor: '#D1D5DB',
+      borderLineWidth: 0.264,
+      headerFillColor: '#F7FAFD',
+      headerBottomBorderColor: '#CBD5E1',
+      headerBottomBorderWidth: 0.53,
       bodyFontSize: PDF_TYPE.table,
-      headerFontSize: PDF_TYPE.micro,
+      headerFontSize: 9,
       rowPaddingY: 3.175,
       zebra: true,
-      extraVerticalDividers: [{ afterColumn: 4, color: '#D1D5DB', lineWidth: 0.264 }],
     });
 
     const summaryWidth = 68;
