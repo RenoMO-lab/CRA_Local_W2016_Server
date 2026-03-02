@@ -17,8 +17,8 @@ export interface ClientOfferProfile {
   companyNameLocal: string;
   companyNameEn: string;
   address: string;
-  phone: string;
-  email: string;
+  mobile: string;
+  contactEmail: string;
   contactName: string;
 }
 
@@ -681,8 +681,8 @@ export const generateClientOfferPDF = async (
     companyNameLocal: String(profileInput?.companyNameLocal ?? ''),
     companyNameEn: String(profileInput?.companyNameEn ?? ''),
     address: String(profileInput?.address ?? ''),
-    phone: String(profileInput?.phone ?? ''),
-    email: String(profileInput?.email ?? ''),
+    mobile: String(profileInput?.mobile ?? ''),
+    contactEmail: String(profileInput?.contactEmail ?? ''),
     contactName: String(profileInput?.contactName ?? ''),
   };
 
@@ -792,8 +792,8 @@ export const generateClientOfferPDF = async (
     setFont('bold');
     pdf.text(String(t.clientOffer.contactName || 'Contact').toUpperCase(), headerRightX, 9, { align: 'right' });
     setFont('normal');
-    pdf.text(`${String(t.clientOffer.phone || 'Phone')}: ${profile.phone || '-'}`, headerRightX, 13.8, { align: 'right' });
-    pdf.text(`${String(t.clientOffer.email || 'Email')}: ${profile.email || '-'}`, headerRightX, 18, { align: 'right' });
+    pdf.text(`${String(t.clientOffer.mobile || 'Mobile')}: ${profile.mobile || '-'}`, headerRightX, 13.8, { align: 'right' });
+    pdf.text(`${String(t.clientOffer.email || 'Email')}: ${profile.contactEmail || '-'}`, headerRightX, 18, { align: 'right' });
 
     pdf.setDrawColor(lr, lg, lb);
     pdf.setLineWidth(0.25);

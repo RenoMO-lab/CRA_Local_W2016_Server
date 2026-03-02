@@ -2997,6 +2997,7 @@ const Settings: React.FC = () => {
             <div className="space-y-1">
               <h3 className="text-lg font-semibold text-foreground">{t.clientOffer.profileTitle}</h3>
               <p className="text-sm text-muted-foreground">{t.clientOffer.profileDescription}</p>
+              <p className="text-xs text-muted-foreground">{t.clientOffer.profileContactSourceNote}</p>
             </div>
 
             {isClientOfferProfileLoading ? (

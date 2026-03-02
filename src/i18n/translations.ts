@@ -227,6 +227,20 @@ export const translations = {
         client: 'Filter by client',
         salesOwner: 'Filter by sales owner',
       },
+      metrics: {
+        total: 'Total Contracts',
+        inProgress: 'In Progress',
+        completed: 'Completed',
+        needsAttention: 'Needs Attention',
+      },
+      review: {
+        openContract: 'Open contract',
+        updatedLabel: 'Updated',
+        detailsTitle: 'Key details',
+        activityTitle: 'Recent activity',
+        noActivity: 'No activity yet.',
+        loadFailed: 'Unable to load contract details. Please refresh and try again.',
+      },
       prompts: {
         approveComment: 'Optional GM approval comment',
         rejectComment: 'Optional GM rejection comment',
@@ -244,6 +258,7 @@ export const translations = {
       validation: {
         invalidCra: 'CRA number is invalid or not GM-approved.',
         approvedSnapshotMissing: 'Some GM-approved fields are still empty: {fields}.',
+        draftRequired: 'Draft contract PDF is required before submission.',
       },
     },
 
@@ -274,6 +289,17 @@ export const translations = {
     account: {
       myAccount: 'My account',
       myAccountDesc: 'Manage your account credentials.',
+      offerContactProfile: 'Offer Contact Profile',
+      offerContactProfileDesc: 'Used in Client Offer PDF when you are the related sales owner.',
+      offerContactName: 'Contact Name',
+      offerContactEmail: 'Contact Email',
+      offerContactMobile: 'Mobile Number',
+      saveOfferContact: 'Save Contact Profile',
+      offerContactSaved: 'Offer contact profile saved.',
+      offerContactLoadFailed: 'Failed to load offer contact profile.',
+      offerContactSaveFailed: 'Failed to save offer contact profile.',
+      offerContactRequired: 'Contact name, contact email, and mobile are required.',
+      offerContactEmailInvalid: 'Please enter a valid contact email.',
       changePassword: 'Change password',
       currentPassword: 'Current password',
       newPassword: 'New password',
@@ -1061,8 +1087,13 @@ export const translations = {
       companyNameEn: 'Company Name (English)',
       address: 'Address',
       phone: 'Phone',
+      mobile: 'Mobile',
       email: 'Email',
       contactName: 'Contact Name',
+      salesContactIncomplete:
+        'Sales contact profile is incomplete for this request owner. Ask the owner to update My Account (name, email, mobile).',
+      profileContactSourceNote:
+        'PDF contact details are sourced from the request owner profile in My Account (not from this admin offer profile).',
       defaultIntro: 'Thank you for the opportunity to support your project.\nPlease find below our customized quotation, developed to ensure reliability, performance, and cost efficiency in line with your expectations. We are ready to proceed at your convenience.',
       defaultCommercialTerm: 'Commercial terms will be confirmed in final contract.',
       defaultDeliveryTerm: 'Delivery details will be confirmed after order confirmation.',
@@ -1694,6 +1725,20 @@ export const translations = {
         client: 'Filtrer par client',
         salesOwner: 'Filtrer par commercial',
       },
+      metrics: {
+        total: 'Total contrats',
+        inProgress: 'En cours',
+        completed: 'Terminés',
+        needsAttention: 'À traiter',
+      },
+      review: {
+        openContract: 'Ouvrir le contrat',
+        updatedLabel: 'Mis à jour',
+        detailsTitle: 'Infos clés',
+        activityTitle: 'Activité récente',
+        noActivity: 'Aucune activité pour le moment.',
+        loadFailed: "Impossible de charger les détails du contrat. Veuillez actualiser et réessayer.",
+      },
       prompts: {
         approveComment: "Commentaire d'approbation DG (optionnel)",
         rejectComment: 'Commentaire de rejet DG (optionnel)',
@@ -1711,6 +1756,7 @@ export const translations = {
       validation: {
         invalidCra: "Le numéro CRA est invalide ou non approuvé par le DG.",
         approvedSnapshotMissing: 'Certains champs approuvés par la DG sont encore vides : {fields}.',
+        draftRequired: 'Le contrat brouillon PDF est requis avant soumission.',
       },
     },
 
@@ -1741,6 +1787,17 @@ export const translations = {
     account: {
       myAccount: 'Mon compte',
       myAccountDesc: 'Gérez les identifiants de votre compte.',
+      offerContactProfile: "Profil de contact d'offre",
+      offerContactProfileDesc: "Utilise dans le PDF d'offre client lorsque vous etes le commercial lie a la demande.",
+      offerContactName: 'Nom du contact',
+      offerContactEmail: 'E-mail du contact',
+      offerContactMobile: 'Numero mobile',
+      saveOfferContact: 'Enregistrer le profil contact',
+      offerContactSaved: "Le profil de contact d'offre a ete enregistre.",
+      offerContactLoadFailed: "Echec du chargement du profil de contact d'offre.",
+      offerContactSaveFailed: "Echec de l'enregistrement du profil de contact d'offre.",
+      offerContactRequired: 'Le nom, l’e-mail et le mobile du contact sont obligatoires.',
+      offerContactEmailInvalid: "Veuillez saisir un e-mail de contact valide.",
       changePassword: 'Changer le mot de passe',
       currentPassword: 'Mot de passe actuel',
       newPassword: 'Nouveau mot de passe',
@@ -2528,8 +2585,13 @@ export const translations = {
       companyNameEn: 'Nom société (anglais)',
       address: 'Adresse',
       phone: 'Téléphone',
+      mobile: 'Mobile',
       email: 'E-mail',
       contactName: 'Nom du contact',
+      salesContactIncomplete:
+        "Le profil de contact du commercial lie a cette demande est incomplet. Demandez au proprietaire de mettre a jour Mon compte (nom, e-mail, mobile).",
+      profileContactSourceNote:
+        "Les coordonnees de contact du PDF proviennent du profil du proprietaire de la demande (Mon compte), pas de ce profil admin.",
       defaultIntro: 'Merci pour votre intérêt. Veuillez trouver notre offre ci-dessous.',
       defaultCommercialTerm: 'Les conditions commerciales seront confirmées dans le contrat final.',
       defaultDeliveryTerm: 'Les modalités de livraison seront confirmées après la commande.',
@@ -3161,6 +3223,20 @@ export const translations = {
         client: '按客户筛选',
         salesOwner: '按销售负责人筛选',
       },
+      metrics: {
+        total: '合同总数',
+        inProgress: '进行中',
+        completed: '已完成',
+        needsAttention: '待处理',
+      },
+      review: {
+        openContract: '打开合同',
+        updatedLabel: '更新时间',
+        detailsTitle: '关键信息',
+        activityTitle: '最近动态',
+        noActivity: '暂无动态。',
+        loadFailed: '无法加载合同详情。请刷新后重试。',
+      },
       prompts: {
         approveComment: '输入总经理审批备注（可选）',
         rejectComment: '输入总经理驳回备注（可选）',
@@ -3178,6 +3254,7 @@ export const translations = {
       validation: {
         invalidCra: 'CRA 编号无效或未经过总经理批准。',
         approvedSnapshotMissing: '以下总经理已批准字段仍为空：{fields}。',
+        draftRequired: '提交前必须上传合同草稿 PDF。',
       },
     },
 
@@ -3208,6 +3285,17 @@ export const translations = {
     account: {
       myAccount: '我的账户',
       myAccountDesc: '管理你的账户凭据。',
+      offerContactProfile: '报价联系人资料',
+      offerContactProfileDesc: '当你是该请求对应销售负责人时，将用于客户报价 PDF。',
+      offerContactName: '联系人姓名',
+      offerContactEmail: '联系人邮箱',
+      offerContactMobile: '手机号',
+      saveOfferContact: '保存联系人资料',
+      offerContactSaved: '报价联系人资料已保存。',
+      offerContactLoadFailed: '加载报价联系人资料失败。',
+      offerContactSaveFailed: '保存报价联系人资料失败。',
+      offerContactRequired: '联系人姓名、联系人邮箱和手机号为必填项。',
+      offerContactEmailInvalid: '请输入有效的联系人邮箱。',
       changePassword: '修改密码',
       currentPassword: '当前密码',
       newPassword: '新密码',
@@ -3992,8 +4080,13 @@ export const translations = {
       companyNameEn: '公司名称（英文）',
       address: '地址',
       phone: '电话',
+      mobile: '手机',
       email: '邮箱',
       contactName: '联系人',
+      salesContactIncomplete:
+        '该请求对应销售负责人的联系人资料不完整。请让负责人在“我的账户”中完善（姓名、邮箱、手机）。',
+      profileContactSourceNote:
+        'PDF 联系方式来自请求负责人的“我的账户”资料（不是此管理员报价抬头设置）。',
       defaultIntro: '感谢您的关注，请查收以下报价内容。',
       defaultCommercialTerm: '商务条款将在最终合同中确认。',
       defaultDeliveryTerm: '交付细节将在订单确认后确定。',

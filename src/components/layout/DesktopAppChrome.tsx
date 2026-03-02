@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Command,
   LayoutGrid,
+  FileText,
   Plus,
   RefreshCw,
   Search,
@@ -206,12 +207,23 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const context = useMemo(() => routeContext(location.pathname), [location.pathname]);
 
   const navigationCommands = useMemo(
-    () => [
-      { id: 'go-dashboard', label: 'Go to Request Analysis', path: '/dashboard', icon: LayoutGrid },
-      { id: 'go-new-request', label: 'New Request', path: '/requests/new', icon: Plus },
-      { id: 'go-settings', label: 'Go to Settings', path: '/settings', icon: Settings },
-    ],
-    []
+    () => {
+      const commands = [
+        { id: 'go-dashboard', label: 'Go to Request Analysis', path: '/dashboard', icon: LayoutGrid },
+        { id: 'go-contract-approvals', label: 'Go to Contract Approval', path: '/contract-approvals', icon: FileText },
+      ];
+      if (user?.role === 'sales' || user?.role === 'admin') {
+        commands.push(
+          { id: 'go-new-request', label: 'New Request', path: '/requests/new', icon: Plus },
+          { id: 'go-new-contract', label: 'New Contract Approval', path: '/contract-approvals/new', icon: Plus }
+        );
+      }
+      if (user?.role === 'admin') {
+        commands.push({ id: 'go-settings', label: 'Go to Settings', path: '/settings', icon: Settings });
+      }
+      return commands;
+    },
+    [user?.role]
   );
 
   const utilityCommands = useMemo(
@@ -412,12 +424,17 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     if (!item.isRead) {
       await handleMarkRead(item.id);
     }
+    const actionPath = typeof item.payload?.actionPath === 'string' ? item.payload.actionPath : '';
+    if (actionPath.startsWith('/contract-approvals')) {
+      navigate(actionPath);
+      setNotificationsOpen(false);
+      return;
+    }
     if (item.requestId) {
       navigate(`/requests/${item.requestId}`);
       setNotificationsOpen(false);
       return;
     }
-    const actionPath = typeof item.payload?.actionPath === 'string' ? item.payload.actionPath : '';
     if (actionPath) {
       navigate(actionPath);
       setNotificationsOpen(false);
@@ -473,7 +490,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
               ref={searchInputRef}
               value={globalSearchQuery}
               onChange={(event) => setGlobalSearchQuery(event.target.value)}
-              placeholder="Search all request fields..."
+              placeholder="Search records..."
               className="h-8 pl-9 pr-20"
             />
             <button

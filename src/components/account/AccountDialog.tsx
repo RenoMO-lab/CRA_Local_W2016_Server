@@ -24,6 +24,11 @@ const AccountDialog: React.FC<AccountDialogProps> = ({ open, onOpenChange }) => 
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isOfferContactLoading, setIsOfferContactLoading] = useState(false);
+  const [isOfferContactSaving, setIsOfferContactSaving] = useState(false);
+  const [offerContactName, setOfferContactName] = useState('');
+  const [offerContactEmail, setOfferContactEmail] = useState('');
+  const [offerContactMobile, setOfferContactMobile] = useState('');
 
   const canSubmit = useMemo(() => {
     if (!currentPassword.trim() || !newPassword.trim() || !confirmPassword.trim()) return false;
@@ -38,7 +43,92 @@ const AccountDialog: React.FC<AccountDialogProps> = ({ open, onOpenChange }) => 
     setNewPassword('');
     setConfirmPassword('');
     setIsSaving(false);
+    setIsOfferContactLoading(false);
+    setIsOfferContactSaving(false);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const loadOfferContact = async () => {
+      setIsOfferContactLoading(true);
+      try {
+        const res = await fetch('/api/auth/offer-contact-profile');
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(data?.error || `Failed to load offer contact profile: ${res.status}`);
+        }
+        if (cancelled) return;
+        setOfferContactName(String(data?.contactName ?? '').trim() || String(data?.defaults?.name ?? '').trim());
+        setOfferContactEmail(String(data?.contactEmail ?? '').trim() || String(data?.defaults?.email ?? '').trim());
+        setOfferContactMobile(String(data?.mobile ?? '').trim());
+      } catch (e: any) {
+        if (cancelled) return;
+        toast({
+          title: t.account.offerContactProfile,
+          description: localizeApiError(t, e?.message ?? e) || t.account.offerContactLoadFailed,
+          variant: 'destructive' as any,
+        });
+      } finally {
+        if (!cancelled) setIsOfferContactLoading(false);
+      }
+    };
+    void loadOfferContact();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, t, toast]);
+
+  const saveOfferContact = async () => {
+    const payload = {
+      contactName: offerContactName.trim(),
+      contactEmail: offerContactEmail.trim(),
+      mobile: offerContactMobile.trim(),
+    };
+    if (!payload.contactName || !payload.contactEmail || !payload.mobile) {
+      toast({
+        title: t.account.offerContactProfile,
+        description: t.account.offerContactRequired,
+        variant: 'destructive' as any,
+      });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.contactEmail)) {
+      toast({
+        title: t.account.offerContactProfile,
+        description: t.account.offerContactEmailInvalid,
+        variant: 'destructive' as any,
+      });
+      return;
+    }
+    setIsOfferContactSaving(true);
+    try {
+      const res = await fetch('/api/auth/offer-contact-profile', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to save offer contact profile: ${res.status}`);
+      }
+      setOfferContactName(String(data?.contactName ?? payload.contactName));
+      setOfferContactEmail(String(data?.contactEmail ?? payload.contactEmail));
+      setOfferContactMobile(String(data?.mobile ?? payload.mobile));
+      toast({
+        title: t.account.offerContactProfile,
+        description: t.account.offerContactSaved,
+      });
+    } catch (e: any) {
+      toast({
+        title: t.account.offerContactProfile,
+        description: localizeApiError(t, e?.message ?? e) || t.account.offerContactSaveFailed,
+        variant: 'destructive' as any,
+      });
+    } finally {
+      setIsOfferContactSaving(false);
+    }
+  };
 
   const submit = async () => {
     const cur = currentPassword.trim();
@@ -97,6 +187,49 @@ const AccountDialog: React.FC<AccountDialogProps> = ({ open, onOpenChange }) => 
             <div className="space-y-2">
               <Label>{t.common.email}</Label>
               <Input value={user?.email || ''} disabled />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border p-4 bg-muted/10 space-y-3">
+            <div className="text-sm font-semibold text-foreground">{t.account.offerContactProfile}</div>
+            <p className="text-xs text-muted-foreground">{t.account.offerContactProfileDesc}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="account-offer-contact-name">{t.account.offerContactName}</Label>
+                <Input
+                  id="account-offer-contact-name"
+                  value={offerContactName}
+                  onChange={(e) => setOfferContactName(e.target.value)}
+                  disabled={isOfferContactLoading || isOfferContactSaving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="account-offer-contact-email">{t.account.offerContactEmail}</Label>
+                <Input
+                  id="account-offer-contact-email"
+                  value={offerContactEmail}
+                  onChange={(e) => setOfferContactEmail(e.target.value)}
+                  disabled={isOfferContactLoading || isOfferContactSaving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="account-offer-contact-mobile">{t.account.offerContactMobile}</Label>
+                <Input
+                  id="account-offer-contact-mobile"
+                  value={offerContactMobile}
+                  onChange={(e) => setOfferContactMobile(e.target.value)}
+                  disabled={isOfferContactLoading || isOfferContactSaving}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={saveOfferContact}
+                disabled={isOfferContactLoading || isOfferContactSaving}
+              >
+                {isOfferContactSaving ? t.common.saving : t.account.saveOfferContact}
+              </Button>
             </div>
           </div>
 

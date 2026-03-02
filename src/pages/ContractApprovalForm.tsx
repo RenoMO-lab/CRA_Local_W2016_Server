@@ -5,11 +5,14 @@ import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { Attachment, ContractApprovalStatus } from '@/types';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import ContractStatusBadge from '@/components/contract/ContractStatusBadge';
+import AttachmentPreviewDialog from '@/components/shared/AttachmentPreviewDialog';
+import { buildAttachmentHref } from '@/lib/attachmentPreview';
 import { toast } from 'sonner';
 import { Download, Eye, File, Loader2, Upload, X } from 'lucide-react';
 
@@ -64,11 +67,17 @@ const ContractApprovalForm: React.FC = () => {
   const [approvedExpectedDeliveryDate, setApprovedExpectedDeliveryDate] = useState('');
   const [approvedWarrantyPeriod, setApprovedWarrantyPeriod] = useState('');
   const [comments, setComments] = useState('');
+  const [paymentTermsRows, setPaymentTermsRows] = useState(2);
+  const [commentsRows, setCommentsRows] = useState(2);
   const [draftFiles, setDraftFiles] = useState<Attachment[]>([]);
   const [stampedFiles, setStampedFiles] = useState<Attachment[]>([]);
   const [history, setHistory] = useState<Array<{ id: string; status: ContractApprovalStatus; timestamp: Date; userName: string; comment?: string }>>([]);
+  const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [craError, setCraError] = useState('');
   const [isLookingUpCra, setIsLookingUpCra] = useState(false);
+  const [decisionModal, setDecisionModal] = useState<{ type: 'approve' | 'reject' } | null>(null);
+  const [decisionComment, setDecisionComment] = useState('');
   const draftInputRef = useRef<HTMLInputElement | null>(null);
   const stampedInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -135,18 +144,9 @@ const ContractApprovalForm: React.FC = () => {
 
   const isReadOnly = !canEditDraft && !canFinanceEdit;
 
-  const getAttachmentUrl = (attachment: Attachment) => {
-    const url = String(attachment?.url ?? '').trim();
-    if (url) return url;
-    const idValue = String(attachment?.id ?? '').trim();
-    if (!idValue) return '';
-    return `/api/attachments/${encodeURIComponent(idValue)}`;
-  };
-
   const openPreview = (attachment: Attachment) => {
-    const url = getAttachmentUrl(attachment);
-    if (!url) return;
-    window.open(url, '_blank', 'noopener,noreferrer');
+    setPreviewAttachment(attachment);
+    setIsPreviewOpen(true);
   };
 
   const handleLookupCra = async () => {
@@ -263,6 +263,13 @@ const ContractApprovalForm: React.FC = () => {
       .replace('{fields}', approvedSnapshotMissing.join(', '));
   }, [approvedSnapshotMissing, t.contractApproval.validation.approvedSnapshotMissing]);
 
+  const getCompactTextareaRows = (value: string) => {
+    const text = String(value ?? '');
+    if (text.includes('\n')) return 4;
+    if (text.length > 120) return 4;
+    return 2;
+  };
+
   const saveDraft = async () => {
     try {
       if (isNew) {
@@ -284,6 +291,26 @@ const ContractApprovalForm: React.FC = () => {
   const submitContract = async () => {
     if (craNumber.trim() && craError) {
       toast.error(craError);
+      return;
+    }
+    if (!clientName.trim()) {
+      toast.error(`${t.contractApproval.fields.clientName} ${t.common.required.toLowerCase()}`);
+      return;
+    }
+    if (!contractAmount.trim() || Number.isNaN(Number.parseFloat(contractAmount))) {
+      toast.error(`${t.contractApproval.fields.contractAmount} ${t.common.required.toLowerCase()}`);
+      return;
+    }
+    if (!paymentTerms.trim()) {
+      toast.error(`${t.contractApproval.fields.paymentTerms} ${t.common.required.toLowerCase()}`);
+      return;
+    }
+    if (!validity.trim()) {
+      toast.error(`${t.contractApproval.fields.validity} ${t.common.required.toLowerCase()}`);
+      return;
+    }
+    if (!draftFiles.length) {
+      toast.error(t.contractApproval.validation.draftRequired ?? 'Draft contract PDF is required before submission.');
       return;
     }
     if (approvedSnapshotWarningText) {
@@ -310,26 +337,27 @@ const ContractApprovalForm: React.FC = () => {
   };
 
   const approve = async () => {
-    if (!contractId) return;
-    const comment = window.prompt(t.contractApproval.prompts.approveComment) ?? '';
-    try {
-      await updateStatus(contractId, 'gm_approved', comment);
-      toast.success(t.contractApproval.messages.approved);
-      navigate('/contract-approvals');
-    } catch (error: any) {
-      toast.error(String(error?.message ?? error));
-    }
+    setDecisionComment('');
+    setDecisionModal({ type: 'approve' });
   };
 
   const reject = async () => {
-    if (!contractId) return;
-    const comment = window.prompt(t.contractApproval.prompts.rejectComment) ?? '';
+    setDecisionComment('');
+    setDecisionModal({ type: 'reject' });
+  };
+
+  const submitDecision = async () => {
+    if (!contractId || !decisionModal) return;
+    const nextStatus: ContractApprovalStatus = decisionModal.type === 'approve' ? 'gm_approved' : 'gm_rejected';
     try {
-      await updateStatus(contractId, 'gm_rejected', comment);
-      toast.success(t.contractApproval.messages.rejected);
+      await updateStatus(contractId, nextStatus, decisionComment.trim());
+      toast.success(nextStatus === 'gm_approved' ? t.contractApproval.messages.approved : t.contractApproval.messages.rejected);
       navigate('/contract-approvals');
     } catch (error: any) {
       toast.error(String(error?.message ?? error));
+    } finally {
+      setDecisionModal(null);
+      setDecisionComment('');
     }
   };
 
@@ -358,7 +386,7 @@ const ContractApprovalForm: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">
@@ -373,16 +401,17 @@ const ContractApprovalForm: React.FC = () => {
         <div className="text-sm text-muted-foreground">{t.common.loading}</div>
       ) : (
         <>
-          <div className="rounded-lg border border-border bg-card p-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
+          <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-3">
+              <div className="space-y-1.5 xl:col-span-3">
                 <Label>{t.contractApproval.fields.clientName}</Label>
-                <Input value={clientName} onChange={(e) => setClientName(e.target.value)} disabled={!canEditDraft} />
+                <Input className="h-9" value={clientName} onChange={(e) => setClientName(e.target.value)} disabled={!canEditDraft} />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5 xl:col-span-4">
                 <Label>{t.contractApproval.fields.craNumber}</Label>
                 <div className="flex gap-2">
                   <Input
+                    className="h-9"
                     value={craNumber}
                     onChange={(e) => {
                       setCraNumber(e.target.value);
@@ -391,7 +420,7 @@ const ContractApprovalForm: React.FC = () => {
                     disabled={!canEditDraft}
                   />
                   {canEditDraft ? (
-                    <Button type="button" variant="outline" onClick={handleLookupCra} disabled={isLookingUpCra}>
+                    <Button type="button" variant="outline" onClick={handleLookupCra} disabled={isLookingUpCra} className="h-9 px-3">
                       {isLookingUpCra ? <Loader2 size={14} className="mr-2 animate-spin" /> : null}
                       {t.contractApproval.lookupCra}
                     </Button>
@@ -399,9 +428,10 @@ const ContractApprovalForm: React.FC = () => {
                 </div>
                 {craError ? <p className="text-xs text-destructive">{craError}</p> : null}
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5 xl:col-span-2">
                 <Label>{t.contractApproval.fields.contractAmount}</Label>
                 <Input
+                  className="h-9 max-w-[10rem]"
                   type="number"
                   step="0.01"
                   value={contractAmount}
@@ -409,32 +439,49 @@ const ContractApprovalForm: React.FC = () => {
                   disabled={!canEditDraft}
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5 xl:col-span-1">
                 <Label>{t.contractApproval.fields.validity}</Label>
-                <Input value={validity} onChange={(e) => setValidity(e.target.value)} disabled={!canEditDraft} />
+                <Input className="h-9 max-w-[7rem]" value={validity} onChange={(e) => setValidity(e.target.value)} disabled={!canEditDraft} />
               </div>
-            </div>
-            <div className="space-y-2">
+              <div className="space-y-1.5 md:col-span-2 xl:col-span-2">
               <Label>{t.contractApproval.fields.paymentTerms}</Label>
-              <Textarea value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} disabled={!canEditDraft} rows={3} />
-            </div>
-            <div className="space-y-2">
-              <Label>{t.contractApproval.fields.comments}</Label>
-              <Textarea value={comments} onChange={(e) => setComments(e.target.value)} disabled={isReadOnly && !canFinanceEdit} rows={3} />
+                <Textarea
+                  value={paymentTerms}
+                  onChange={(e) => setPaymentTerms(e.target.value)}
+                  onFocus={() => setPaymentTermsRows(4)}
+                  onBlur={() => setPaymentTermsRows(getCompactTextareaRows(paymentTerms))}
+                  disabled={!canEditDraft}
+                  rows={paymentTermsRows}
+                  className="min-h-[4.5rem]"
+                />
+              </div>
+              <div className="space-y-1.5 md:col-span-2 xl:col-span-12">
+                <Label>{t.contractApproval.fields.comments}</Label>
+                <Textarea
+                  value={comments}
+                  onChange={(e) => setComments(e.target.value)}
+                  onFocus={() => setCommentsRows(4)}
+                  onBlur={() => setCommentsRows(getCompactTextareaRows(comments))}
+                  disabled={isReadOnly && !canFinanceEdit}
+                  rows={commentsRows}
+                  className="min-h-[4.5rem]"
+                />
+              </div>
             </div>
           </div>
 
-          <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+          <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-foreground">{t.contractApproval.approvedSnapshotTitle}</h2>
               {craNumber.trim() ? (
                 <span className="text-[11px] text-muted-foreground">{t.contractApproval.approvedSnapshotHint}</span>
               ) : null}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <div className="space-y-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-3">
+              <div className="space-y-1.5 xl:col-span-2">
                 <Label>{t.contractApproval.fields.approvedFinalUnitPrice}</Label>
                 <Input
+                  className="h-9"
                   type="number"
                   step="0.01"
                   value={approvedFinalUnitPrice}
@@ -442,10 +489,10 @@ const ContractApprovalForm: React.FC = () => {
                   disabled={!canEditDraft}
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5 xl:col-span-1">
                 <Label>{t.contractApproval.fields.approvedCurrency}</Label>
                 <Select value={approvedCurrency || 'none'} onValueChange={(value) => setApprovedCurrency(value === 'none' ? '' : (value as 'USD' | 'EUR' | 'RMB'))} disabled={!canEditDraft}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-9">
                     <SelectValue placeholder="-" />
                   </SelectTrigger>
                   <SelectContent className="bg-card border border-border">
@@ -456,9 +503,10 @@ const ContractApprovalForm: React.FC = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5 xl:col-span-2">
                 <Label>{t.contractApproval.fields.approvedGrossMargin}</Label>
                 <Input
+                  className="h-9 max-w-[8rem]"
                   type="number"
                   step="0.01"
                   value={approvedGrossMargin}
@@ -466,7 +514,7 @@ const ContractApprovalForm: React.FC = () => {
                   disabled={!canEditDraft}
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5 xl:col-span-2">
                 <Label>{t.contractApproval.fields.approvedVatMode}</Label>
                 <Select
                   value={approvedVatMode || 'none'}
@@ -477,7 +525,7 @@ const ContractApprovalForm: React.FC = () => {
                   }}
                   disabled={!canEditDraft}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-9">
                     <SelectValue placeholder="-" />
                   </SelectTrigger>
                   <SelectContent className="bg-card border border-border">
@@ -487,9 +535,10 @@ const ContractApprovalForm: React.FC = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5 xl:col-span-1">
                 <Label>{t.contractApproval.fields.approvedVatRate}</Label>
                 <Input
+                  className="h-9 max-w-[8rem]"
                   type="number"
                   step="0.01"
                   value={approvedVatRate}
@@ -497,22 +546,23 @@ const ContractApprovalForm: React.FC = () => {
                   disabled={!canEditDraft || approvedVatMode !== 'with'}
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5 xl:col-span-2">
                 <Label>{t.contractApproval.fields.approvedIncoterm}</Label>
-                <Input value={approvedIncoterm} onChange={(e) => setApprovedIncoterm(e.target.value)} disabled={!canEditDraft} />
+                <Input className="h-9" value={approvedIncoterm} onChange={(e) => setApprovedIncoterm(e.target.value)} disabled={!canEditDraft} />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5 xl:col-span-2">
                 <Label>{t.contractApproval.fields.approvedExpectedDeliveryDate}</Label>
                 <Input
+                  className="h-9"
                   type="date"
                   value={approvedExpectedDeliveryDate}
                   onChange={(e) => setApprovedExpectedDeliveryDate(e.target.value)}
                   disabled={!canEditDraft}
                 />
               </div>
-              <div className="space-y-2">
+              <div className="space-y-1.5 xl:col-span-2">
                 <Label>{t.contractApproval.fields.approvedWarrantyPeriod}</Label>
-                <Input value={approvedWarrantyPeriod} onChange={(e) => setApprovedWarrantyPeriod(e.target.value)} disabled={!canEditDraft} />
+                <Input className="h-9 max-w-[10rem]" value={approvedWarrantyPeriod} onChange={(e) => setApprovedWarrantyPeriod(e.target.value)} disabled={!canEditDraft} />
               </div>
             </div>
             {approvedSnapshotWarningText ? (
@@ -520,8 +570,8 @@ const ContractApprovalForm: React.FC = () => {
             ) : null}
           </div>
 
-          <div className="rounded-lg border border-border bg-card p-4 space-y-4">
-            <div className="space-y-2">
+          <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
+            <div className="space-y-1.5">
               <Label>{t.contractApproval.fields.draftContractFile}</Label>
               <input
                 ref={draftInputRef}
@@ -539,13 +589,13 @@ const ContractApprovalForm: React.FC = () => {
                   type="button"
                   variant="outline"
                   onClick={() => draftInputRef.current?.click()}
-                  className="w-full border-dashed"
+                  className="w-full h-9 border-dashed py-1.5"
                 >
                   <Upload size={16} className="mr-2" />
                   {`${t.common.upload} ${t.contractApproval.fields.draftContractFile}`}
                 </Button>
               ) : null}
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-[9rem] overflow-y-auto pr-1">
                 {draftFiles.length ? (
                   draftFiles.map((att) => (
                     <div
@@ -566,7 +616,7 @@ const ContractApprovalForm: React.FC = () => {
                           <Eye size={14} />
                         </button>
                         <a
-                          href={getAttachmentUrl(att)}
+                          href={buildAttachmentHref(att)}
                           target="_blank"
                           rel="noreferrer"
                           download={att.filename}
@@ -594,7 +644,7 @@ const ContractApprovalForm: React.FC = () => {
               </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label>{t.contractApproval.fields.stampedContractFile}</Label>
               {canFinanceEdit ? (
                 <>
@@ -612,14 +662,14 @@ const ContractApprovalForm: React.FC = () => {
                     type="button"
                     variant="outline"
                     onClick={() => stampedInputRef.current?.click()}
-                    className="w-full border-dashed"
+                    className="w-full h-9 border-dashed py-1.5"
                   >
                     <Upload size={16} className="mr-2" />
                     {`${t.common.upload} ${t.contractApproval.fields.stampedContractFile}`}
                   </Button>
                 </>
               ) : null}
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-[9rem] overflow-y-auto pr-1">
                 {stampedFiles.length ? (
                   stampedFiles.map((att) => (
                     <div
@@ -640,7 +690,7 @@ const ContractApprovalForm: React.FC = () => {
                           <Eye size={14} />
                         </button>
                         <a
-                          href={getAttachmentUrl(att)}
+                          href={buildAttachmentHref(att)}
                           target="_blank"
                           rel="noreferrer"
                           download={att.filename}
@@ -670,9 +720,9 @@ const ContractApprovalForm: React.FC = () => {
           </div>
 
           {!isNew ? (
-            <div className="rounded-lg border border-border bg-card p-4">
-              <h2 className="text-sm font-semibold text-foreground mb-3">{t.contractApproval.historyTitle}</h2>
-              <div className="space-y-2">
+            <div className="rounded-lg border border-border bg-card p-3">
+              <h2 className="text-sm font-semibold text-foreground mb-2">{t.contractApproval.historyTitle}</h2>
+              <div className="space-y-2 max-h-[10rem] overflow-y-auto pr-1">
                 {history.length ? (
                   history
                     .slice()
@@ -681,7 +731,7 @@ const ContractApprovalForm: React.FC = () => {
                       <div key={entry.id} className="rounded-md border border-border p-2 text-sm">
                         <div className="font-medium">{t.contractApproval.statuses[entry.status]}</div>
                         <div className="text-xs text-muted-foreground">
-                          {entry.userName || '-'} • {new Date(entry.timestamp).toLocaleString()}
+                          {entry.userName || '-'} - {new Date(entry.timestamp).toLocaleString()}
                         </div>
                         {entry.comment ? <div className="mt-1">{entry.comment}</div> : null}
                       </div>
@@ -694,34 +744,69 @@ const ContractApprovalForm: React.FC = () => {
           ) : null}
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => navigate('/contract-approvals')}>
+            <Button size="sm" variant="outline" onClick={() => navigate('/contract-approvals')}>
               {t.common.back}
             </Button>
             {canEditDraft ? (
               <>
-                <Button variant="outline" onClick={saveDraft}>
+                <Button size="sm" variant="outline" onClick={saveDraft}>
                   {t.contractApproval.saveDraft}
                 </Button>
-                <Button onClick={submitContract}>{t.contractApproval.submit}</Button>
+                <Button size="sm" onClick={submitContract}>{t.contractApproval.submit}</Button>
               </>
             ) : null}
             {user?.role === 'admin' && status === 'submitted' ? (
               <>
-                <Button onClick={approve}>{t.contractApproval.approve}</Button>
-                <Button variant="destructive" onClick={reject}>
+                <Button size="sm" onClick={approve}>{t.contractApproval.approve}</Button>
+                <Button size="sm" variant="destructive" onClick={reject}>
                   {t.contractApproval.reject}
                 </Button>
               </>
             ) : null}
             {canFinanceEdit && status === 'gm_approved' ? (
-              <Button onClick={financeUpload}>{t.contractApproval.uploadStamped}</Button>
+              <Button size="sm" onClick={financeUpload}>{t.contractApproval.uploadStamped}</Button>
             ) : null}
             {canFinanceEdit && status === 'finance_upload' ? (
-              <Button onClick={complete}>{t.contractApproval.markCompleted}</Button>
+              <Button size="sm" onClick={complete}>{t.contractApproval.markCompleted}</Button>
             ) : null}
           </div>
         </>
       )}
+      <Dialog open={Boolean(decisionModal)} onOpenChange={(open) => !open && setDecisionModal(null)}>
+        <DialogContent className="bg-card">
+          <DialogHeader>
+            <DialogTitle>{decisionModal?.type === 'approve' ? t.contractApproval.approve : t.contractApproval.reject}</DialogTitle>
+            <DialogDescription>
+              {decisionModal?.type === 'approve' ? t.contractApproval.prompts.approveComment : t.contractApproval.prompts.rejectComment}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>{t.contractApproval.fields.comments}</Label>
+            <Textarea
+              value={decisionComment}
+              onChange={(event) => setDecisionComment(event.target.value)}
+              rows={4}
+              placeholder={decisionModal?.type === 'approve' ? t.contractApproval.prompts.approveComment : t.contractApproval.prompts.rejectComment}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDecisionModal(null)}>
+              {t.common.cancel}
+            </Button>
+            <Button variant={decisionModal?.type === 'reject' ? 'destructive' : 'default'} onClick={submitDecision}>
+              {decisionModal?.type === 'approve' ? t.contractApproval.approve : t.contractApproval.reject}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <AttachmentPreviewDialog
+        open={isPreviewOpen}
+        onOpenChange={(next) => {
+          setIsPreviewOpen(next);
+          if (!next) setPreviewAttachment(null);
+        }}
+        attachment={previewAttachment}
+      />
     </div>
   );
 };

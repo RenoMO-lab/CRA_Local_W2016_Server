@@ -182,6 +182,12 @@ const buildRequestLink = (baseUrl, requestId) => {
   return `${base}/requests/${encodeURIComponent(requestId)}`;
 };
 
+const buildContractLink = (baseUrl, contractId) => {
+  const base = String(baseUrl ?? "").trim().replace(/\/+$/, "");
+  if (!base) return "";
+  return `${base}/contract-approvals/${encodeURIComponent(contractId)}`;
+};
+
 const buildDashboardLink = (baseUrl) => {
   const base = String(baseUrl ?? "").trim().replace(/\/+$/, "");
   if (!base) return "";
@@ -462,6 +468,127 @@ const updateClientOfferProfile = async (pool, input, actorUserId) => {
     ]
   );
   return mapClientOfferProfileRow(rows?.[0] ?? null);
+};
+
+const sanitizeOfferContactProfileInput = (input) => ({
+  contactName: typeof input?.contactName === "string" ? input.contactName.trim() : "",
+  contactEmail: typeof input?.contactEmail === "string" ? input.contactEmail.trim() : "",
+  mobile: typeof input?.mobile === "string" ? input.mobile.trim() : "",
+});
+
+const getOfferContactDefaultsForUser = async (pool, userId) => {
+  const targetUserId = String(userId ?? "").trim();
+  if (!targetUserId) return { name: "", email: "" };
+  const { rows } = await pool.query("SELECT name, email FROM app_users WHERE id = $1 LIMIT 1", [targetUserId]);
+  return {
+    name: String(rows?.[0]?.name ?? "").trim(),
+    email: String(rows?.[0]?.email ?? "").trim(),
+  };
+};
+
+const ensureUserOfferContactProfileRow = async (pool, userId) => {
+  const targetUserId = String(userId ?? "").trim();
+  if (!targetUserId) return;
+  await pool.query(
+    `
+    INSERT INTO user_offer_contact_profiles (user_id, contact_name, contact_email, mobile)
+    VALUES ($1, '', '', '')
+    ON CONFLICT (user_id) DO NOTHING
+    `,
+    [targetUserId]
+  );
+};
+
+const getUserOfferContactProfile = async (pool, userId) => {
+  const targetUserId = String(userId ?? "").trim();
+  const defaults = await getOfferContactDefaultsForUser(pool, targetUserId);
+  if (!targetUserId) {
+    return {
+      contactName: "",
+      contactEmail: "",
+      mobile: "",
+      defaults,
+      contactComplete: false,
+    };
+  }
+  await ensureUserOfferContactProfileRow(pool, targetUserId);
+  const { rows } = await pool.query(
+    `
+    SELECT contact_name, contact_email, mobile
+    FROM user_offer_contact_profiles
+    WHERE user_id = $1
+    LIMIT 1
+    `,
+    [targetUserId]
+  );
+  const contactName = String(rows?.[0]?.contact_name ?? "").trim();
+  const contactEmail = String(rows?.[0]?.contact_email ?? "").trim();
+  const mobile = String(rows?.[0]?.mobile ?? "").trim();
+  return {
+    contactName,
+    contactEmail,
+    mobile,
+    defaults,
+    contactComplete: Boolean(contactName && contactEmail && mobile && isValidEmail(contactEmail)),
+  };
+};
+
+const updateUserOfferContactProfile = async (pool, userId, input) => {
+  const targetUserId = String(userId ?? "").trim();
+  const next = sanitizeOfferContactProfileInput(input);
+  await ensureUserOfferContactProfileRow(pool, targetUserId);
+  const { rows } = await pool.query(
+    `
+    INSERT INTO user_offer_contact_profiles (user_id, contact_name, contact_email, mobile, updated_at)
+    VALUES ($1, $2, $3, $4, now())
+    ON CONFLICT (user_id)
+    DO UPDATE SET
+      contact_name = EXCLUDED.contact_name,
+      contact_email = EXCLUDED.contact_email,
+      mobile = EXCLUDED.mobile,
+      updated_at = now()
+    RETURNING contact_name, contact_email, mobile
+    `,
+    [targetUserId, next.contactName, next.contactEmail, next.mobile]
+  );
+  const defaults = await getOfferContactDefaultsForUser(pool, targetUserId);
+  const contactName = String(rows?.[0]?.contact_name ?? "").trim();
+  const contactEmail = String(rows?.[0]?.contact_email ?? "").trim();
+  const mobile = String(rows?.[0]?.mobile ?? "").trim();
+  return {
+    contactName,
+    contactEmail,
+    mobile,
+    defaults,
+    contactComplete: Boolean(contactName && contactEmail && mobile && isValidEmail(contactEmail)),
+  };
+};
+
+const getRequestOwnerOfferProfileForPdf = async (pool, requestId) => {
+  const request = await getRequestById(pool, requestId);
+  if (!request) return null;
+  const globalProfile = await getClientOfferProfile(pool);
+  const sourceUserId = String(request?.createdBy ?? "").trim();
+  const ownerProfile = sourceUserId
+    ? await getUserOfferContactProfile(pool, sourceUserId)
+    : {
+        contactName: "",
+        contactEmail: "",
+        mobile: "",
+        defaults: { name: "", email: "" },
+        contactComplete: false,
+      };
+
+  return {
+    companyNameLocal: String(globalProfile?.companyNameLocal ?? ""),
+    companyNameEn: String(globalProfile?.companyNameEn ?? ""),
+    address: String(globalProfile?.address ?? ""),
+    contactName: String(ownerProfile?.contactName ?? ""),
+    contactEmail: String(ownerProfile?.contactEmail ?? ""),
+    mobile: String(ownerProfile?.mobile ?? ""),
+    contactComplete: Boolean(ownerProfile?.contactComplete),
+    sourceUserId,
+  };
 };
 
 const enqueueAdminDigestNotifications = async (
@@ -2282,6 +2409,213 @@ const resolveContractNextActionForStatus = (status) => {
   if (normalized === "submitted") return { role: "admin", label: "Admin" };
   if (normalized === "gm_approved" || normalized === "finance_upload") return { role: "finance", label: "Finance" };
   return { role: "none", label: "No action" };
+};
+
+const resolveContractNotifyRecipientRoles = (status) => {
+  const normalized = String(status ?? "").trim();
+  if (normalized === "submitted") return ["admin"];
+  if (normalized === "gm_approved" || normalized === "finance_upload") return ["finance"];
+  if (normalized === "gm_rejected") return ["sales"];
+  if (normalized === "completed") return ["sales", "admin", "finance"];
+  return [];
+};
+
+const resolveContractNotificationRecipients = async (pool, { contract, status, actorUserId }) => {
+  const roleTargets = resolveContractNotifyRecipientRoles(status);
+  if (!roleTargets.length) return [];
+  const actorId = String(actorUserId ?? "").trim();
+  const recipients = new Set();
+  const ownerUserId = String(contract?.salesOwnerUserId ?? "").trim();
+
+  if (roleTargets.includes("sales") && ownerUserId && ownerUserId !== actorId) {
+    recipients.add(ownerUserId);
+  }
+
+  const nonSalesRoles = roleTargets.filter((role) => role !== "sales");
+  if (nonSalesRoles.length) {
+    const { rows } = await pool.query(
+      `
+      SELECT id
+      FROM app_users
+      WHERE is_active = true
+        AND role = ANY($1::text[])
+        AND ($2 = '' OR id <> $2)
+      `,
+      [nonSalesRoles, actorId]
+    );
+    for (const row of rows ?? []) {
+      const userId = String(row?.id ?? "").trim();
+      if (userId) recipients.add(userId);
+    }
+  }
+
+  return Array.from(recipients);
+};
+
+const buildContractInAppNotificationText = ({ contractId, status, previousStatus, actorName }) => {
+  const id = String(contractId ?? "").trim() || "Contract";
+  const statusLabel = humanizeStatus(status || "");
+  const previousLabel = humanizeStatus(previousStatus || "");
+  const actor = String(actorName ?? "").trim();
+  if (statusLabel && previousLabel && statusLabel !== previousLabel) {
+    return {
+      title: `${id} moved to ${statusLabel}`,
+      body: actor
+        ? `${actor} changed status from ${previousLabel} to ${statusLabel}.`
+        : `Status changed from ${previousLabel} to ${statusLabel}.`,
+    };
+  }
+  if (statusLabel) {
+    return {
+      title: `${id} updated`,
+      body: actor ? `${actor} updated contract in ${statusLabel}.` : `Contract updated in ${statusLabel}.`,
+    };
+  }
+  return {
+    title: `${id} updated`,
+    body: actor ? `${actor} updated this contract.` : "Contract updated.",
+  };
+};
+
+const enqueueContractInAppNotifications = async (
+  pool,
+  { contract, contractId, status, previousStatus, actorUserId, actorName, comment, eventType }
+) => {
+  const recipients = await resolveContractNotificationRecipients(pool, {
+    contract,
+    status,
+    actorUserId,
+  });
+  if (!recipients.length) return 0;
+  const text = buildContractInAppNotificationText({
+    contractId,
+    status,
+    previousStatus,
+    actorName,
+  });
+  const payload = {
+    contractId: String(contractId ?? "").trim() || null,
+    status: String(status ?? "").trim() || null,
+    previousStatus: String(previousStatus ?? "").trim() || null,
+    eventType: String(eventType ?? "contract_status_changed"),
+    actorName: String(actorName ?? "").trim() || null,
+    comment: typeof comment === "string" && comment.trim() ? comment.trim() : null,
+    actionPath: contractId ? `/contract-approvals/${encodeURIComponent(String(contractId))}` : "/contract-approvals",
+  };
+  for (const userId of recipients) {
+    await pool.query(
+      `
+      INSERT INTO app_notifications (id, user_id, notification_type, title, body, request_id, payload_json)
+      VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+      `,
+      [
+        randomUUID(),
+        userId,
+        String(eventType ?? "contract_status_changed"),
+        text.title,
+        text.body,
+        null,
+        JSON.stringify(payload),
+      ]
+    );
+  }
+  return recipients.length;
+};
+
+const buildContractStatusEmailHtml = ({ contract, contractId, status, previousStatus, actorName, comment, appBaseUrl }) => {
+  const id = escapeHtml(String(contractId ?? "").trim() || "Contract");
+  const client = escapeHtml(String(contract?.clientName ?? "").trim() || "-");
+  const newStatus = escapeHtml(humanizeStatus(status || "") || "-");
+  const oldStatus = escapeHtml(humanizeStatus(previousStatus || "") || "-");
+  const actor = escapeHtml(String(actorName ?? "").trim() || "-");
+  const notes = escapeHtml(String(comment ?? "").trim() || "-");
+  const amount = parseOptionalFiniteNumber(contract?.contractAmount);
+  const amountText =
+    amount === null
+      ? "-"
+      : Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const link = buildContractLink(appBaseUrl, contractId);
+  const dashboardLink = buildDashboardLink(appBaseUrl);
+
+  return [
+    `<div style="font-family: Arial, sans-serif; font-size:14px; color:#0f172a; line-height:1.5;">`,
+    `<h2 style="margin:0 0 12px;">Contract approval update</h2>`,
+    `<p style="margin:0 0 12px;">Contract <strong>${id}</strong> has a status update.</p>`,
+    `<table style="border-collapse:collapse; font-size:13px;">`,
+    `<tr><td style="padding:2px 10px 2px 0;color:#475569;">Client</td><td>${client}</td></tr>`,
+    `<tr><td style="padding:2px 10px 2px 0;color:#475569;">Previous Status</td><td>${oldStatus}</td></tr>`,
+    `<tr><td style="padding:2px 10px 2px 0;color:#475569;">New Status</td><td>${newStatus}</td></tr>`,
+    `<tr><td style="padding:2px 10px 2px 0;color:#475569;">Actor</td><td>${actor}</td></tr>`,
+    `<tr><td style="padding:2px 10px 2px 0;color:#475569;">Contract Amount</td><td>${escapeHtml(amountText)}</td></tr>`,
+    `<tr><td style="padding:2px 10px 2px 0;color:#475569;">Comment</td><td>${notes}</td></tr>`,
+    `</table>`,
+    link
+      ? `<p style="margin:16px 0 8px;"><a href="${escapeHtml(link)}" style="color:#2563eb;">Open contract</a></p>`
+      : "",
+    dashboardLink
+      ? `<p style="margin:0;"><a href="${escapeHtml(dashboardLink)}" style="color:#2563eb;">Open dashboard</a></p>`
+      : "",
+    `</div>`,
+  ].join("");
+};
+
+const enqueueContractEmailByPolicy = async (
+  pool,
+  { settings, contract, contractId, status, previousStatus, actorName, comment, eventType = "contract_status_changed" }
+) => {
+  const recipientUserIds = await resolveContractNotificationRecipients(pool, {
+    contract,
+    status,
+    actorUserId: "",
+  });
+  if (!recipientUserIds.length) {
+    return { emailEnqueued: false, reason: "no_recipients" };
+  }
+  const { rows } = await pool.query(
+    `
+    SELECT email
+    FROM app_users
+    WHERE is_active = true
+      AND id = ANY($1::text[])
+      AND email IS NOT NULL
+      AND trim(email) <> ''
+    `,
+    [recipientUserIds]
+  );
+  const allEmails = Array.from(
+    new Set(
+      (rows ?? [])
+        .map((row) => String(row?.email ?? "").trim())
+        .filter((value) => value && isValidEmail(value))
+    )
+  );
+  if (!allEmails.length) {
+    return { emailEnqueued: false, reason: "no_recipients" };
+  }
+  const recipients = settings.testMode
+    ? parseEmailList(settings.testEmail || settings.senderUpn)
+    : allEmails;
+  if (!recipients.length) {
+    return { emailEnqueued: false, reason: "no_recipients" };
+  }
+  const html = buildContractStatusEmailHtml({
+    contract,
+    contractId,
+    status,
+    previousStatus,
+    actorName,
+    comment,
+    appBaseUrl: settings.appBaseUrl,
+  });
+  const subject = `Contract ${String(contractId ?? "").trim() || ""} status: ${humanizeStatus(status || "") || String(status || "")}`.trim();
+  await pool.query(
+    `
+    INSERT INTO notification_outbox (id, event_type, request_id, to_emails, subject, body_html)
+    VALUES ($1,$2,$3,$4,$5,$6)
+    `,
+    [randomUUID(), eventType, String(contractId ?? "").trim() || randomUUID(), recipients.join(", "), subject, html]
+  );
+  return { emailEnqueued: true };
 };
 
 const formatContractPaymentTermsFromRequest = (request) => {
@@ -4668,6 +5002,54 @@ export const apiRouter = (() => {
         return;
       }
       res.json({ user: req.authUser });
+    })
+  );
+
+  router.get(
+    "/auth/offer-contact-profile",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const userId = String(req.authUser?.id ?? "").trim();
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+      const pool = await getPool();
+      const profile = await getUserOfferContactProfile(pool, userId);
+      res.json(profile);
+    })
+  );
+
+  router.put(
+    "/auth/offer-contact-profile",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const userId = String(req.authUser?.id ?? "").trim();
+      if (!userId) {
+        res.status(401).json({ error: "Authentication required" });
+        return;
+      }
+      const body = safeJson(req.body) ?? {};
+      const payload = sanitizeOfferContactProfileInput(body);
+      if (!payload.contactName || !payload.contactEmail || !payload.mobile) {
+        res.status(400).json({ error: "Contact name, contact email, and mobile are required" });
+        return;
+      }
+      if (!isValidEmail(payload.contactEmail)) {
+        res.status(400).json({ error: "Invalid contact email" });
+        return;
+      }
+
+      const pool = await getPool();
+      const profile = await updateUserOfferContactProfile(pool, userId, payload);
+
+      await writeAuditLogBestEffort(pool, req, {
+        action: "auth.offer_contact_profile.updated",
+        targetType: "user",
+        targetId: userId,
+      });
+
+      res.json(profile);
     })
   );
 
@@ -7241,6 +7623,20 @@ export const apiRouter = (() => {
         );
       }
 
+      const searchQuery = String(req.query?.q ?? "").trim();
+      if (searchQuery && searchQuery.length >= 2) {
+        const like = `%${searchQuery.toLowerCase()}%`;
+        where.push(
+          `(
+            lower(c.id) LIKE ${pushParam(like)}
+            OR lower(c.status::text) LIKE ${pushParam(like)}
+            OR lower(COALESCE(c.data->>'clientName','')) LIKE ${pushParam(like)}
+            OR lower(COALESCE(c.data->>'craNumber','')) LIKE ${pushParam(like)}
+            OR lower(COALESCE(u.name, c.data->>'salesOwnerName', '')) LIKE ${pushParam(like)}
+          )`
+        );
+      }
+
       const from = String(req.query?.from ?? "").trim();
       if (from) {
         const fromDate = new Date(from);
@@ -7458,6 +7854,45 @@ export const apiRouter = (() => {
           craRequestId: created.craRequestId ?? null,
         },
       });
+
+      try {
+        const createdStatus = String(created.status ?? "").trim();
+        if (createdStatus && createdStatus !== "draft") {
+          await enqueueContractInAppNotifications(pool, {
+            contract: created,
+            contractId: created.id,
+            status: createdStatus,
+            previousStatus: "",
+            actorUserId: String(req.authUser?.id ?? ""),
+            actorName: String(req.authUser?.name ?? ""),
+            comment: "",
+            eventType: "contract_approval.created",
+          });
+        }
+      } catch (error) {
+        console.error("Failed to enqueue contract in-app create notification:", error);
+      }
+
+      try {
+        const createdStatus = String(created.status ?? "").trim();
+        if (createdStatus && createdStatus !== "draft") {
+          const [settings, tokenState] = await Promise.all([getM365Settings(pool), getM365TokenState(pool)]);
+          if (settings.enabled && tokenState.hasRefreshToken) {
+            await enqueueContractEmailByPolicy(pool, {
+              settings,
+              contract: created,
+              contractId: created.id,
+              status: createdStatus,
+              previousStatus: "",
+              actorName: String(req.authUser?.name ?? ""),
+              comment: "",
+              eventType: "contract_approval.created",
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Failed to enqueue contract create email:", error);
+      }
 
       res.status(201).json(created);
     })
@@ -7729,6 +8164,47 @@ export const apiRouter = (() => {
         completed: "contract_approval.completed",
       };
 
+      try {
+        const statusForNotify = String(updated.status ?? "").trim();
+        const previousForNotify = String(existing.status ?? "").trim();
+        if (statusForNotify && statusForNotify !== previousForNotify) {
+          await enqueueContractInAppNotifications(pool, {
+            contract: updated,
+            contractId,
+            status: statusForNotify,
+            previousStatus: previousForNotify,
+            actorUserId: String(req.authUser?.id ?? ""),
+            actorName: String(req.authUser?.name ?? ""),
+            comment,
+            eventType: actionByStatus[requestedStatus] ?? "contract_approval.status_changed",
+          });
+        }
+      } catch (error) {
+        console.error("Failed to enqueue contract in-app status notification:", error);
+      }
+
+      try {
+        const statusForEmail = String(updated.status ?? "").trim();
+        const previousForEmail = String(existing.status ?? "").trim();
+        if (statusForEmail && statusForEmail !== previousForEmail) {
+          const [settings, tokenState] = await Promise.all([getM365Settings(pool), getM365TokenState(pool)]);
+          if (settings.enabled && tokenState.hasRefreshToken) {
+            await enqueueContractEmailByPolicy(pool, {
+              settings,
+              contract: updated,
+              contractId,
+              status: statusForEmail,
+              previousStatus: previousForEmail,
+              actorName: String(req.authUser?.name ?? ""),
+              comment,
+              eventType: actionByStatus[requestedStatus] ?? "contract_approval.status_changed",
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Failed to enqueue contract status email:", error);
+      }
+
       await writeAuditLogBestEffort(pool, req, {
         action: actionByStatus[requestedStatus] ?? "contract_approval.status_changed",
         targetType: "contract_approval",
@@ -7746,8 +8222,98 @@ export const apiRouter = (() => {
     })
   );
 
+  router.post(
+    "/contracts/:contractId/notify",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const contractId = String(req.params?.contractId ?? "").trim();
+      if (!contractId) {
+        res.status(400).json({ error: "Missing contract id" });
+        return;
+      }
+      const pool = await getPool();
+      const existing = await getContractApprovalById(pool, contractId);
+      if (!existing) {
+        res.status(404).json({ error: "Contract approval not found" });
+        return;
+      }
+      if (!canViewContractApproval(req.authUser, existing)) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+
+      const body = safeJson(req.body) ?? {};
+      const eventType = String(body.eventType ?? "contract_approval.status_changed").trim() || "contract_approval.status_changed";
+      const status = normalizeContractApprovalStatus(body.status ?? existing.status);
+      const previousStatus = normalizeContractApprovalStatus(body.previousStatus ?? "");
+      const actorName = String(body.actorName ?? req.authUser?.name ?? "").trim();
+      const comment = typeof body.comment === "string" ? body.comment : "";
+
+      let inAppEnqueued = false;
+      try {
+        const count = await enqueueContractInAppNotifications(pool, {
+          contract: existing,
+          contractId,
+          status,
+          previousStatus,
+          actorUserId: String(req.authUser?.id ?? ""),
+          actorName,
+          comment,
+          eventType,
+        });
+        inAppEnqueued = count > 0;
+      } catch (error) {
+        console.error("Failed to enqueue contract notify in-app notification:", error);
+      }
+
+      let emailEnqueued = false;
+      let emailReason = null;
+      try {
+        const [settings, tokenState] = await Promise.all([getM365Settings(pool), getM365TokenState(pool)]);
+        if (!settings.enabled) {
+          emailReason = "disabled";
+        } else if (!tokenState.hasRefreshToken) {
+          emailReason = "not_connected";
+        } else {
+          const result = await enqueueContractEmailByPolicy(pool, {
+            settings,
+            contract: existing,
+            contractId,
+            status,
+            previousStatus,
+            actorName,
+            comment,
+            eventType,
+          });
+          emailEnqueued = Boolean(result?.emailEnqueued);
+          if (!emailEnqueued) emailReason = result?.reason ?? "no_recipients";
+        }
+      } catch (error) {
+        console.error("Failed to enqueue contract notify email:", error);
+        emailReason = "enqueue_failed";
+      }
+
+      await writeAuditLogBestEffort(pool, req, {
+        action: "contract_approval.notified",
+        targetType: "contract_approval",
+        targetId: contractId,
+        metadata: {
+          status,
+          previousStatus,
+          eventType,
+          inAppEnqueued,
+          emailEnqueued,
+          emailReason,
+        },
+      });
+
+      res.json({ enqueued: inAppEnqueued || emailEnqueued, inAppEnqueued, emailEnqueued, emailReason });
+    })
+  );
+
   router.get(
     "/requests",
+    requireAuth,
     asyncHandler(async (req, res) => {
       const pool = await getPool();
       const { rows } = await pool.query("SELECT id, data FROM requests ORDER BY updated_at DESC");
@@ -7762,6 +8328,7 @@ export const apiRouter = (() => {
   // Lightweight list endpoint for dashboards: avoids shipping attachments/base64 blobs.
   router.get(
     "/requests/summary",
+    requireAuth,
     asyncHandler(async (req, res) => {
       const pool = await getPool();
       const { rows } = await pool.query(requestSummarySelect);
@@ -8299,6 +8866,7 @@ export const apiRouter = (() => {
 
   router.post(
     "/requests",
+    requireAuth,
     asyncHandler(async (req, res) => {
       const body = req.body;
       if (!body || typeof body !== "object") {
@@ -8487,6 +9055,7 @@ export const apiRouter = (() => {
 
   router.post(
     "/requests/:requestId/status",
+    requireAuth,
     asyncHandler(async (req, res) => {
       const { requestId } = req.params;
       const body = req.body;
@@ -8692,6 +9261,7 @@ export const apiRouter = (() => {
   // Used when a role edits its previously submitted data and we need to re-notify the next step.
   router.post(
     "/requests/:requestId/notify",
+    requireAuth,
     asyncHandler(async (req, res) => {
       const { requestId } = req.params;
       const body = safeJson(req.body) ?? {};
@@ -8765,7 +9335,23 @@ export const apiRouter = (() => {
   );
 
   router.get(
+    "/requests/:requestId/client-offer-profile",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const { requestId } = req.params;
+      const pool = await getPool();
+      const composed = await getRequestOwnerOfferProfileForPdf(pool, requestId);
+      if (!composed) {
+        res.status(404).json({ error: "Request not found" });
+        return;
+      }
+      res.json(composed);
+    })
+  );
+
+  router.get(
     "/requests/:requestId",
+    requireAuth,
     asyncHandler(async (req, res) => {
       const { requestId } = req.params;
       const pool = await getPool();
@@ -8780,6 +9366,7 @@ export const apiRouter = (() => {
 
   router.put(
     "/requests/:requestId",
+    requireAuth,
     asyncHandler(async (req, res) => {
       const { requestId } = req.params;
       const body = req.body;
@@ -8913,6 +9500,7 @@ export const apiRouter = (() => {
 
   router.delete(
     "/requests/:requestId",
+    requireAuth,
     asyncHandler(async (req, res) => {
       const { requestId } = req.params;
       const pool = await getPool();

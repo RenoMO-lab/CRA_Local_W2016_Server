@@ -41,9 +41,11 @@ type ClientOfferProfile = {
   companyNameLocal: string;
   companyNameEn: string;
   address: string;
-  phone: string;
-  email: string;
+  mobile: string;
+  contactEmail: string;
   contactName: string;
+  contactComplete: boolean;
+  sourceUserId: string;
 };
 
 interface ClientOfferGeneratorSheetProps {
@@ -360,7 +362,7 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
     const loadProfile = async () => {
       setIsProfileLoading(true);
       try {
-        const response = await fetch('/api/admin/client-offer-profile');
+        const response = await fetch(`/api/requests/${encodeURIComponent(request.id)}/client-offer-profile`);
         const data = await response.json().catch(() => null);
         if (!response.ok) {
           throw new Error(data?.error || `Failed to load profile: ${response.status}`);
@@ -370,9 +372,11 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
           companyNameLocal: String(data?.companyNameLocal ?? ''),
           companyNameEn: String(data?.companyNameEn ?? ''),
           address: String(data?.address ?? ''),
-          phone: String(data?.phone ?? ''),
-          email: String(data?.email ?? ''),
+          mobile: String(data?.mobile ?? ''),
+          contactEmail: String(data?.contactEmail ?? ''),
           contactName: String(data?.contactName ?? ''),
+          contactComplete: data?.contactComplete === true,
+          sourceUserId: String(data?.sourceUserId ?? ''),
         });
       } catch {
         if (cancelled) return;
@@ -448,6 +452,14 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
       toast({
         title: t.request.error,
         description: t.clientOffer.profileLoadFailed,
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (!profile.contactComplete) {
+      toast({
+        title: t.request.error,
+        description: t.clientOffer.salesContactIncomplete,
         variant: 'destructive',
       });
       return;
@@ -758,7 +770,8 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
             {profile ? (
               <div className="text-xs text-muted-foreground border-t border-border pt-3">
                 <FileText size={12} className="inline-block mr-1.5 align-middle" />
-                {profile.companyNameEn || profile.companyNameLocal} | {profile.contactName} | {profile.email}
+                {profile.companyNameEn || profile.companyNameLocal} | {profile.contactName} | {profile.contactEmail} |{' '}
+                {profile.mobile}
               </div>
             ) : null}
           </div>

@@ -7,6 +7,9 @@ type ContractUpdatePayload = Partial<ContractApproval>;
 interface ContractApprovalContextType {
   contracts: ContractApproval[];
   isLoading: boolean;
+  lastSyncAt: Date | null;
+  syncState: 'idle' | 'refreshing' | 'error';
+  syncError: string | null;
   refreshContracts: () => Promise<void>;
   getContractById: (id: string) => ContractApproval | undefined;
   getContractByIdAsync: (id: string) => Promise<ContractApproval | undefined>;
@@ -76,8 +79,13 @@ const fetchJson = async <T,>(input: RequestInfo, init?: RequestInit): Promise<T>
   if (!res.ok) {
     let detail = '';
     try {
-      const payload = await res.json();
-      detail = String(payload?.error ?? payload?.message ?? '').trim();
+      const contentType = String(res.headers.get('content-type') ?? '');
+      if (contentType.includes('application/json')) {
+        const payload = await res.json();
+        detail = String(payload?.error ?? payload?.message ?? '').trim();
+      } else {
+        detail = String(await res.text()).trim();
+      }
     } catch {
       detail = '';
     }
@@ -94,17 +102,26 @@ export const ContractApprovalProvider: React.FC<{ children: React.ReactNode }> =
   const { user } = useAuth();
   const [contracts, setContracts] = useState<StoredContract[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
+  const [syncState, setSyncState] = useState<'idle' | 'refreshing' | 'error'>('idle');
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const refreshContracts = useCallback(async () => {
     if (!user) {
       setContracts([]);
+      setSyncState('idle');
+      setSyncError(null);
       return;
     }
     if (user.role !== 'sales' && user.role !== 'admin' && user.role !== 'finance') {
       setContracts([]);
+      setSyncState('idle');
+      setSyncError(null);
       return;
     }
     setIsLoading(true);
+    setSyncState('refreshing');
+    setSyncError(null);
     try {
       const rows = await fetchJson<any[]>(`${API_BASE}/summary`);
       const normalized = rows.map((row) => ({ ...(reviveContract(row) as any), __full: false })) as StoredContract[];
@@ -132,13 +149,53 @@ export const ContractApprovalProvider: React.FC<{ children: React.ReactNode }> =
         const extras = prev.filter((row) => isFullContract(row) && !ids.has(row.id));
         return extras.length ? [...merged, ...extras] : merged;
       });
+      setLastSyncAt(new Date());
+      setSyncState('idle');
+    } catch (error) {
+      console.error('Failed to refresh contract approvals:', error);
+      setSyncError(String((error as any)?.message ?? error));
+      setSyncState('error');
     } finally {
       setIsLoading(false);
     }
   }, [user]);
 
   useEffect(() => {
-    void refreshContracts();
+    let intervalId: number | undefined;
+
+    const startPolling = () => {
+      if (intervalId) return;
+      void refreshContracts();
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          void refreshContracts();
+        }
+      }, 30_000);
+    };
+
+    const stopPolling = () => {
+      if (!intervalId) return;
+      window.clearInterval(intervalId);
+      intervalId = undefined;
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', startPolling);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', startPolling);
+    };
   }, [refreshContracts]);
 
   const getContractById = useCallback((id: string) => contracts.find((row) => row.id === id), [contracts]);
@@ -167,6 +224,9 @@ export const ContractApprovalProvider: React.FC<{ children: React.ReactNode }> =
     });
     const normalized = markFull(reviveContract(created));
     setContracts((prev) => (prev.some((row) => row.id === normalized.id) ? prev.map((row) => (row.id === normalized.id ? normalized : row)) : [normalized, ...prev]));
+    setLastSyncAt(new Date());
+    setSyncError(null);
+    setSyncState('idle');
     return normalized;
   }, []);
 
@@ -178,6 +238,9 @@ export const ContractApprovalProvider: React.FC<{ children: React.ReactNode }> =
     });
     const normalized = markFull(reviveContract(updated));
     setContracts((prev) => prev.map((row) => (row.id === id ? normalized : row)));
+    setLastSyncAt(new Date());
+    setSyncError(null);
+    setSyncState('idle');
     return normalized;
   }, []);
 
@@ -189,6 +252,9 @@ export const ContractApprovalProvider: React.FC<{ children: React.ReactNode }> =
     });
     const normalized = markFull(reviveContract(updated));
     setContracts((prev) => prev.map((row) => (row.id === id ? normalized : row)));
+    setLastSyncAt(new Date());
+    setSyncError(null);
+    setSyncState('idle');
     return normalized;
   }, []);
 
@@ -197,6 +263,9 @@ export const ContractApprovalProvider: React.FC<{ children: React.ReactNode }> =
       value={{
         contracts,
         isLoading,
+        lastSyncAt,
+        syncState,
+        syncError,
         refreshContracts,
         getContractById,
         getContractByIdAsync,
