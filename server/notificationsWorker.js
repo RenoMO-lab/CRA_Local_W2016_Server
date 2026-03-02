@@ -166,34 +166,61 @@ const renderAdminDigestEmailHtml = ({ lang, digestDate, rows, appBaseUrl }) => {
     : [];
   const logoImg = `<img src="cid:${escapeHtml(LOGO_CID)}" width="120" alt="MONROC" style="display:block; border:0; outline:none; text-decoration:none; height:auto;" />`;
 
-  const lines = sortedRows
-    .map((row) => {
-      const requestId = String(row?.request_id ?? "").trim();
+  const requestGroups = new Map();
+  for (const row of sortedRows) {
+    const requestId = String(row?.request_id ?? "").trim() || "-";
+    if (!requestGroups.has(requestId)) requestGroups.set(requestId, []);
+    requestGroups.get(requestId).push(row);
+  }
+
+  const groupedBlocks = [...requestGroups.entries()]
+    .map(([requestId, requestRows]) => {
       const reqLink = buildRequestLink(appBaseUrl, requestId);
-      const requestCell = reqLink
+      const requestHeader = reqLink
         ? `<a href="${escapeHtml(reqLink)}" style="color:#1D4ED8; text-decoration:none; font-weight:700;">${escapeHtml(requestId)}</a>`
-        : escapeHtml(requestId || "-");
-      const previousStatus = String(row?.previous_status ?? "").trim();
-      const currentStatus = String(row?.request_status ?? "").trim();
-      const statusText =
-        previousStatus && previousStatus !== currentStatus
-          ? `${humanizeStatus(previousStatus)} -> ${humanizeStatus(currentStatus)}`
-          : humanizeStatus(currentStatus || "-");
-      const actor = String(row?.actor_name ?? "").trim() || "-";
-      const eventText = mapDigestEventLabel(lang, row?.event_type);
-      const eventAt = formatIsoUtc(row?.event_at);
-      const comment = String(row?.comment ?? "").trim() || i18n.noComment;
-      const openText = reqLink ? `<div style="margin-top:4px; font-size:11px;"><a href="${escapeHtml(reqLink)}" style="color:#1D4ED8; text-decoration:none;">${escapeHtml(i18n.openRequest)}</a></div>` : "";
+        : `<span style="font-weight:700; color:#111827;">${escapeHtml(requestId)}</span>`;
+      const openText = reqLink
+        ? `<a href="${escapeHtml(reqLink)}" style="color:#1D4ED8; text-decoration:none; font-size:12px;">${escapeHtml(i18n.openRequest)}</a>`
+        : "";
+
+      const timeline = requestRows
+        .map((row) => {
+          const previousStatus = String(row?.previous_status ?? "").trim();
+          const currentStatus = String(row?.request_status ?? "").trim();
+          const statusText =
+            previousStatus && previousStatus !== currentStatus
+              ? `${humanizeStatus(previousStatus)} -> ${humanizeStatus(currentStatus)}`
+              : humanizeStatus(currentStatus || "-");
+          const actor = String(row?.actor_name ?? "").trim() || "-";
+          const eventText = mapDigestEventLabel(lang, row?.event_type);
+          const eventAt = formatIsoUtc(row?.event_at);
+          const comment = String(row?.comment ?? "").trim() || i18n.noComment;
+          return `
+            <tr>
+              <td valign="top" style="padding:8px 0; font-size:12px; color:#6B7280; white-space:nowrap; width:150px;">${escapeHtml(eventAt)}</td>
+              <td valign="top" style="padding:8px 0 8px 12px; font-size:13px; color:#111827;">
+                <div style="font-weight:700;">${escapeHtml(statusText)}</div>
+                <div style="margin-top:2px; color:#374151;">${escapeHtml(eventText)} | ${escapeHtml(i18n.headers.actor)}: ${escapeHtml(actor)}</div>
+                <div style="margin-top:4px; color:#4B5563; white-space:pre-wrap;">${escapeHtml(comment)}</div>
+              </td>
+            </tr>
+          `.trim();
+        })
+        .join("");
 
       return `
-        <tr>
-          <td style="padding:10px 8px; border-bottom:1px solid #E5E7EB; font-size:13px; color:#111827;">${requestCell}${openText}</td>
-          <td style="padding:10px 8px; border-bottom:1px solid #E5E7EB; font-size:13px; color:#111827;">${escapeHtml(eventText)}</td>
-          <td style="padding:10px 8px; border-bottom:1px solid #E5E7EB; font-size:13px; color:#111827;">${escapeHtml(statusText)}</td>
-          <td style="padding:10px 8px; border-bottom:1px solid #E5E7EB; font-size:13px; color:#111827;">${escapeHtml(actor)}</td>
-          <td style="padding:10px 8px; border-bottom:1px solid #E5E7EB; font-size:13px; color:#111827; white-space:nowrap;">${escapeHtml(eventAt)}</td>
-          <td style="padding:10px 8px; border-bottom:1px solid #E5E7EB; font-size:13px; color:#111827; white-space:pre-wrap;">${escapeHtml(comment)}</td>
-        </tr>
+        <div style="border:1px solid #E5E7EB; border-radius:10px; padding:12px 14px; margin-bottom:12px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
+            <tr>
+              <td style="font-size:14px; color:#111827;">${requestHeader}</td>
+              <td align="right">${openText}</td>
+            </tr>
+          </table>
+          <div style="margin-top:8px; font-size:11px; color:#6B7280; letter-spacing:0.05em; text-transform:uppercase;">${escapeHtml(i18n.headers.status)}</div>
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:4px; border-collapse:collapse;">
+            ${timeline || `<tr><td style="padding:8px 0; font-size:12px; color:#6B7280;">${escapeHtml(i18n.noComment)}</td></tr>`}
+          </table>
+        </div>
       `.trim();
     })
     .join("");
@@ -222,17 +249,8 @@ const renderAdminDigestEmailHtml = ({ lang, digestDate, rows, appBaseUrl }) => {
               </tr>
               <tr>
                 <td style="padding:14px 16px 18px 16px;">
-                  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">
-                    <tr>
-                      <th align="left" style="padding:10px 8px; font-size:11px; color:#6B7280; letter-spacing:0.05em; text-transform:uppercase; border-bottom:1px solid #CBD5E1;">${escapeHtml(i18n.headers.request)}</th>
-                      <th align="left" style="padding:10px 8px; font-size:11px; color:#6B7280; letter-spacing:0.05em; text-transform:uppercase; border-bottom:1px solid #CBD5E1;">${escapeHtml(i18n.headers.event)}</th>
-                      <th align="left" style="padding:10px 8px; font-size:11px; color:#6B7280; letter-spacing:0.05em; text-transform:uppercase; border-bottom:1px solid #CBD5E1;">${escapeHtml(i18n.headers.status)}</th>
-                      <th align="left" style="padding:10px 8px; font-size:11px; color:#6B7280; letter-spacing:0.05em; text-transform:uppercase; border-bottom:1px solid #CBD5E1;">${escapeHtml(i18n.headers.actor)}</th>
-                      <th align="left" style="padding:10px 8px; font-size:11px; color:#6B7280; letter-spacing:0.05em; text-transform:uppercase; border-bottom:1px solid #CBD5E1;">${escapeHtml(i18n.headers.time)}</th>
-                      <th align="left" style="padding:10px 8px; font-size:11px; color:#6B7280; letter-spacing:0.05em; text-transform:uppercase; border-bottom:1px solid #CBD5E1;">${escapeHtml(i18n.headers.comment)}</th>
-                    </tr>
-                    ${lines}
-                  </table>
+                  <div style="margin:0 0 10px 0; font-size:11px; color:#6B7280; letter-spacing:0.06em; text-transform:uppercase;">${escapeHtml(i18n.headers.request)}</div>
+                  ${groupedBlocks}
                 </td>
               </tr>
               <tr>
