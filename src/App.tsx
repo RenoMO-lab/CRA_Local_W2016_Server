@@ -6,6 +6,7 @@ import React, { Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { RequestProvider } from "./context/RequestContext";
+import { ContractApprovalProvider } from "./context/ContractApprovalContext";
 import { AdminSettingsProvider } from "./context/AdminSettingsContext";
 import { LanguageProvider, useLanguage } from "./context/LanguageContext";
 import { AppShellProvider } from "./context/AppShellContext";
@@ -18,6 +19,8 @@ const Performance = React.lazy(() => import("./pages/Performance"));
 const Settings = React.lazy(() => import("./pages/Settings"));
 const PriceList = React.lazy(() => import("./pages/PriceList"));
 const Downloads = React.lazy(() => import("./pages/Downloads"));
+const ContractApprovals = React.lazy(() => import("./pages/ContractApprovals"));
+const ContractApprovalForm = React.lazy(() => import("./pages/ContractApprovalForm"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -41,31 +44,37 @@ const App = () => (
         <AuthProvider>
           <AdminSettingsProvider>
             <RequestProvider>
-              <Toaster />
-              <Sonner />
-              <BrowserRouter>
-                <AppShellProvider>
-                  <Suspense
-                    fallback={<AppLoadingFallback />}
-                  >
-                    <Routes>
-                      <Route path="/login" element={<Login />} />
-                      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-                      <Route element={<MainLayout />}>
-                        <Route path="/dashboard" element={<Dashboard />} />
-                        <Route path="/performance" element={<Performance />} />
-                        <Route path="/requests/new" element={<RequestForm />} />
-                        <Route path="/requests/:id" element={<RequestForm />} />
-                        <Route path="/requests/:id/edit" element={<RequestForm />} />
-                        <Route path="/price-list" element={<PriceList />} />
-                        <Route path="/downloads" element={<Downloads />} />
-                        <Route path="/settings" element={<Settings />} />
-                      </Route>
-                      <Route path="*" element={<NotFound />} />
-                    </Routes>
-                  </Suspense>
-                </AppShellProvider>
-              </BrowserRouter>
+              <ContractApprovalProvider>
+                <Toaster />
+                <Sonner />
+                <BrowserRouter>
+                  <AppShellProvider>
+                    <Suspense
+                      fallback={<AppLoadingFallback />}
+                    >
+                      <Routes>
+                        <Route path="/login" element={<Login />} />
+                        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                        <Route element={<MainLayout />}>
+                          <Route path="/dashboard" element={<Dashboard />} />
+                          <Route path="/performance" element={<Performance />} />
+                          <Route path="/requests/new" element={<RequestForm />} />
+                          <Route path="/requests/:id" element={<RequestForm />} />
+                          <Route path="/requests/:id/edit" element={<RequestForm />} />
+                          <Route path="/contract-approvals" element={<ContractApprovals />} />
+                          <Route path="/contract-approvals/new" element={<ContractApprovalForm />} />
+                          <Route path="/contract-approvals/:id" element={<ContractApprovalForm />} />
+                          <Route path="/contract-approvals/:id/edit" element={<ContractApprovalForm />} />
+                          <Route path="/price-list" element={<PriceList />} />
+                          <Route path="/downloads" element={<Downloads />} />
+                          <Route path="/settings" element={<Settings />} />
+                        </Route>
+                        <Route path="*" element={<NotFound />} />
+                      </Routes>
+                    </Suspense>
+                  </AppShellProvider>
+                </BrowserRouter>
+              </ContractApprovalProvider>
             </RequestProvider>
           </AdminSettingsProvider>
         </AuthProvider>

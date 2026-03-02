@@ -1,4 +1,4 @@
-export type UserRole = 'sales' | 'design' | 'costing' | 'admin';
+export type UserRole = 'sales' | 'design' | 'costing' | 'admin' | 'finance';
 
 export type RequestStatus = 
   | 'draft'
@@ -238,6 +238,55 @@ export interface CustomerRequest {
   clientOfferConfig?: ClientOfferConfig;
 }
 
+export type ContractApprovalStatus =
+  | 'draft'
+  | 'submitted'
+  | 'gm_approved'
+  | 'gm_rejected'
+  | 'finance_upload'
+  | 'completed';
+
+export interface ContractApprovalHistoryEntry {
+  id: string;
+  status: ContractApprovalStatus;
+  timestamp: Date;
+  userId: string;
+  userName: string;
+  comment?: string;
+}
+
+export interface ContractApproval {
+  id: string;
+  status: ContractApprovalStatus;
+  clientName: string;
+  craNumber?: string;
+  craRequestId?: string | null;
+  contractAmount: number | null;
+  paymentTerms: string;
+  validity: string;
+  approvedFinalUnitPrice: number | null;
+  approvedCurrency: 'USD' | 'EUR' | 'RMB' | '';
+  approvedGrossMargin: number | null;
+  approvedVatMode: 'with' | 'without' | '';
+  approvedVatRate: number | null;
+  approvedIncoterm: string;
+  approvedExpectedDeliveryDate: string;
+  approvedWarrantyPeriod: string;
+  comments: string;
+  salesOwnerUserId: string;
+  salesOwnerName: string;
+  draftContractAttachments: Attachment[];
+  stampedContractAttachments: Attachment[];
+  history: ContractApprovalHistoryEntry[];
+  submittedAt?: Date | null;
+  gmDecisionAt?: Date | null;
+  completedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  nextActionRole?: UserRole | 'none';
+  nextActionLabel?: string;
+}
+
 export interface ReferenceProduct {
   id: string;
   configurationType: string;
@@ -312,4 +361,5 @@ export const ROLE_CONFIG: Record<UserRole, { label: string; color: string }> = {
   design: { label: 'Design', color: 'bg-warning text-warning-foreground' },
   costing: { label: 'Costing', color: 'bg-success text-success-foreground' },
   admin: { label: 'Admin', color: 'bg-primary text-primary-foreground' },
+  finance: { label: 'Finance', color: 'bg-emerald-600 text-white' },
 };

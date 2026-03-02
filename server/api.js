@@ -57,9 +57,12 @@ import {
   setupDbBackupCredentials,
 } from "./dbBackup.js";
 import {
+  getAllowedContractApprovalStatusTransitions,
   generateStatusIntegrityReport,
   getAllowedStatusTransitions,
+  isAllowedContractApprovalStatusTransition,
   isAllowedStatusTransition,
+  isKnownContractApprovalStatus,
   isKnownRequestStatus,
 } from "./statusIntegrity.js";
 
@@ -2153,6 +2156,206 @@ const normalizeRequestData = (data, nowIso) => {
   };
 };
 
+const CONTRACT_APPROVAL_STATUSES = new Set([
+  "draft",
+  "submitted",
+  "gm_approved",
+  "gm_rejected",
+  "finance_upload",
+  "completed",
+]);
+
+const normalizeContractApprovalStatus = (value) => {
+  const status = String(value ?? "").trim();
+  return CONTRACT_APPROVAL_STATUSES.has(status) ? status : "draft";
+};
+
+const parseContractApprovalStatus = (value) => String(value ?? "").trim();
+
+const normalizeContractCurrency = (value) => {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  return normalized === "USD" || normalized === "EUR" || normalized === "RMB" ? normalized : "";
+};
+
+const normalizeContractVatMode = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "with" || normalized === "without" ? normalized : "";
+};
+
+const normalizeContractHistoryEntry = (raw, fallbackStatus, fallbackUserId, fallbackUserName, nowIso) => {
+  const status = normalizeContractApprovalStatus(raw?.status ?? fallbackStatus);
+  const timestampRaw = raw?.timestamp ?? raw?.ts ?? raw?.time ?? nowIso;
+  const timestampDate = new Date(String(timestampRaw ?? nowIso));
+  const timestamp = Number.isNaN(timestampDate.getTime()) ? nowIso : timestampDate.toISOString();
+  return {
+    id: typeof raw?.id === "string" && raw.id.trim() ? raw.id.trim() : `h-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    status,
+    timestamp,
+    userId: typeof raw?.userId === "string" ? raw.userId : fallbackUserId,
+    userName: typeof raw?.userName === "string" ? raw.userName : fallbackUserName,
+    comment: typeof raw?.comment === "string" ? raw.comment : "",
+  };
+};
+
+const normalizeContractApprovalData = (data, nowIso) => {
+  const status = normalizeContractApprovalStatus(data?.status);
+  const draftContractAttachments = Array.isArray(data?.draftContractAttachments)
+    ? data.draftContractAttachments
+    : [];
+  const stampedContractAttachments = Array.isArray(data?.stampedContractAttachments)
+    ? data.stampedContractAttachments
+    : [];
+  const historySource = Array.isArray(data?.history) ? data.history : [];
+  const fallbackUserId = String(data?.salesOwnerUserId ?? data?.createdBy ?? "").trim();
+  const fallbackUserName = String(data?.salesOwnerName ?? data?.createdByName ?? "").trim();
+  const history = historySource.length
+    ? historySource.map((entry) => normalizeContractHistoryEntry(entry, status, fallbackUserId, fallbackUserName, nowIso))
+    : [normalizeContractHistoryEntry({}, status, fallbackUserId, fallbackUserName, nowIso)];
+  const draftAttachmentsById = new Set(
+    draftContractAttachments
+      .map((item) => String(item?.id ?? "").trim())
+      .filter(Boolean)
+  );
+  const stampedContractAttachmentsFiltered = stampedContractAttachments.filter((item) => {
+    const id = String(item?.id ?? "").trim();
+    return !id || !draftAttachmentsById.has(id);
+  });
+
+  return {
+    ...data,
+    status,
+    id: String(data?.id ?? "").trim(),
+    clientName: typeof data?.clientName === "string" ? data.clientName : "",
+    craNumber: typeof data?.craNumber === "string" ? data.craNumber : "",
+    contractAmount: parseOptionalFiniteNumber(data?.contractAmount),
+    paymentTerms: typeof data?.paymentTerms === "string" ? data.paymentTerms : "",
+    validity: typeof data?.validity === "string" ? data.validity : "",
+    approvedFinalUnitPrice: parseOptionalFiniteNumber(data?.approvedFinalUnitPrice),
+    approvedCurrency: normalizeContractCurrency(data?.approvedCurrency),
+    approvedGrossMargin: parseOptionalFiniteNumber(data?.approvedGrossMargin),
+    approvedVatMode: normalizeContractVatMode(data?.approvedVatMode),
+    approvedVatRate: parseOptionalFiniteNumber(data?.approvedVatRate),
+    approvedIncoterm: typeof data?.approvedIncoterm === "string" ? data.approvedIncoterm : "",
+    approvedExpectedDeliveryDate:
+      typeof data?.approvedExpectedDeliveryDate === "string" ? data.approvedExpectedDeliveryDate : "",
+    approvedWarrantyPeriod: typeof data?.approvedWarrantyPeriod === "string" ? data.approvedWarrantyPeriod : "",
+    comments: typeof data?.comments === "string" ? data.comments : "",
+    salesOwnerUserId: String(data?.salesOwnerUserId ?? "").trim(),
+    salesOwnerName: typeof data?.salesOwnerName === "string" ? data.salesOwnerName : "",
+    submittedAt: data?.submittedAt ? String(data.submittedAt) : null,
+    gmDecisionAt: data?.gmDecisionAt ? String(data.gmDecisionAt) : null,
+    completedAt: data?.completedAt ? String(data.completedAt) : null,
+    createdAt: data?.createdAt ? String(data.createdAt) : nowIso,
+    updatedAt: data?.updatedAt ? String(data.updatedAt) : nowIso,
+    draftContractAttachments,
+    stampedContractAttachments: stampedContractAttachmentsFiltered,
+    history,
+  };
+};
+
+const canViewContractApproval = (user, contract) => {
+  const role = String(user?.role ?? "").trim().toLowerCase();
+  if (!role) return false;
+  if (role === "admin") return true;
+  if (role === "sales") return String(contract?.salesOwnerUserId ?? "").trim() === String(user?.id ?? "").trim();
+  if (role === "finance") {
+    const status = String(contract?.status ?? "").trim();
+    return status === "gm_approved" || status === "finance_upload" || status === "completed";
+  }
+  return false;
+};
+
+const canEditContractApproval = (user, contract) => {
+  const role = String(user?.role ?? "").trim().toLowerCase();
+  const status = String(contract?.status ?? "").trim();
+  if (role === "admin") return status === "draft" || status === "gm_rejected";
+  if (role === "sales") {
+    const ownerId = String(contract?.salesOwnerUserId ?? "").trim();
+    return ownerId && ownerId === String(user?.id ?? "").trim() && (status === "draft" || status === "gm_rejected");
+  }
+  return false;
+};
+
+const resolveContractNextActionForStatus = (status) => {
+  const normalized = String(status ?? "").trim();
+  if (normalized === "draft" || normalized === "gm_rejected") return { role: "sales", label: "Sales" };
+  if (normalized === "submitted") return { role: "admin", label: "Admin" };
+  if (normalized === "gm_approved" || normalized === "finance_upload") return { role: "finance", label: "Finance" };
+  return { role: "none", label: "No action" };
+};
+
+const formatContractPaymentTermsFromRequest = (request) => {
+  const terms = Array.isArray(request?.salesPaymentTerms) ? request.salesPaymentTerms : [];
+  const parts = terms
+    .map((term) => {
+      const paymentName = String(term?.paymentName ?? "").trim();
+      const paymentPercent = parseOptionalFiniteNumber(term?.paymentPercent);
+      if (!paymentName && paymentPercent === null) return "";
+      if (paymentName && paymentPercent !== null) return `${paymentName} (${paymentPercent}%)`;
+      if (paymentName) return paymentName;
+      return `${paymentPercent}%`;
+    })
+    .filter(Boolean);
+  return parts.join("; ");
+};
+
+const resolveContractCraPrefill = async (pool, craNumber) => {
+  const requestId = String(craNumber ?? "").trim();
+  if (!requestId) return { ok: true, request: null, prefill: null };
+  const request = await getRequestById(pool, requestId);
+  if (!request) return { ok: false, status: 404, error: "CRA request not found" };
+  if (!hasGmApprovedLifecycle(request)) {
+    return { ok: false, status: 400, error: "CRA must be GM-approved for contract prefill" };
+  }
+  return {
+    ok: true,
+    request,
+    prefill: {
+      craNumber: requestId,
+      clientName: String(request.clientName ?? ""),
+      contractAmount: parseOptionalFiniteNumber(request.salesFinalPrice) ?? parseOptionalFiniteNumber(request.sellingPrice),
+      paymentTerms: formatContractPaymentTermsFromRequest(request),
+      validity: String(request.salesOfferValidityPeriod ?? ""),
+      approvedFinalUnitPrice:
+        parseOptionalFiniteNumber(request.salesFinalPrice) ?? parseOptionalFiniteNumber(request.sellingPrice),
+      approvedCurrency: normalizeContractCurrency(request.salesCurrency) || normalizeContractCurrency(request.sellingCurrency) || "EUR",
+      approvedGrossMargin: parseOptionalFiniteNumber(request.salesMargin) ?? parseOptionalFiniteNumber(request.calculatedMargin),
+      approvedVatMode: normalizeContractVatMode(request.salesVatMode),
+      approvedVatRate: parseOptionalFiniteNumber(request.salesVatRate),
+      approvedIncoterm:
+        String(request.salesIncoterm ?? "").trim().toLowerCase() === "other"
+          ? String(request.salesIncotermOther ?? "").trim()
+          : String(request.salesIncoterm ?? "").trim(),
+      approvedExpectedDeliveryDate: String(request.salesExpectedDeliveryDate ?? ""),
+      approvedWarrantyPeriod: String(request.salesWarrantyPeriod ?? ""),
+    },
+  };
+};
+
+const validateContractSubmitPayload = async (pool, contract) => {
+  const clientName = String(contract?.clientName ?? "").trim();
+  if (!clientName) return { ok: false, status: 400, error: "Client Name is required" };
+  const contractAmount = parseOptionalFiniteNumber(contract?.contractAmount);
+  if (contractAmount === null || contractAmount < 0) {
+    return { ok: false, status: 400, error: "Contract Amount is required" };
+  }
+  if (!String(contract?.paymentTerms ?? "").trim()) {
+    return { ok: false, status: 400, error: "Payment Terms is required" };
+  }
+  if (!String(contract?.validity ?? "").trim()) {
+    return { ok: false, status: 400, error: "Validity is required" };
+  }
+  const draftAttachments = Array.isArray(contract?.draftContractAttachments) ? contract.draftContractAttachments : [];
+  if (!draftAttachments.length) {
+    return { ok: false, status: 400, error: "Draft contract PDF is required before submission" };
+  }
+  const craNumber = String(contract?.craNumber ?? "").trim();
+  if (!craNumber) return { ok: true, craRequestId: null };
+  const prefill = await resolveContractCraPrefill(pool, craNumber);
+  if (!prefill.ok) return { ok: false, status: prefill.status, error: prefill.error };
+  return { ok: true, craRequestId: String(prefill.request?.id ?? craNumber) };
+};
+
 const safeParseRequest = (value, context) => {
   if (!value) return null;
   try {
@@ -2357,6 +2560,113 @@ const materializeRequestAttachments = async (pool, requestId, request) => {
       requestId,
       keepIds,
     ]);
+  }
+};
+
+const collectContractAttachmentIds = (contract) => {
+  const ids = new Set();
+  const visitArray = (arr) => {
+    if (!Array.isArray(arr)) return;
+    for (const item of arr) {
+      const id = String(item?.id ?? "").trim();
+      if (id) ids.add(id);
+    }
+  };
+  visitArray(contract?.draftContractAttachments);
+  visitArray(contract?.stampedContractAttachments);
+  return Array.from(ids);
+};
+
+const extractInlineContractAttachments = (contract) => {
+  const inserts = [];
+  const visitArray = (arr, attachmentStage) => {
+    if (!Array.isArray(arr)) return;
+    for (const item of arr) {
+      if (!item || typeof item !== "object") continue;
+      const currentUrl = String(item.url ?? "");
+      if (!currentUrl) continue;
+      if (isAttachmentUrl(currentUrl)) continue;
+      if (!looksLikeInlineData(currentUrl)) continue;
+
+      let id = String(item.id ?? "").trim();
+      if (!id) {
+        id = randomUUID();
+        item.id = id;
+      }
+
+      let contentType = null;
+      let buffer = null;
+      if (currentUrl.startsWith("data:")) {
+        const parsed = parseDataUrl(currentUrl);
+        if (parsed?.isBase64) {
+          contentType = parsed.contentType;
+          buffer = Buffer.from(parsed.dataPart, "base64");
+        } else if (parsed) {
+          contentType = parsed.contentType;
+          buffer = Buffer.from(decodeURIComponent(parsed.dataPart), "utf8");
+        }
+      } else {
+        contentType = guessContentTypeFromFilename(item.filename);
+        buffer = Buffer.from(currentUrl, "base64");
+      }
+
+      if (!buffer || !buffer.length) continue;
+      if (!contentType) contentType = guessContentTypeFromFilename(item.filename);
+
+      inserts.push({
+        id,
+        attachmentStage,
+        filename: String(item.filename ?? "file"),
+        contentType,
+        byteSize: buffer.length,
+        uploadedAt: item.uploadedAt ? new Date(item.uploadedAt) : new Date(),
+        uploadedBy: item.uploadedBy ? String(item.uploadedBy) : null,
+        data: buffer,
+      });
+
+      item.url = `/api/attachments/${encodeURIComponent(id)}`;
+    }
+  };
+
+  visitArray(contract?.draftContractAttachments, "draft_contract");
+  visitArray(contract?.stampedContractAttachments, "stamped_contract");
+
+  const keepIds = collectContractAttachmentIds(contract);
+  return { inserts, keepIds };
+};
+
+const materializeContractAttachments = async (pool, contractId, contract) => {
+  const { inserts, keepIds } = extractInlineContractAttachments(contract);
+  for (const att of inserts) {
+    await pool.query(
+      `
+      INSERT INTO contract_approval_attachments
+        (id, contract_id, attachment_stage, filename, content_type, byte_size, uploaded_at, uploaded_by, data)
+      VALUES
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      ON CONFLICT (id) DO NOTHING
+      `,
+      [
+        att.id,
+        contractId,
+        att.attachmentStage,
+        att.filename,
+        att.contentType,
+        att.byteSize,
+        att.uploadedAt,
+        att.uploadedBy,
+        att.data,
+      ]
+    );
+  }
+
+  if (!keepIds.length) {
+    await pool.query("DELETE FROM contract_approval_attachments WHERE contract_id=$1", [contractId]);
+  } else {
+    await pool.query(
+      "DELETE FROM contract_approval_attachments WHERE contract_id=$1 AND NOT (id = ANY($2::text[]))",
+      [contractId, keepIds]
+    );
   }
 };
 
@@ -3788,6 +4098,26 @@ const generateRequestIdInClient = async (client) => {
   return `CRA${dateStamp}${String(value).padStart(2, "0")}`;
 };
 
+const generateContractApprovalIdInClient = async (client) => {
+  const now = new Date();
+  const year = now.getFullYear().toString().slice(-2);
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const dateStamp = `${year}${month}${day}`;
+  const counterName = `contract_approval_${dateStamp}`;
+
+  await client.query("INSERT INTO counters (name, value) VALUES ($1, 0) ON CONFLICT (name) DO NOTHING", [
+    counterName,
+  ]);
+
+  const result = await client.query("UPDATE counters SET value = value + 1 WHERE name = $1 RETURNING value", [
+    counterName,
+  ]);
+  const value = result.rows?.[0]?.value;
+  if (!value) throw new Error("Failed to generate contract approval id");
+  return `CAP${dateStamp}${String(value).padStart(2, "0")}`;
+};
+
 const generateRequestId = async (pool) => {
   return withTransaction(pool, async (client) => {
     return generateRequestIdInClient(client);
@@ -3802,6 +4132,37 @@ const getRequestById = async (pool, id) => {
   return safeParseRequest(data, { id: rowId });
 };
 
+const getContractApprovalById = async (pool, id) => {
+  const row = await pool.query(
+    `
+    SELECT id, status::text AS status, sales_owner_user_id, cra_request_id, submitted_at, gm_decision_at, completed_at, created_at, updated_at, data
+    FROM contract_approvals
+    WHERE id = $1
+    LIMIT 1
+    `,
+    [id]
+  );
+  const found = row.rows?.[0];
+  if (!found) return null;
+  const nowIso = new Date().toISOString();
+  const parsedData = safeParseRequest(found.data, { id: found.id, table: "contract_approvals" }) ?? {};
+  return normalizeContractApprovalData(
+    {
+      ...parsedData,
+      id: found.id,
+      status: found.status,
+      salesOwnerUserId: found.sales_owner_user_id,
+      craRequestId: found.cra_request_id,
+      submittedAt: found.submitted_at ? new Date(found.submitted_at).toISOString() : null,
+      gmDecisionAt: found.gm_decision_at ? new Date(found.gm_decision_at).toISOString() : null,
+      completedAt: found.completed_at ? new Date(found.completed_at).toISOString() : null,
+      createdAt: found.created_at ? new Date(found.created_at).toISOString() : nowIso,
+      updatedAt: found.updated_at ? new Date(found.updated_at).toISOString() : nowIso,
+    },
+    nowIso
+  );
+};
+
 const requestSummarySelect =
   'SELECT id, status, created_at, updated_at, ' +
   "data->>'clientName' as \"clientName\", " +
@@ -3811,6 +4172,14 @@ const requestSummarySelect =
   "data->>'createdBy' as \"createdBy\", " +
   "data->>'createdByName' as \"createdByName\" " +
   "FROM requests ORDER BY updated_at DESC";
+
+const buildContractSummaryNextAction = (status) => {
+  const action = resolveContractNextActionForStatus(status);
+  return {
+    nextActionRole: action.role,
+    nextActionLabel: action.label,
+  };
+};
 
 const fetchAdminLists = async (pool) => {
   const { rows } = await pool.query(
@@ -4711,9 +5080,10 @@ export const apiRouter = (() => {
     })
   );
 
-  // Serve uploaded attachments stored in Postgres (request_attachments.data).
+  // Serve uploaded attachments stored in Postgres.
   router.get(
     "/attachments/:attachmentId",
+    requireAuth,
     asyncHandler(async (req, res) => {
       const { attachmentId } = req.params;
       const id = String(attachmentId ?? "").trim();
@@ -4723,22 +5093,45 @@ export const apiRouter = (() => {
       }
 
       const pool = await getPool();
-      const { rows } = await pool.query(
-        "SELECT request_id, filename, content_type, data FROM request_attachments WHERE id=$1 LIMIT 1",
-        [id]
-      );
-      const row = rows[0] ?? null;
+      let row = null;
+      let source = "request";
+      {
+        const { rows } = await pool.query(
+          "SELECT request_id, filename, content_type, data FROM request_attachments WHERE id=$1 LIMIT 1",
+          [id]
+        );
+        row = rows[0] ?? null;
+      }
+      if (!row) {
+        const { rows } = await pool.query(
+          "SELECT contract_id, filename, content_type, data FROM contract_approval_attachments WHERE id=$1 LIMIT 1",
+          [id]
+        );
+        row = rows[0] ?? null;
+        source = "contract_approval";
+      }
       if (!row) {
         res.status(404).json({ error: "Attachment not found" });
         return;
       }
 
+      if (source === "contract_approval") {
+        const contractId = String(row.contract_id ?? "").trim();
+        const contract = contractId ? await getContractApprovalById(pool, contractId) : null;
+        if (!contract || !canViewContractApproval(req.authUser, contract)) {
+          res.status(403).json({ error: "Access denied" });
+          return;
+        }
+      }
+
       await writeAuditLogBestEffort(pool, req, {
-        action: "attachment.fetch",
+        action: source === "contract_approval" ? "contract_approval.attachment.fetch" : "attachment.fetch",
         targetType: "attachment",
         targetId: id,
         metadata: {
           requestId: row.request_id ?? null,
+          contractId: row.contract_id ?? null,
+          source,
           filename: row.filename ?? null,
         },
       });
@@ -6794,6 +7187,562 @@ export const apiRouter = (() => {
       await pool.query("DELETE FROM reference_products WHERE id = $1", [itemId]);
 
       res.status(204).send();
+    })
+  );
+
+  router.get(
+    "/contracts/summary",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const role = String(req.authUser?.role ?? "").trim().toLowerCase();
+      if (role !== "sales" && role !== "admin" && role !== "finance") {
+        res.status(403).json({ error: "Contract approvals are restricted to Sales, Admin, and Finance" });
+        return;
+      }
+
+      const pool = await getPool();
+      const params = [];
+      const where = [];
+      const pushParam = (value) => {
+        params.push(value);
+        return `$${params.length}`;
+      };
+
+      if (role === "sales") {
+        where.push(`c.sales_owner_user_id = ${pushParam(String(req.authUser?.id ?? ""))}`);
+      } else if (role === "finance") {
+        where.push(`c.status::text = ANY(${pushParam(["gm_approved", "finance_upload", "completed"])}::text[])`);
+      }
+
+      const statusFilter = String(req.query?.status ?? "").trim();
+      if (statusFilter && statusFilter.toLowerCase() !== "all") {
+        const statuses = statusFilter
+          .split(",")
+          .map((v) => parseContractApprovalStatus(v))
+          .filter((v) => isKnownContractApprovalStatus(v))
+          .filter(Boolean);
+        if (statuses.length) {
+          where.push(`c.status::text = ANY(${pushParam(statuses)}::text[])`);
+        }
+      }
+
+      const clientFilter = String(req.query?.client ?? "").trim();
+      if (clientFilter) {
+        where.push(`lower(c.data->>'clientName') LIKE ${pushParam(`%${clientFilter.toLowerCase()}%`)}`);
+      }
+
+      const salesOwnerFilter = String(req.query?.salesOwner ?? "").trim();
+      if (salesOwnerFilter) {
+        const ownerToken = salesOwnerFilter.toLowerCase();
+        where.push(
+          `(lower(COALESCE(u.name, c.data->>'salesOwnerName', '')) LIKE ${pushParam(`%${ownerToken}%`)} OR c.sales_owner_user_id = ${pushParam(
+            salesOwnerFilter
+          )})`
+        );
+      }
+
+      const from = String(req.query?.from ?? "").trim();
+      if (from) {
+        const fromDate = new Date(from);
+        if (!Number.isNaN(fromDate.getTime())) {
+          where.push(`COALESCE(c.submitted_at, c.created_at) >= ${pushParam(fromDate.toISOString())}::timestamptz`);
+        }
+      }
+      const to = String(req.query?.to ?? "").trim();
+      if (to) {
+        const toDate = new Date(to);
+        if (!Number.isNaN(toDate.getTime())) {
+          where.push(`COALESCE(c.submitted_at, c.created_at) <= ${pushParam(toDate.toISOString())}::timestamptz`);
+        }
+      }
+
+      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const { rows } = await pool.query(
+        `
+        SELECT
+          c.id,
+          c.status::text AS status,
+          c.cra_request_id,
+          c.sales_owner_user_id,
+          c.submitted_at,
+          c.created_at,
+          c.updated_at,
+          c.data,
+          u.name AS sales_owner_name
+        FROM contract_approvals c
+        LEFT JOIN app_users u ON u.id = c.sales_owner_user_id
+        ${whereSql}
+        ORDER BY c.updated_at DESC
+        `,
+        params
+      );
+
+      const mapped = rows.map((row) => {
+        const data = safeParseRequest(row.data, { id: row.id, table: "contract_approvals" }) ?? {};
+        const contractAmount = parseOptionalFiniteNumber(data.contractAmount);
+        const action = buildContractSummaryNextAction(row.status);
+        return {
+          id: String(row.id ?? ""),
+          clientName: String(data.clientName ?? ""),
+          craNumber: String(data.craNumber ?? ""),
+          salesOwnerUserId: String(row.sales_owner_user_id ?? ""),
+          salesOwnerName: String(row.sales_owner_name ?? data.salesOwnerName ?? ""),
+          contractAmount,
+          status: normalizeContractApprovalStatus(row.status),
+          submissionDate: row.submitted_at,
+          submittedAt: row.submitted_at,
+          updatedAt: row.updated_at,
+          createdAt: row.created_at,
+          nextActionRole: action.nextActionRole,
+          nextActionLabel: action.nextActionLabel,
+        };
+      });
+
+      res.json(mapped);
+    })
+  );
+
+  router.get(
+    "/contracts/cra-prefill/:craNumber",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const role = String(req.authUser?.role ?? "").trim().toLowerCase();
+      if (role !== "sales" && role !== "admin") {
+        res.status(403).json({ error: "CRA prefill is restricted to Sales and Admin" });
+        return;
+      }
+      const craNumber = String(req.params?.craNumber ?? "").trim();
+      if (!craNumber) {
+        res.status(400).json({ error: "Missing CRA number" });
+        return;
+      }
+      const pool = await getPool();
+      const prefill = await resolveContractCraPrefill(pool, craNumber);
+      if (!prefill.ok) {
+        res.status(prefill.status ?? 400).json({ error: prefill.error ?? "Invalid CRA number" });
+        return;
+      }
+      res.json({
+        craNumber,
+        requestId: prefill.request?.id ?? null,
+        ...prefill.prefill,
+      });
+    })
+  );
+
+  router.post(
+    "/contracts",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const role = String(req.authUser?.role ?? "").trim().toLowerCase();
+      if (role !== "sales" && role !== "admin") {
+        res.status(403).json({ error: "Contract creation is restricted to Sales and Admin" });
+        return;
+      }
+      const body = safeJson(req.body);
+      if (!body) {
+        res.status(400).json({ error: "Invalid JSON body" });
+        return;
+      }
+
+      const pool = await getPool();
+      const nowIso = new Date().toISOString();
+      let salesOwnerUserId = String(req.authUser?.id ?? "").trim();
+      let salesOwnerName = String(req.authUser?.name ?? "").trim();
+
+      if (role === "admin" && body.salesOwnerUserId) {
+        const ownerId = String(body.salesOwnerUserId ?? "").trim();
+        const ownerRow = await pool.query(
+          "SELECT id, name FROM app_users WHERE id = $1 AND is_active = true LIMIT 1",
+          [ownerId]
+        );
+        if (ownerRow.rows?.length) {
+          salesOwnerUserId = String(ownerRow.rows[0].id ?? salesOwnerUserId);
+          salesOwnerName = String(ownerRow.rows[0].name ?? salesOwnerName);
+        }
+      }
+
+      let status = normalizeContractApprovalStatus(body.status ?? "draft");
+      if (status !== "draft" && status !== "submitted") status = "draft";
+      const initialHistory = [
+        normalizeContractHistoryEntry(
+          {
+            status,
+            comment: typeof body.comment === "string" ? body.comment : "",
+            userId: req.authUser?.id,
+            userName: req.authUser?.name,
+          },
+          status,
+          String(req.authUser?.id ?? ""),
+          String(req.authUser?.name ?? ""),
+          nowIso
+        ),
+      ];
+
+      let contract = normalizeContractApprovalData(
+        {
+          ...body,
+          id: "",
+          status,
+          salesOwnerUserId,
+          salesOwnerName,
+          craRequestId: null,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          submittedAt: status === "submitted" ? nowIso : null,
+          gmDecisionAt: null,
+          completedAt: null,
+          history: initialHistory,
+        },
+        nowIso
+      );
+
+      if (status === "submitted") {
+        const submitValidation = await validateContractSubmitPayload(pool, contract);
+        if (!submitValidation.ok) {
+          res.status(submitValidation.status ?? 400).json({ error: submitValidation.error ?? "Invalid submission payload" });
+          return;
+        }
+        contract = normalizeContractApprovalData(
+          {
+            ...contract,
+            craRequestId: submitValidation.craRequestId ?? null,
+            submittedAt: nowIso,
+          },
+          nowIso
+        );
+      }
+
+      const created = await withTransaction(pool, async (client) => {
+        const id = await generateContractApprovalIdInClient(client);
+        const finalized = normalizeContractApprovalData(
+          {
+            ...contract,
+            id,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+          },
+          nowIso
+        );
+
+        await client.query(
+          `
+          INSERT INTO contract_approvals
+            (id, status, cra_request_id, sales_owner_user_id, data, created_at, updated_at, submitted_at, gm_decision_at, completed_at)
+          VALUES
+            ($1, $2::contract_approval_status, $3, $4, $5::jsonb, $6, $7, $8, $9, $10)
+          `,
+          [
+            id,
+            finalized.status,
+            finalized.craRequestId ? String(finalized.craRequestId) : null,
+            finalized.salesOwnerUserId,
+            JSON.stringify(finalized),
+            new Date(nowIso),
+            new Date(nowIso),
+            finalized.submittedAt ? new Date(finalized.submittedAt) : null,
+            finalized.gmDecisionAt ? new Date(finalized.gmDecisionAt) : null,
+            finalized.completedAt ? new Date(finalized.completedAt) : null,
+          ]
+        );
+        await materializeContractAttachments(client, id, finalized);
+        return finalized;
+      });
+
+      await writeAuditLogBestEffort(pool, req, {
+        action: "contract_approval.created",
+        targetType: "contract_approval",
+        targetId: created.id,
+        metadata: {
+          status: created.status,
+          craRequestId: created.craRequestId ?? null,
+        },
+      });
+
+      res.status(201).json(created);
+    })
+  );
+
+  router.get(
+    "/contracts/:contractId",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const contractId = String(req.params?.contractId ?? "").trim();
+      if (!contractId) {
+        res.status(400).json({ error: "Missing contract id" });
+        return;
+      }
+      const pool = await getPool();
+      const existing = await getContractApprovalById(pool, contractId);
+      if (!existing) {
+        res.status(404).json({ error: "Contract approval not found" });
+        return;
+      }
+      if (!canViewContractApproval(req.authUser, existing)) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+      res.json(existing);
+    })
+  );
+
+  router.put(
+    "/contracts/:contractId",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const contractId = String(req.params?.contractId ?? "").trim();
+      const body = safeJson(req.body);
+      if (!contractId || !body) {
+        res.status(400).json({ error: "Invalid contract payload" });
+        return;
+      }
+      const pool = await getPool();
+      const existing = await getContractApprovalById(pool, contractId);
+      if (!existing) {
+        res.status(404).json({ error: "Contract approval not found" });
+        return;
+      }
+      if (!canViewContractApproval(req.authUser, existing)) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+
+      const role = String(req.authUser?.role ?? "").trim().toLowerCase();
+      const nowIso = new Date().toISOString();
+      const draftEditable = canEditContractApproval(req.authUser, existing);
+      const financeEditable = role === "finance" && (existing.status === "gm_approved" || existing.status === "finance_upload");
+
+      if (!draftEditable && !financeEditable) {
+        res.status(403).json({ error: "Contract approval is read-only at this stage" });
+        return;
+      }
+
+      let merged = { ...existing };
+      if (draftEditable) {
+        merged = {
+          ...existing,
+          ...body,
+          id: existing.id,
+          status: existing.status,
+          salesOwnerUserId: existing.salesOwnerUserId,
+          salesOwnerName: existing.salesOwnerName,
+          createdAt: existing.createdAt,
+          history: existing.history,
+          updatedAt: nowIso,
+        };
+      } else if (financeEditable) {
+        const allowedFinanceKeys = new Set(["stampedContractAttachments", "comments"]);
+        const disallowedKey = Object.keys(body).find((key) => !allowedFinanceKeys.has(key));
+        if (disallowedKey) {
+          res.status(403).json({ error: `Finance cannot modify field '${disallowedKey}'` });
+          return;
+        }
+        merged = {
+          ...existing,
+          stampedContractAttachments: Array.isArray(body.stampedContractAttachments)
+            ? body.stampedContractAttachments
+            : existing.stampedContractAttachments,
+          comments: typeof body.comments === "string" ? body.comments : existing.comments,
+          updatedAt: nowIso,
+        };
+      }
+
+      const normalized = normalizeContractApprovalData(merged, nowIso);
+
+      await withTransaction(pool, async (client) => {
+        await materializeContractAttachments(client, contractId, normalized);
+        await client.query(
+          `
+          UPDATE contract_approvals
+          SET
+            data = $2::jsonb,
+            status = $3::contract_approval_status,
+            cra_request_id = $4,
+            sales_owner_user_id = $5,
+            updated_at = $6,
+            submitted_at = $7,
+            gm_decision_at = $8,
+            completed_at = $9
+          WHERE id = $1
+          `,
+          [
+            contractId,
+            JSON.stringify(normalized),
+            normalized.status,
+            normalized.craRequestId ? String(normalized.craRequestId) : null,
+            normalized.salesOwnerUserId,
+            new Date(nowIso),
+            normalized.submittedAt ? new Date(normalized.submittedAt) : null,
+            normalized.gmDecisionAt ? new Date(normalized.gmDecisionAt) : null,
+            normalized.completedAt ? new Date(normalized.completedAt) : null,
+          ]
+        );
+      });
+
+      await writeAuditLogBestEffort(pool, req, {
+        action: "contract_approval.updated",
+        targetType: "contract_approval",
+        targetId: contractId,
+        metadata: {
+          role,
+          status: normalized.status,
+        },
+      });
+
+      res.json(normalized);
+    })
+  );
+
+  router.post(
+    "/contracts/:contractId/status",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const contractId = String(req.params?.contractId ?? "").trim();
+      const requestedStatus = parseContractApprovalStatus(req.body?.status);
+      const comment = typeof req.body?.comment === "string" ? req.body.comment.trim() : "";
+      if (!contractId || !isKnownContractApprovalStatus(requestedStatus)) {
+        res.status(400).json({ error: "Invalid status payload" });
+        return;
+      }
+
+      const pool = await getPool();
+      const existing = await getContractApprovalById(pool, contractId);
+      if (!existing) {
+        res.status(404).json({ error: "Contract approval not found" });
+        return;
+      }
+      if (!canViewContractApproval(req.authUser, existing)) {
+        res.status(403).json({ error: "Access denied" });
+        return;
+      }
+      if (!isAllowedContractApprovalStatusTransition(existing.status, requestedStatus)) {
+        res.status(400).json({
+          error: `Invalid status transition from '${existing.status}' to '${requestedStatus}'`,
+          allowedTransitions: getAllowedContractApprovalStatusTransitions(existing.status),
+        });
+        return;
+      }
+
+      const role = String(req.authUser?.role ?? "").trim().toLowerCase();
+      const isOwnerSales =
+        role === "sales" && String(existing.salesOwnerUserId ?? "").trim() === String(req.authUser?.id ?? "").trim();
+      if (requestedStatus === "submitted" && !(isOwnerSales || role === "admin")) {
+        res.status(403).json({ error: "Only Sales owner or Admin can submit contract approval" });
+        return;
+      }
+      if ((requestedStatus === "gm_approved" || requestedStatus === "gm_rejected") && role !== "admin") {
+        res.status(403).json({ error: "Only Admin can make GM decision" });
+        return;
+      }
+      if ((requestedStatus === "finance_upload" || requestedStatus === "completed") && role !== "finance") {
+        res.status(403).json({ error: "Only Finance can perform this action" });
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      let updated = normalizeContractApprovalData(
+        {
+          ...existing,
+          status: requestedStatus,
+          updatedAt: nowIso,
+          submittedAt: requestedStatus === "submitted" ? nowIso : existing.submittedAt,
+          gmDecisionAt:
+            requestedStatus === "gm_approved" || requestedStatus === "gm_rejected" ? nowIso : existing.gmDecisionAt,
+          completedAt: requestedStatus === "completed" ? nowIso : existing.completedAt,
+          history: [
+            ...(Array.isArray(existing.history) ? existing.history : []),
+            normalizeContractHistoryEntry(
+              {
+                status: requestedStatus,
+                comment,
+                userId: req.authUser?.id,
+                userName: req.authUser?.name,
+              },
+              requestedStatus,
+              String(req.authUser?.id ?? ""),
+              String(req.authUser?.name ?? ""),
+              nowIso
+            ),
+          ],
+        },
+        nowIso
+      );
+
+      if (requestedStatus === "submitted") {
+        const submitValidation = await validateContractSubmitPayload(pool, updated);
+        if (!submitValidation.ok) {
+          res.status(submitValidation.status ?? 400).json({ error: submitValidation.error ?? "Submission validation failed" });
+          return;
+        }
+        updated = normalizeContractApprovalData(
+          {
+            ...updated,
+            craRequestId: submitValidation.craRequestId ?? null,
+            submittedAt: nowIso,
+          },
+          nowIso
+        );
+      }
+
+      if (requestedStatus === "finance_upload" || requestedStatus === "completed") {
+        const stampedAttachments = Array.isArray(updated.stampedContractAttachments)
+          ? updated.stampedContractAttachments
+          : [];
+        if (!stampedAttachments.length) {
+          res.status(400).json({ error: "Stamped contract file is required" });
+          return;
+        }
+      }
+
+      await pool.query(
+        `
+        UPDATE contract_approvals
+        SET
+          data = $2::jsonb,
+          status = $3::contract_approval_status,
+          cra_request_id = $4,
+          sales_owner_user_id = $5,
+          updated_at = $6,
+          submitted_at = $7,
+          gm_decision_at = $8,
+          completed_at = $9
+        WHERE id = $1
+        `,
+        [
+          contractId,
+          JSON.stringify(updated),
+          updated.status,
+          updated.craRequestId ? String(updated.craRequestId) : null,
+          updated.salesOwnerUserId,
+          new Date(nowIso),
+          updated.submittedAt ? new Date(updated.submittedAt) : null,
+          updated.gmDecisionAt ? new Date(updated.gmDecisionAt) : null,
+          updated.completedAt ? new Date(updated.completedAt) : null,
+        ]
+      );
+
+      const actionByStatus = {
+        submitted: "contract_approval.submitted",
+        gm_approved: "contract_approval.gm_approved",
+        gm_rejected: "contract_approval.gm_rejected",
+        finance_upload: "contract_approval.finance_uploaded",
+        completed: "contract_approval.completed",
+      };
+
+      await writeAuditLogBestEffort(pool, req, {
+        action: actionByStatus[requestedStatus] ?? "contract_approval.status_changed",
+        targetType: "contract_approval",
+        targetId: contractId,
+        metadata: {
+          fromStatus: existing.status,
+          toStatus: updated.status,
+          effectiveStatus: updated.status,
+          craRequestId: updated.craRequestId ?? null,
+          comment: comment || null,
+        },
+      });
+
+      res.json(updated);
     })
   );
 

@@ -34,8 +34,30 @@ const REQUEST_STATUS_TRANSITIONS = Object.freeze({
   cancelled: toTransitionSet([]),
 });
 
+const CONTRACT_APPROVAL_STATUS_ORDER = Object.freeze([
+  "draft",
+  "submitted",
+  "gm_approved",
+  "gm_rejected",
+  "finance_upload",
+  "completed",
+]);
+
+const CONTRACT_APPROVAL_STATUS_TRANSITIONS = Object.freeze({
+  draft: toTransitionSet(["submitted"]),
+  submitted: toTransitionSet(["gm_approved", "gm_rejected"]),
+  gm_approved: toTransitionSet(["finance_upload"]),
+  gm_rejected: toTransitionSet(["submitted"]),
+  finance_upload: toTransitionSet(["completed"]),
+  completed: toTransitionSet([]),
+});
+
 const WORKFLOW_STATUS_SET = new Set(WORKFLOW_STATUS_ORDER);
 const WORKFLOW_STATUS_RANK = new Map(WORKFLOW_STATUS_ORDER.map((status, index) => [status, index]));
+const CONTRACT_APPROVAL_STATUS_SET = new Set(CONTRACT_APPROVAL_STATUS_ORDER);
+const CONTRACT_APPROVAL_STATUS_RANK = new Map(
+  CONTRACT_APPROVAL_STATUS_ORDER.map((status, index) => [status, index])
+);
 
 const parseHistoryEntryTimestamp = (entry) => {
   const raw = entry?.timestamp ?? entry?.ts ?? entry?.time ?? null;
@@ -92,7 +114,14 @@ export const getStatusRank = (status) => {
   return WORKFLOW_STATUS_RANK.has(normalized) ? WORKFLOW_STATUS_RANK.get(normalized) : -1;
 };
 
+export const getContractApprovalStatusRank = (status) => {
+  const normalized = String(status ?? "").trim();
+  return CONTRACT_APPROVAL_STATUS_RANK.has(normalized) ? CONTRACT_APPROVAL_STATUS_RANK.get(normalized) : -1;
+};
+
 export const isKnownRequestStatus = (status) => WORKFLOW_STATUS_SET.has(String(status ?? "").trim());
+export const isKnownContractApprovalStatus = (status) =>
+  CONTRACT_APPROVAL_STATUS_SET.has(String(status ?? "").trim());
 
 export const isAllowedStatusTransition = (fromStatus, toStatus) => {
   const from = String(fromStatus ?? "").trim();
@@ -111,7 +140,25 @@ export const getAllowedStatusTransitions = (status) => {
   return Array.from(REQUEST_STATUS_TRANSITIONS[normalized] ?? []);
 };
 
+export const isAllowedContractApprovalStatusTransition = (fromStatus, toStatus) => {
+  const from = String(fromStatus ?? "").trim();
+  const to = String(toStatus ?? "").trim();
+  if (!to || !isKnownContractApprovalStatus(to)) return false;
+  if (!from || !isKnownContractApprovalStatus(from)) return false;
+  if (from === to) return true;
+  const allowed = CONTRACT_APPROVAL_STATUS_TRANSITIONS[from];
+  if (!allowed) return false;
+  return allowed.has(to);
+};
+
+export const getAllowedContractApprovalStatusTransitions = (status) => {
+  const normalized = String(status ?? "").trim();
+  if (!isKnownContractApprovalStatus(normalized)) return [];
+  return Array.from(CONTRACT_APPROVAL_STATUS_TRANSITIONS[normalized] ?? []);
+};
+
 export const getWorkflowStatusOrder = () => [...WORKFLOW_STATUS_ORDER];
+export const getContractApprovalStatusOrder = () => [...CONTRACT_APPROVAL_STATUS_ORDER];
 
 export const buildRequestSnapshotEntry = (row) => {
   const currentStatus = String(row?.status ?? "").trim();

@@ -2309,7 +2309,7 @@ const Settings: React.FC = () => {
               entry.name &&
               entry.email &&
               entry.password &&
-              (entry.role === 'sales' || entry.role === 'design' || entry.role === 'costing' || entry.role === 'admin')
+              (entry.role === 'sales' || entry.role === 'design' || entry.role === 'costing' || entry.role === 'admin' || entry.role === 'finance')
           );
         if (payloadUsers.length) break;
       }
@@ -2579,6 +2579,7 @@ const Settings: React.FC = () => {
                         <SelectItem value="design">{t.roles.design}</SelectItem>
                         <SelectItem value="costing">{t.roles.costing}</SelectItem>
                         <SelectItem value="admin">{t.roles.admin}</SelectItem>
+                        <SelectItem value="finance">{t.roles.finance}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -2655,6 +2656,7 @@ const Settings: React.FC = () => {
                           costing: 'bg-success',
                           // Keep admin as a "danger" marker; chip remains neutral.
                           admin: 'bg-destructive',
+                          finance: 'bg-emerald-500',
                         };
 
                         return (
@@ -2806,6 +2808,7 @@ const Settings: React.FC = () => {
                       <SelectItem value="design">{t.roles.design}</SelectItem>
                       <SelectItem value="costing">{t.roles.costing}</SelectItem>
                       <SelectItem value="admin">{t.roles.admin}</SelectItem>
+                      <SelectItem value="finance">{t.roles.finance}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

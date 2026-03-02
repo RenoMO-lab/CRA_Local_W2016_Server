@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   FileText, 
   Clock, 
@@ -6,6 +7,7 @@ import {
   AlertCircle, 
   TrendingUp,
   Filter,
+  Plus,
   X
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -55,6 +57,7 @@ const COSTING_PROCESSED_STATUSES: RequestStatus[] = [
 ];
 
 const Dashboard: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { requests, deleteRequest } = useRequests();
   const { t } = useLanguage();
@@ -215,6 +218,13 @@ const Dashboard: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {(user?.role === 'sales' || user?.role === 'admin') ? (
+              <Button onClick={() => navigate('/requests/new')}>
+                <Plus size={14} className="mr-2" />
+                {t.nav.newRequest}
+              </Button>
+            ) : null}
+
             {(activeFilter !== 'all' || ownershipFilter !== 'all') && (
               <Button
                 variant="outline"

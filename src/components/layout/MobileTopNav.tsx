@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ChevronDown,
   Menu,
-  Plus,
   Settings,
 } from 'lucide-react';
 
@@ -59,7 +58,7 @@ const MobileTopNav: React.FC = () => {
 
   const navItems = [
     { path: '/dashboard', label: t.nav.dashboard, roles: ['sales', 'design', 'costing', 'admin'] },
-    { path: '/requests/new', label: t.nav.newRequest, roles: ['sales', 'admin'] },
+    { path: '/contract-approvals', label: t.nav.contractApprovals, roles: ['sales', 'admin', 'finance'] },
     { path: '/price-list', label: t.nav.priceList, roles: ['sales', 'admin'] },
     { path: '/performance', label: t.nav.performance, roles: ['sales', 'design', 'costing', 'admin'] },
   ];
@@ -79,8 +78,6 @@ const MobileTopNav: React.FC = () => {
           { tab: 'deployments', label: t.settings.deploymentsTab },
         ]
       : [];
-
-  const showCreateButton = user?.role === 'sales' || user?.role === 'admin';
 
   const isActive = (path: string) => {
     if (path.startsWith('/settings?')) {
@@ -108,18 +105,6 @@ const MobileTopNav: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-1.5">
-          {showCreateButton && location.pathname !== '/requests/new' && (
-            <Button
-              size="sm"
-              variant="default"
-              onClick={() => navigate('/requests/new')}
-              className="h-8 px-2.5 text-xs"
-            >
-              <Plus size={14} className="mr-1" />
-              {t.nav.newRequest}
-            </Button>
-          )}
-
           {user ? (
             <UserHubMenu
               trigger={

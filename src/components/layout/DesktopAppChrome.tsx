@@ -77,7 +77,33 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Dashboard' },
+        { label: 'Request Analysis' },
+      ],
+    };
+  }
+  if (pathname.startsWith('/contract-approvals/new')) {
+    return {
+      breadcrumb: [
+        { label: 'CRA', to: '/dashboard' },
+        { label: 'Contract Approval', to: '/contract-approvals' },
+        { label: 'New' },
+      ],
+    };
+  }
+  if (pathname.startsWith('/contract-approvals/')) {
+    return {
+      breadcrumb: [
+        { label: 'CRA', to: '/dashboard' },
+        { label: 'Contract Approval', to: '/contract-approvals' },
+        { label: 'Detail' },
+      ],
+    };
+  }
+  if (pathname.startsWith('/contract-approvals')) {
+    return {
+      breadcrumb: [
+        { label: 'CRA', to: '/dashboard' },
+        { label: 'Contract Approval' },
       ],
     };
   }
@@ -85,7 +111,7 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Request', to: '/dashboard' },
+        { label: 'Request Analysis', to: '/dashboard' },
         { label: 'New' },
       ],
     };
@@ -94,7 +120,7 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Request', to: '/dashboard' },
+        { label: 'Request Analysis', to: '/dashboard' },
         { label: 'Detail' },
       ],
     };
@@ -181,7 +207,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   const navigationCommands = useMemo(
     () => [
-      { id: 'go-dashboard', label: 'Go to Dashboard', path: '/dashboard', icon: LayoutGrid },
+      { id: 'go-dashboard', label: 'Go to Request Analysis', path: '/dashboard', icon: LayoutGrid },
       { id: 'go-new-request', label: 'New Request', path: '/requests/new', icon: Plus },
       { id: 'go-settings', label: 'Go to Settings', path: '/settings', icon: Settings },
     ],
@@ -465,15 +491,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <Button
-            size="icon"
-            className="h-8 w-8"
-            onClick={() => navigate('/requests/new')}
-            aria-label={t.nav.newRequest}
-            title={t.nav.newRequest}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
           <Button
             variant="outline"
             size="icon"

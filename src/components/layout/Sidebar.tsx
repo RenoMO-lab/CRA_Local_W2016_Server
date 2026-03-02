@@ -5,10 +5,10 @@ import {
   ChevronDown,
   Database,
   FileText,
+  LayoutGrid,
   Languages,
   Mail,
   MessageCircle,
-  Plus,
   ScrollText,
   Server,
   Settings,
@@ -60,8 +60,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
 
   const navItems = useMemo(
     () => [
-      { path: '/dashboard', labelKey: 'dashboard' as const, icon: FileText, roles: ['sales', 'design', 'costing', 'admin'] },
-      { path: '/requests/new', labelKey: 'newRequest' as const, icon: Plus, roles: ['sales', 'admin'] },
+      { path: '/dashboard', labelKey: 'dashboard' as const, icon: LayoutGrid, roles: ['sales', 'design', 'costing', 'admin'] },
+      { path: '/contract-approvals', labelKey: 'contractApprovals' as const, icon: FileText, roles: ['sales', 'admin', 'finance'] },
       { path: '/price-list', labelKey: 'priceList' as const, icon: Tags, roles: ['sales', 'admin'] },
       { path: '/performance', labelKey: 'performance' as const, icon: BarChart3, roles: ['sales', 'design', 'costing', 'admin'] },
     ],
