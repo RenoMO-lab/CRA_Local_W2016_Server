@@ -104,6 +104,8 @@ const PRIORITY_WEIGHT: Record<RequestPriority, number> = {
   high: 3,
   urgent: 4,
 };
+const CONTEXT_MENU_EDGE_GAP = 8;
+const CONTEXT_MENU_BOTTOM_SAFE_GAP = 40;
 
 const toPriority = (value?: string): RequestPriority => {
   if (value === 'low' || value === 'normal' || value === 'high' || value === 'urgent') return value;
@@ -172,6 +174,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [sortRules, setSortRules] = useState<SortRule[]>([]);
   const [rowContextMenu, setRowContextMenu] = useState<RowContextMenuState | null>(null);
+  const rowContextMenuRef = useRef<HTMLDivElement | null>(null);
   const quickReviewTimerRef = useRef<number | null>(null);
 
   const getPrimaryProduct = (request: CustomerRequest): Partial<RequestProduct> => {
@@ -447,9 +450,15 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
 
   const openRowContextMenu = (event: React.MouseEvent, request: CustomerRequest) => {
     event.preventDefault();
+    const actions = getDesktopRowActions(request);
+    const separatorCount = actions.filter((action) => action.separatorBefore).length;
+    const estimatedMenuWidth = 220;
+    const estimatedMenuHeight = actions.length * 36 + separatorCount * 8 + 12;
+    const maxX = window.innerWidth - estimatedMenuWidth - CONTEXT_MENU_EDGE_GAP;
+    const maxY = window.innerHeight - estimatedMenuHeight - CONTEXT_MENU_BOTTOM_SAFE_GAP;
     setRowContextMenu({
-      x: event.clientX,
-      y: event.clientY,
+      x: Math.max(CONTEXT_MENU_EDGE_GAP, Math.min(event.clientX, maxX)),
+      y: Math.max(CONTEXT_MENU_EDGE_GAP, Math.min(event.clientY, maxY)),
       request,
     });
   };
@@ -457,14 +466,39 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
   useEffect(() => {
     if (!rowContextMenu) return undefined;
     const close = () => setRowContextMenu(null);
+    const handleEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
     window.addEventListener('click', close);
     window.addEventListener('scroll', close, true);
     window.addEventListener('resize', close);
+    window.addEventListener('keydown', handleEsc);
     return () => {
       window.removeEventListener('click', close);
       window.removeEventListener('scroll', close, true);
       window.removeEventListener('resize', close);
+      window.removeEventListener('keydown', handleEsc);
     };
+  }, [rowContextMenu]);
+
+  useEffect(() => {
+    if (!rowContextMenu || !rowContextMenuRef.current) return;
+    const rect = rowContextMenuRef.current.getBoundingClientRect();
+    let nextX = rowContextMenu.x;
+    let nextY = rowContextMenu.y;
+    const maxRight = window.innerWidth - CONTEXT_MENU_EDGE_GAP;
+    const maxBottom = window.innerHeight - CONTEXT_MENU_BOTTOM_SAFE_GAP;
+    if (rect.right > maxRight) {
+      nextX -= rect.right - maxRight;
+    }
+    if (rect.bottom > maxBottom) {
+      nextY -= rect.bottom - maxBottom;
+    }
+    nextX = Math.max(CONTEXT_MENU_EDGE_GAP, nextX);
+    nextY = Math.max(CONTEXT_MENU_EDGE_GAP, nextY);
+    if (nextX !== rowContextMenu.x || nextY !== rowContextMenu.y) {
+      setRowContextMenu((prev) => (prev ? { ...prev, x: nextX, y: nextY } : prev));
+    }
   }, [rowContextMenu]);
 
   useEffect(() => {
@@ -734,7 +768,8 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
 
       {rowContextMenu ? (
         <div
-          className="fixed z-[100] min-w-[180px] bg-popover border border-border rounded-md shadow-xl py-1"
+          ref={rowContextMenuRef}
+          className="fixed z-[100] min-w-[180px] max-w-[260px] max-h-[70vh] overflow-y-auto bg-popover border border-border rounded-md shadow-xl py-1"
           style={{ left: rowContextMenu.x, top: rowContextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >

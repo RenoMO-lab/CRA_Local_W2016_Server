@@ -24,8 +24,6 @@ interface Props {
   onQuickReview: (id: string) => void;
   onView: (id: string) => void;
   onEdit: (id: string) => void;
-  onApprove: (id: string) => void;
-  onReject: (id: string) => void;
   onFinanceUpload: (id: string) => void;
   onComplete: (id: string) => void;
 }
@@ -38,6 +36,8 @@ interface RowContextMenuState {
   y: number;
   contract: ContractApproval;
 }
+const CONTEXT_MENU_EDGE_GAP = 8;
+const CONTEXT_MENU_BOTTOM_SAFE_GAP = 40;
 
 interface RowActionItem {
   key: string;
@@ -66,8 +66,6 @@ const ContractApprovalsTable: React.FC<Props> = ({
   onQuickReview,
   onView,
   onEdit,
-  onApprove,
-  onReject,
   onFinanceUpload,
   onComplete,
 }) => {
@@ -76,6 +74,7 @@ const ContractApprovalsTable: React.FC<Props> = ({
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [rowContextMenu, setRowContextMenu] = useState<RowContextMenuState | null>(null);
+  const rowContextMenuRef = useRef<HTMLDivElement | null>(null);
   const quickReviewTimerRef = useRef<number | null>(null);
 
   const getNextActionLabel = (contract: ContractApproval) => {
@@ -114,42 +113,6 @@ const ContractApprovalsTable: React.FC<Props> = ({
         icon: Edit,
         onSelect: () => onEdit(contract.id),
       });
-    }
-
-    if (userRole === 'finance' && contract.status === 'submitted') {
-      actions.push(
-        {
-          key: 'approve',
-          label: t.contractApproval.approve,
-          icon: Check,
-          onSelect: () => onApprove(contract.id),
-        },
-        {
-          key: 'reject',
-          label: t.contractApproval.reject,
-          icon: Edit,
-          onSelect: () => onReject(contract.id),
-          destructive: true,
-        }
-      );
-    }
-
-    if (userRole === 'admin' && contract.status === 'finance_approved') {
-      actions.push(
-        {
-          key: 'approve',
-          label: t.contractApproval.approve,
-          icon: Check,
-          onSelect: () => onApprove(contract.id),
-        },
-        {
-          key: 'reject',
-          label: t.contractApproval.reject,
-          icon: Edit,
-          onSelect: () => onReject(contract.id),
-          destructive: true,
-        }
-      );
     }
 
     if (userRole === 'cashier' && contract.status === 'gm_approved') {
@@ -250,9 +213,15 @@ const ContractApprovalsTable: React.FC<Props> = ({
 
   const openRowContextMenu = (event: React.MouseEvent, contract: ContractApproval) => {
     event.preventDefault();
+    const actions = getRowActions(contract);
+    const separatorCount = actions.filter((action) => action.separatorBefore).length;
+    const estimatedMenuWidth = 220;
+    const estimatedMenuHeight = actions.length * 36 + separatorCount * 8 + 12;
+    const maxX = window.innerWidth - estimatedMenuWidth - CONTEXT_MENU_EDGE_GAP;
+    const maxY = window.innerHeight - estimatedMenuHeight - CONTEXT_MENU_BOTTOM_SAFE_GAP;
     setRowContextMenu({
-      x: event.clientX,
-      y: event.clientY,
+      x: Math.max(CONTEXT_MENU_EDGE_GAP, Math.min(event.clientX, maxX)),
+      y: Math.max(CONTEXT_MENU_EDGE_GAP, Math.min(event.clientY, maxY)),
       contract,
     });
   };
@@ -273,6 +242,26 @@ const ContractApprovalsTable: React.FC<Props> = ({
       window.removeEventListener('resize', close);
       window.removeEventListener('keydown', handleEsc);
     };
+  }, [rowContextMenu]);
+
+  useEffect(() => {
+    if (!rowContextMenu || !rowContextMenuRef.current) return;
+    const rect = rowContextMenuRef.current.getBoundingClientRect();
+    let nextX = rowContextMenu.x;
+    let nextY = rowContextMenu.y;
+    const maxRight = window.innerWidth - CONTEXT_MENU_EDGE_GAP;
+    const maxBottom = window.innerHeight - CONTEXT_MENU_BOTTOM_SAFE_GAP;
+    if (rect.right > maxRight) {
+      nextX -= rect.right - maxRight;
+    }
+    if (rect.bottom > maxBottom) {
+      nextY -= rect.bottom - maxBottom;
+    }
+    nextX = Math.max(CONTEXT_MENU_EDGE_GAP, nextX);
+    nextY = Math.max(CONTEXT_MENU_EDGE_GAP, nextY);
+    if (nextX !== rowContextMenu.x || nextY !== rowContextMenu.y) {
+      setRowContextMenu((prev) => (prev ? { ...prev, x: nextX, y: nextY } : prev));
+    }
   }, [rowContextMenu]);
 
   useEffect(() => {
@@ -473,7 +462,8 @@ const ContractApprovalsTable: React.FC<Props> = ({
 
       {rowContextMenu ? (
         <div
-          className="fixed z-[100] min-w-[180px] bg-popover border border-border rounded-md shadow-xl py-1"
+          ref={rowContextMenuRef}
+          className="fixed z-[100] min-w-[180px] max-w-[260px] max-h-[70vh] overflow-y-auto bg-popover border border-border rounded-md shadow-xl py-1"
           style={{ left: rowContextMenu.x, top: rowContextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
