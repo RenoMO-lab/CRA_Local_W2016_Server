@@ -165,6 +165,22 @@ const RequestSummaryView: React.FC<Props> = ({ request }) => {
     return request.environment ? translateOption(request.environment) : "-";
   }, [request.environment, request.environmentOther, translateOption, t.common.other]);
 
+  const incotermDisplay = useMemo(() => {
+    const incoterm = String(request.incoterm ?? "").trim();
+    if (!incoterm) return "-";
+    if (incoterm.toLowerCase() === "other") {
+      return String(request.incotermOther ?? "").trim() || t.common.other;
+    }
+    return incoterm;
+  }, [request.incoterm, request.incotermOther, t.common.other]);
+
+  const taxationDisplay = useMemo(() => {
+    const vatMode = String(request.vatMode ?? "").trim().toLowerCase();
+    if (vatMode === "with") return t.panels.withVat;
+    if (vatMode === "without") return t.panels.withoutVat;
+    return "-";
+  }, [request.vatMode, t.panels.withVat, t.panels.withoutVat]);
+
   const expectedDeliverySelections = Array.isArray(request.expectedDeliverySelections) ? request.expectedDeliverySelections : [];
   const products = useMemo(() => normalizeProducts(request), [request]);
 
@@ -184,6 +200,10 @@ const RequestSummaryView: React.FC<Props> = ({ request }) => {
           <SummaryField label={t.request.applicationVehicle} value={applicationVehicleDisplay} />
           <SummaryField label={t.common.status} value={t.statuses[request.status] || request.status} />
           <SummaryField label={t.common.date} value={formatDateTime(request.updatedAt)} />
+          <SummaryField label={t.panels.currency} value={request.sellingCurrency || "-"} />
+          <SummaryField label={t.panels.incoterm} value={incotermDisplay} />
+          <SummaryField label={t.panels.vatMode} value={taxationDisplay} />
+          <SummaryField label={t.request.clientAddressDelivery} value={request.clientAddressDelivery?.trim() || "-"} />
         </div>
       </SummaryCard>
 

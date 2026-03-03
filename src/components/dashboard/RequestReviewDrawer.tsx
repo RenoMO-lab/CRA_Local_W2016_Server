@@ -16,6 +16,7 @@ import {
 
 import { useLanguage } from "@/context/LanguageContext";
 import { useRequests } from "@/context/RequestContext";
+import { useAuth } from "@/context/AuthContext";
 import {
   AXLE_LOCATIONS,
   ARTICULATION_TYPES,
@@ -99,6 +100,7 @@ const getStatusIcon = (status: RequestStatus) => {
 
 const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, userRole }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { t, translateOption } = useLanguage();
   const { getRequestById, getRequestByIdAsync } = useRequests();
 
@@ -107,7 +109,16 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
   const [loadError, setLoadError] = useState<string | null>(null);
   const latestRequestIdRef = useRef<string | null>(null);
 
-  const canEditRoute = userRole === "admin";
+  const canEditRequest = useMemo(() => {
+    if (!request) return false;
+    if (userRole === "admin") return true;
+    if (userRole !== "sales") return false;
+
+    const ownerId = String(request.createdBy ?? "").trim();
+    const actorId = String(user?.id ?? "").trim();
+    const status = String(request.status ?? "").trim();
+    return ownerId.length > 0 && ownerId === actorId && (status === "draft" || status === "clarification_needed");
+  }, [request, user?.id, userRole]);
 
   const load = async (id: string) => {
     latestRequestIdRef.current = id;
@@ -259,7 +270,7 @@ const RequestReviewDrawer: React.FC<Props> = ({ open, onOpenChange, requestId, u
               <ExternalLink size={16} className="mr-2" />
               {t.dashboard.reviewOpenRequest}
             </Button>
-            {canEditRoute && (
+            {canEditRequest && (
               <Button
                 variant="outline"
                 onClick={() => requestId && navigate(`/requests/${requestId}/edit`)}

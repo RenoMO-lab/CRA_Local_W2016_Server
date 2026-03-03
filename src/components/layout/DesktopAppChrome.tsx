@@ -73,12 +73,170 @@ const formatNotificationTime = (value?: string | null) => {
   });
 };
 
-const routeContext = (pathname: string): RouteContext => {
+const humanizeKey = (value?: string | null) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  return raw
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const interpolate = (template: string, values: Record<string, string>) => {
+  return Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, value), template);
+};
+
+const resolveRequestStatusLabel = (status: string, t: any) => {
+  const key = String(status ?? '').trim();
+  if (!key) return '';
+  return (t.statuses as Record<string, string> | undefined)?.[key] ?? humanizeKey(key);
+};
+
+const resolveContractStatusLabel = (status: string, t: any) => {
+  const key = String(status ?? '').trim();
+  if (!key) return '';
+  return (t.contractApproval?.statuses as Record<string, string> | undefined)?.[key] ?? humanizeKey(key);
+};
+
+const extractFirstInteger = (text: string) => {
+  const match = String(text ?? '').match(/(\d+)/);
+  return match?.[1] ?? '0';
+};
+
+const resolveNotificationDisplay = (item: AppNotification, t: any) => {
+  const payload = item.payload ?? {};
+  const type = String(payload?.eventType ?? item.type ?? '').trim().toLowerCase();
+  const title = String(item.title ?? '').trim();
+  const body = String(item.body ?? '').trim();
+  const requestId = String(item.requestId ?? payload?.requestId ?? '').trim();
+  const contractId = String(payload?.contractId ?? '').trim();
+  const status = String(payload?.status ?? '').trim();
+  const previousStatus = String(payload?.previousStatus ?? '').trim();
+  const actorName = String(payload?.actorName ?? '').trim();
+  const version = String(payload?.version ?? '').trim();
+  const lowerTitle = title.toLowerCase();
+  const lowerBody = body.toLowerCase();
+
+  const looksLikeIntegrityAlert =
+    type.includes('integrity') ||
+    lowerTitle.includes('integrity alert') ||
+    lowerBody.includes('status/history mismatches');
+
+  if (looksLikeIntegrityAlert) {
+    return {
+      title: t.appChrome.requestStatusIntegrityAlert,
+      body: interpolate(t.appChrome.requestStatusIntegrityBody, { count: extractFirstInteger(body) }),
+    };
+  }
+
+  if (type === 'request_created') {
+    const id = requestId || humanizeKey(title.replace(/^new request\s+/i, ''));
+    const statusLabel = resolveRequestStatusLabel(status, t) || t.appChrome.workflowLabel;
+    return {
+      title: interpolate(t.appChrome.notificationRequestCreatedTitle, { id: id || t.appChrome.requestLabel }),
+      body: interpolate(t.appChrome.notificationRequestCreatedBodyWithStatus, { status: statusLabel }),
+    };
+  }
+
+  if (type === 'request_status_changed') {
+    const id = requestId || (title.split(' ')[0] ?? '').trim();
+    const toLabel = resolveRequestStatusLabel(status, t);
+    const fromLabel = resolveRequestStatusLabel(previousStatus, t);
+    if (id && toLabel && fromLabel && toLabel !== fromLabel) {
+      return {
+        title: interpolate(t.appChrome.notificationMovedToTitle, { id, status: toLabel }),
+        body: actorName
+          ? interpolate(t.appChrome.notificationStatusChangedByBody, { actor: actorName, from: fromLabel, to: toLabel })
+          : interpolate(t.appChrome.notificationStatusChangedBody, { from: fromLabel, to: toLabel }),
+      };
+    }
+    if (id && toLabel) {
+      return {
+        title: interpolate(t.appChrome.notificationUpdatedTitle, { id }),
+        body: actorName
+          ? interpolate(t.appChrome.notificationRequestUpdatedInByBody, { actor: actorName, status: toLabel })
+          : interpolate(t.appChrome.notificationRequestUpdatedInBody, { status: toLabel }),
+      };
+    }
+    if (id) {
+      return {
+        title: interpolate(t.appChrome.notificationUpdatedTitle, { id }),
+        body: actorName
+          ? interpolate(t.appChrome.notificationRequestUpdatedByBody, { actor: actorName })
+          : t.appChrome.notificationRequestUpdatedBody,
+      };
+    }
+  }
+
+  if (type === 'contract_status_changed') {
+    const id = contractId || (title.split(' ')[0] ?? '').trim();
+    const toLabel = resolveContractStatusLabel(status, t);
+    const fromLabel = resolveContractStatusLabel(previousStatus, t);
+    if (id && toLabel && fromLabel && toLabel !== fromLabel) {
+      return {
+        title: interpolate(t.appChrome.notificationMovedToTitle, { id, status: toLabel }),
+        body: actorName
+          ? interpolate(t.appChrome.notificationStatusChangedByBody, { actor: actorName, from: fromLabel, to: toLabel })
+          : interpolate(t.appChrome.notificationStatusChangedBody, { from: fromLabel, to: toLabel }),
+      };
+    }
+    if (id && toLabel) {
+      return {
+        title: interpolate(t.appChrome.notificationUpdatedTitle, { id }),
+        body: actorName
+          ? interpolate(t.appChrome.notificationContractUpdatedInByBody, { actor: actorName, status: toLabel })
+          : interpolate(t.appChrome.notificationContractUpdatedInBody, { status: toLabel }),
+      };
+    }
+    if (id) {
+      return {
+        title: interpolate(t.appChrome.notificationUpdatedTitle, { id }),
+        body: actorName
+          ? interpolate(t.appChrome.notificationContractUpdatedByBody, { actor: actorName })
+          : t.appChrome.notificationContractUpdatedBody,
+      };
+    }
+  }
+
+  if (type === 'client_update_available') {
+    const inferredVersion = version || (() => {
+      const match = title.match(/\((v[^)]+)\)/i) || body.match(/\b(v\d+(?:\.\d+){1,3})\b/i);
+      return String(match?.[1] ?? '').trim();
+    })();
+    return {
+      title: inferredVersion
+        ? interpolate(t.appChrome.notificationClientUpdateTitle, { version: inferredVersion })
+        : t.appChrome.notificationClientUpdateTitlePlain,
+      body: inferredVersion
+        ? interpolate(t.appChrome.notificationClientUpdateBody, { version: inferredVersion })
+        : t.appChrome.notificationClientUpdateBodyPlain,
+    };
+  }
+
+  if (type === 'feedback_submitted') {
+    const ticketNumber = String(payload?.ticketNumber ?? '').trim();
+    const typeLabel = String(payload?.feedbackType ?? '').trim();
+    const submittedBy = String(payload?.submittedBy ?? '').trim();
+    return {
+      title: t.appChrome.notificationFeedbackSubmittedTitle,
+      body: interpolate(t.appChrome.notificationFeedbackSubmittedBody, {
+        ticket: ticketNumber || '-',
+        type: typeLabel || '-',
+        user: submittedBy || '-',
+      }),
+    };
+  }
+
+  return { title, body };
+};
+
+const routeContext = (pathname: string, t: any): RouteContext => {
   if (pathname.startsWith('/dashboard')) {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Request Analysis' },
+        { label: t.nav.dashboard },
       ],
     };
   }
@@ -86,8 +244,8 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Contract Approval', to: '/contract-approvals' },
-        { label: 'New' },
+        { label: t.nav.contractApprovals, to: '/contract-approvals' },
+        { label: t.appChrome.new },
       ],
     };
   }
@@ -95,8 +253,8 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Contract Approval', to: '/contract-approvals' },
-        { label: 'Detail' },
+        { label: t.nav.contractApprovals, to: '/contract-approvals' },
+        { label: t.appChrome.detail },
       ],
     };
   }
@@ -104,7 +262,7 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Contract Approval' },
+        { label: t.nav.contractApprovals },
       ],
     };
   }
@@ -112,8 +270,8 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Request Analysis', to: '/dashboard' },
-        { label: 'New' },
+        { label: t.nav.dashboard, to: '/dashboard' },
+        { label: t.appChrome.new },
       ],
     };
   }
@@ -121,8 +279,8 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Request Analysis', to: '/dashboard' },
-        { label: 'Detail' },
+        { label: t.nav.dashboard, to: '/dashboard' },
+        { label: t.appChrome.detail },
       ],
     };
   }
@@ -130,7 +288,7 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Performance' },
+        { label: t.nav.performance },
       ],
     };
   }
@@ -138,7 +296,7 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Price List' },
+        { label: t.nav.priceList },
       ],
     };
   }
@@ -146,7 +304,7 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Downloads' },
+        { label: t.nav.downloads },
       ],
     };
   }
@@ -154,14 +312,14 @@ const routeContext = (pathname: string): RouteContext => {
     return {
       breadcrumb: [
         { label: 'CRA', to: '/dashboard' },
-        { label: 'Admin Settings' },
+        { label: t.nav.admin },
       ],
     };
   }
   return {
     breadcrumb: [
       { label: 'CRA', to: '/dashboard' },
-      { label: 'Workspace' },
+      { label: t.appChrome.workspace },
     ],
   };
 };
@@ -204,47 +362,51 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const [notificationsError, setNotificationsError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
-  const context = useMemo(() => routeContext(location.pathname), [location.pathname]);
+  const context = useMemo(() => routeContext(location.pathname, t), [location.pathname, t]);
+  const notificationItems = useMemo(
+    () => notifications.map((item) => ({ ...item, display: resolveNotificationDisplay(item, t) })),
+    [notifications, t]
+  );
 
   const navigationCommands = useMemo(
     () => {
       const commands = [
-        { id: 'go-dashboard', label: 'Go to Request Analysis', path: '/dashboard', icon: LayoutGrid },
-        { id: 'go-contract-approvals', label: 'Go to Contract Approval', path: '/contract-approvals', icon: FileText },
+        { id: 'go-dashboard', label: t.appChrome.goToRequestAnalysis, path: '/dashboard', icon: LayoutGrid },
+        { id: 'go-contract-approvals', label: t.appChrome.goToContractApproval, path: '/contract-approvals', icon: FileText },
       ];
       if (user?.role === 'sales' || user?.role === 'admin') {
         commands.push(
-          { id: 'go-new-request', label: 'New Request', path: '/requests/new', icon: Plus },
-          { id: 'go-new-contract', label: 'New Contract Approval', path: '/contract-approvals/new', icon: Plus }
+          { id: 'go-new-request', label: t.nav.newRequest, path: '/requests/new', icon: Plus },
+          { id: 'go-new-contract', label: t.appChrome.newContractApproval, path: '/contract-approvals/new', icon: Plus }
         );
       }
       if (user?.role === 'admin') {
-        commands.push({ id: 'go-settings', label: 'Go to Settings', path: '/settings', icon: Settings });
+        commands.push({ id: 'go-settings', label: t.appChrome.goToSettings, path: '/settings', icon: Settings });
       }
       return commands;
     },
-    [user?.role]
+    [t.appChrome.goToContractApproval, t.appChrome.goToRequestAnalysis, t.appChrome.goToSettings, t.appChrome.newContractApproval, t.nav.newRequest, user?.role]
   );
 
   const utilityCommands = useMemo(
     () => [
       {
         id: 'refresh-all',
-        label: 'Refresh data',
+        label: t.appChrome.refreshData,
         run: async () => {
           await Promise.all([refreshRequests(), refreshShellStatus()]);
-          toast.success('Data refreshed');
+          toast.success(t.appChrome.dataRefreshed);
         },
       },
       {
         id: 'toggle-density',
-        label: density === 'compact' ? 'Switch to comfortable density' : 'Switch to compact density',
+        label: density === 'compact' ? t.appChrome.switchToComfortableDensity : t.appChrome.switchToCompactDensity,
         run: async () => {
           setDensity(density === 'compact' ? 'comfortable' : 'compact');
         },
       },
     ],
-    [density, refreshRequests, refreshShellStatus, setDensity]
+    [density, refreshRequests, refreshShellStatus, setDensity, t.appChrome.dataRefreshed, t.appChrome.refreshData, t.appChrome.switchToComfortableDensity, t.appChrome.switchToCompactDensity]
   );
 
   const filteredPaletteRequests = useMemo(() => {
@@ -387,9 +549,9 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     setIsRefreshing(true);
     try {
       await Promise.all([refreshRequests(), refreshShellStatus()]);
-      toast.success('Data refreshed');
+      toast.success(t.appChrome.dataRefreshed);
     } catch {
-      toast.error('Refresh failed');
+      toast.error(t.appChrome.refreshFailed);
     } finally {
       setIsRefreshing(false);
     }
@@ -450,8 +612,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
             size="icon"
             className="h-8 w-8 shrink-0"
             onClick={onToggleSidebar}
-            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            aria-label={sidebarCollapsed ? t.appChrome.expandSidebar : t.appChrome.collapseSidebar}
+            title={sidebarCollapsed ? t.appChrome.expandSidebar : t.appChrome.collapseSidebar}
           >
             {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </Button>
@@ -490,7 +652,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
               ref={searchInputRef}
               value={globalSearchQuery}
               onChange={(event) => setGlobalSearchQuery(event.target.value)}
-              placeholder="Search records..."
+              placeholder={t.appChrome.searchRecordsPlaceholder}
               className="h-8 pl-9 pr-20"
             />
             <button
@@ -514,8 +676,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
             className="h-8 w-8"
             onClick={handleRefresh}
             disabled={isRefreshing}
-            aria-label="Refresh"
-            title="Refresh"
+            aria-label={t.common.refresh}
+            title={t.common.refresh}
           >
             <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
           </Button>
@@ -524,8 +686,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
             size="icon"
             className="h-8 w-8 relative"
             onClick={() => setNotificationsOpen(true)}
-            aria-label="Notifications"
-            title="Notifications"
+            aria-label={t.appChrome.notifications}
+            title={t.appChrome.notifications}
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 ? (
@@ -538,9 +700,9 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
             trigger={
               <Button variant="outline" className="h-8 max-w-[220px] gap-2 px-1.5">
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-[11px] font-semibold text-primary">
-                  {(user?.name || 'U').charAt(0).toUpperCase()}
+                  {(user?.name || t.appChrome.userLabel).charAt(0).toUpperCase()}
                 </span>
-                <span className="min-w-0 truncate text-xs font-medium">{user?.name || 'User'}</span>
+                <span className="min-w-0 truncate text-xs font-medium">{user?.name || t.appChrome.userLabel}</span>
                 {user ? (
                   <span className="hidden sm:inline-flex rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {t.roles[user.role]}
@@ -555,30 +717,30 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
       <div className="hidden md:flex fixed bottom-0 left-0 right-0 z-50 h-8 px-4 border-t border-border bg-background/95 backdrop-blur items-center justify-between text-[11px] text-muted-foreground">
         <div className="flex items-center gap-3 min-w-0">
-          <span className="truncate">DB: {shellStatus?.db?.healthLabel ?? '--'}</span>
-          <span className="truncate">Sync: {syncState === 'refreshing' ? 'Refreshing' : syncState === 'error' ? 'Error' : 'Ready'}</span>
-          <span className="truncate">Last refresh: {formatTimeShort(lastSyncAt)}</span>
+          <span className="truncate">{t.appChrome.dbLabel}: {shellStatus?.db?.healthLabel ?? '--'}</span>
+          <span className="truncate">{t.appChrome.syncLabel}: {syncState === 'refreshing' ? t.appChrome.syncRefreshing : syncState === 'error' ? t.appChrome.syncError : t.appChrome.syncReady}</span>
+          <span className="truncate">{t.appChrome.lastRefreshLabel}: {formatTimeShort(lastSyncAt)}</span>
         </div>
         <div className="flex items-center gap-3 min-w-0">
           <span className="truncate">
             {saveState.kind === 'saving'
-              ? 'Saving...'
+              ? t.common.saving
               : saveState.kind === 'saved'
-                ? `Saved ${formatTimeShort(saveState.at)}`
+                ? `${t.appChrome.savedLabel} ${formatTimeShort(saveState.at)}`
                 : saveState.kind === 'error'
-                  ? 'Save error'
-                  : 'Idle'}
+                  ? t.appChrome.saveError
+                  : t.appChrome.idle}
           </span>
-          <span className="truncate">User: {user?.name ?? '--'}</span>
-          <span className="truncate">Build: {shellStatus?.build?.hash ? shellStatus.build.hash.slice(0, 8) : '--'}</span>
-          {syncError ? <span className="text-red-600 truncate">Sync error</span> : null}
-          {shellStatusError ? <span className="text-red-600 truncate">Status error</span> : null}
+          <span className="truncate">{t.appChrome.userLabel}: {user?.name ?? '--'}</span>
+          <span className="truncate">{t.appChrome.buildLabel}: {shellStatus?.build?.hash ? shellStatus.build.hash.slice(0, 8) : '--'}</span>
+          {syncError ? <span className="text-red-600 truncate">{t.appChrome.syncError}</span> : null}
+          {shellStatusError ? <span className="text-red-600 truncate">{t.appChrome.statusError}</span> : null}
         </div>
       </div>
 
       <Dialog open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen}>
         <DialogContent hideCloseButton className="max-w-2xl p-0 gap-0">
-          <DialogTitle className="sr-only">Command palette</DialogTitle>
+          <DialogTitle className="sr-only">{t.appChrome.commandPaletteTitle}</DialogTitle>
           <div className="border-b border-border p-3">
             <Input
               value={paletteQuery}
@@ -587,14 +749,14 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                 setPaletteQuery(value);
                 setGlobalSearchQuery(value);
               }}
-              placeholder="Type a command or search request..."
+              placeholder={t.appChrome.commandPalettePlaceholder}
               className="h-10"
               autoFocus
             />
           </div>
           <div className="max-h-[70vh] overflow-y-auto scrollbar-thin p-2 space-y-2">
             <div>
-              <div className="px-2 py-1 text-xs uppercase tracking-wide text-muted-foreground">Navigation</div>
+              <div className="px-2 py-1 text-xs uppercase tracking-wide text-muted-foreground">{t.appChrome.navigation}</div>
               <div className="space-y-1">
                 {navigationCommands.map((command) => (
                   <button
@@ -614,9 +776,9 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
             </div>
 
             <div>
-              <div className="px-2 py-1 text-xs uppercase tracking-wide text-muted-foreground">Requests</div>
+              <div className="px-2 py-1 text-xs uppercase tracking-wide text-muted-foreground">{t.appChrome.requests}</div>
               {isSearchLoading ? (
-                <div className="px-2 py-2 text-sm text-muted-foreground">Searching...</div>
+                <div className="px-2 py-2 text-sm text-muted-foreground">{t.appChrome.searching}</div>
               ) : filteredPaletteRequests.length ? (
                 <div className="space-y-1">
                   {filteredPaletteRequests.map((item) => (
@@ -640,12 +802,12 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                   ))}
                 </div>
               ) : (
-                <div className="px-2 py-2 text-sm text-muted-foreground">No matching requests.</div>
+                <div className="px-2 py-2 text-sm text-muted-foreground">{t.appChrome.noMatchingRequests}</div>
               )}
             </div>
 
             <div>
-              <div className="px-2 py-1 text-xs uppercase tracking-wide text-muted-foreground">Utilities</div>
+              <div className="px-2 py-1 text-xs uppercase tracking-wide text-muted-foreground">{t.appChrome.utilities}</div>
               <div className="space-y-1">
                 {utilityCommands.map((command) => (
                   <button
@@ -664,14 +826,14 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
             </div>
           </div>
           <div className="border-t border-border px-3 py-2 text-xs text-muted-foreground flex items-center justify-between">
-            <span>Ctrl+K command palette | / focus search | N new request</span>
+            <span>{t.appChrome.commandPaletteHint}</span>
             <button
               type="button"
               onClick={() => setCommandPaletteOpen(false)}
               className="inline-flex items-center gap-1 hover:text-foreground"
             >
               <X className="h-3 w-3" />
-              Close
+              {t.common.close}
             </button>
           </div>
         </DialogContent>
@@ -682,12 +844,12 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
           <div className="h-full flex flex-col">
             <SheetHeader className="px-4 py-3 border-b border-border">
               <div className="flex items-center justify-between gap-2">
-                <SheetTitle className="text-base">Notifications</SheetTitle>
+                <SheetTitle className="text-base">{t.appChrome.notifications}</SheetTitle>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">{unreadCount} unread</span>
+                  <span className="text-xs text-muted-foreground">{unreadCount} {t.appChrome.unread}</span>
                   <Button variant="ghost" size="sm" className="h-7 px-2" onClick={handleMarkAllRead} disabled={isMarkingAllRead || unreadCount === 0}>
                     <CheckCheck className="h-3.5 w-3.5 mr-1" />
-                    Mark all read
+                    {t.appChrome.markAllRead}
                   </Button>
                 </div>
               </div>
@@ -700,7 +862,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                 className="h-7 px-2"
                 onClick={() => setNotificationsFilter('unread')}
               >
-                Unread
+                {t.appChrome.unreadTab}
               </Button>
               <Button
                 variant={notificationsFilter === 'all' ? 'secondary' : 'ghost'}
@@ -708,18 +870,18 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                 className="h-7 px-2"
                 onClick={() => setNotificationsFilter('all')}
               >
-                All
+                {t.appChrome.allTab}
               </Button>
             </div>
 
             <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
-              {notificationsLoading ? <div className="p-3 text-sm text-muted-foreground">Loading notifications...</div> : null}
-              {notificationsError ? <div className="p-3 text-sm text-red-600">Failed to load notifications.</div> : null}
-              {!notificationsLoading && !notificationsError && notifications.length === 0 ? (
-                <div className="p-3 text-sm text-muted-foreground">No notifications.</div>
+              {notificationsLoading ? <div className="p-3 text-sm text-muted-foreground">{t.appChrome.loadingNotifications}</div> : null}
+              {notificationsError ? <div className="p-3 text-sm text-red-600">{t.appChrome.failedLoadNotifications}</div> : null}
+              {!notificationsLoading && !notificationsError && notificationItems.length === 0 ? (
+                <div className="p-3 text-sm text-muted-foreground">{t.appChrome.noNotifications}</div>
               ) : null}
               <div className="space-y-2">
-                {notifications.map((item) => (
+                {notificationItems.map((item) => (
                   <div
                     key={item.id}
                     className={cn(
@@ -733,10 +895,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                       onClick={() => void handleOpenNotification(item)}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium text-foreground">{item.title}</p>
+                        <p className="text-sm font-medium text-foreground">{item.display.title}</p>
                         <span className="text-[11px] text-muted-foreground whitespace-nowrap">{formatNotificationTime(item.createdAt)}</span>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">{item.body}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{item.display.body}</p>
                     </button>
                     <div className="mt-2 flex items-center gap-2">
                       {!item.isRead ? (
@@ -747,7 +909,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                           className="h-6 px-2 text-xs"
                           onClick={() => void handleMarkRead(item.id)}
                         >
-                          Mark read
+                          {t.appChrome.markRead}
                         </Button>
                       ) : null}
                       {item.requestId ? (
@@ -761,7 +923,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                             setNotificationsOpen(false);
                           }}
                         >
-                          Open request
+                          {t.appChrome.openRequest}
                         </Button>
                       ) : null}
                       {!item.requestId && typeof item.payload?.actionPath === 'string' && item.payload.actionPath ? (
@@ -775,7 +937,13 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                             setNotificationsOpen(false);
                           }}
                         >
-                          {t.downloads.openDownloads}
+                          {String(item.payload?.actionPath).startsWith('/downloads')
+                            ? t.downloads.openDownloads
+                            : String(item.payload?.actionPath).startsWith('/contract-approvals')
+                              ? t.appChrome.openContract
+                              : String(item.payload?.actionPath).includes('tab=feedback')
+                                ? t.appChrome.openFeedback
+                                : t.appChrome.openItem}
                         </Button>
                       ) : null}
                     </div>

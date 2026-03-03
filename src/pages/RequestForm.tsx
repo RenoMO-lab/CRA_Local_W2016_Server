@@ -141,6 +141,11 @@ const getInitialFormData = (): Partial<CustomerRequest> => ({
   applicationVehicleOther: '',
   country: '',
   city: '',
+  clientAddressDelivery: '',
+  sellingCurrency: 'EUR',
+  incoterm: '',
+  incotermOther: '',
+  vatMode: 'without',
   repeatability: '',
   expectedDeliverySelections: [],
   clientExpectedDeliveryDate: '',
@@ -443,7 +448,9 @@ const RequestForm: React.FC = () => {
       return 'draft_edit';
     }
     
-    const canEdit = user?.role === 'sales' && 
+    const isSalesOwner = String(existingRequest.createdBy ?? '').trim() === String(user?.id ?? '').trim();
+    const canEdit = user?.role === 'sales' &&
+      isSalesOwner &&
       (existingRequest.status === 'draft' || existingRequest.status === 'clarification_needed');
     
     if (!canEdit || isViewMode) return 'read_only';
@@ -456,6 +463,8 @@ const RequestForm: React.FC = () => {
 
   const isReadOnly = mode === 'read_only';
   const isEditable = mode === 'create' || mode === 'draft_edit' || mode === 'clarification_edit';
+  const isClarificationEdit =
+    existingRequest?.status === 'clarification_needed' && mode === 'clarification_edit';
   const isAdminEdit = user?.role === 'admin' && isEditMode;
   const isDesignRole = user?.role === 'design';
   const isSalesRole = user?.role === 'sales';
@@ -672,7 +681,7 @@ const RequestForm: React.FC = () => {
         return;
       } catch (error) {
         if (cancelled) return;
-        setSaveState('error', String((error as Error)?.message ?? 'Autosave failed'));
+        setSaveState('error', String((error as Error)?.message ?? t.request.failedSaveDraft));
         toast({
           title: t.request.error,
           description: t.request.failedSaveDraft,
@@ -859,6 +868,22 @@ const RequestForm: React.FC = () => {
     }
     if (!formData.country?.trim()) {
       newErrors.country = t.request.country + ' ' + t.common.required.toLowerCase();
+    }
+    if (!formData.sellingCurrency?.trim()) {
+      newErrors.sellingCurrency = t.panels.currency + ' ' + t.common.required.toLowerCase();
+    }
+    if (!formData.incoterm?.trim()) {
+      newErrors.incoterm = t.panels.incoterm + ' ' + t.common.required.toLowerCase();
+    }
+    if (String(formData.incoterm ?? '').trim().toLowerCase() === 'other' && !formData.incotermOther?.trim()) {
+      newErrors.incotermOther = t.panels.enterIncoterm + ' ' + t.common.required.toLowerCase();
+    }
+    if (!formData.vatMode?.trim()) {
+      newErrors.vatMode = t.panels.vatMode + ' ' + t.common.required.toLowerCase();
+    }
+    if (!formData.clientAddressDelivery?.trim()) {
+      newErrors.clientAddressDelivery =
+        t.request.clientAddressDelivery + ' ' + t.common.required.toLowerCase();
     }
     if (formData.country === 'China' && !formData.city?.trim()) {
       newErrors.city = t.request.city + ' ' + t.common.required.toLowerCase();
@@ -1121,7 +1146,7 @@ const RequestForm: React.FC = () => {
         navigate(`/requests/${targetId}/edit`);
       }
     } catch (error) {
-      setSaveState('error', String((error as Error)?.message ?? 'Failed to save draft'));
+      setSaveState('error', String((error as Error)?.message ?? t.request.failedSaveDraft));
       toast({
         title: t.request.error,
         description: t.request.failedSaveDraft,
@@ -1142,7 +1167,40 @@ const RequestForm: React.FC = () => {
     }, 3000);
   };
 
+  const handleSaveClarificationEdits = async () => {
+    if (!existingRequest) return;
+
+    setIsSaving(true);
+    setSaveState('saving');
+    try {
+      await updateRequest(existingRequest.id, {
+        ...prepareRequestPayload(formData),
+        historyEvent: 'edited',
+      });
+      toast({
+        title: t.request.changesSavedTitle,
+        description: t.request.clarificationSaveOnlyHint,
+      });
+      setHasPendingAutosave(false);
+      setSaveState('saved');
+    } catch (error) {
+      toast({
+        title: t.request.error,
+        description: `${t.request.failedSave}${error instanceof Error && error.message ? ` (${error.message})` : ''}`,
+        variant: 'destructive',
+      });
+      setSaveState('error', String((error as Error)?.message ?? t.request.failedSave));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSubmit = async () => {
+    if (isClarificationEdit) {
+      await handleSaveClarificationEdits();
+      return;
+    }
+
     if (!validateForSubmit()) {
       toast({
         title: t.request.validationError,
@@ -1222,7 +1280,7 @@ const RequestForm: React.FC = () => {
         description: `${t.request.failedSubmit}${error instanceof Error && error.message ? ` (${error.message})` : ''}`,
         variant: 'destructive',
       });
-      setSaveState('error', String((error as Error)?.message ?? 'Failed to submit request'));
+      setSaveState('error', String((error as Error)?.message ?? t.request.failedSubmit));
     } finally {
       setIsSubmitting(false);
     }
@@ -1255,9 +1313,12 @@ const RequestForm: React.FC = () => {
       });
       return true;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : '';
       toast({
         title: t.request.error,
-        description: t.request.failedSubmit,
+        description: errorMessage.includes('Clarification response is required')
+          ? t.request.clarificationResponseRequired
+          : t.request.failedSubmit,
         variant: 'destructive',
       });
       return false;
@@ -1381,6 +1442,7 @@ const RequestForm: React.FC = () => {
       (typeof existingRequest.sellingPrice === 'number' ||
         typeof existingRequest.calculatedMargin === 'number' ||
         (existingRequest.incoterm ?? '').trim().length > 0 ||
+        (existingRequest.clientAddressDelivery ?? '').trim().length > 0 ||
         (existingRequest.deliveryLeadtime ?? '').trim().length > 0 ||
         (existingRequest.costingNotes ?? '').trim().length > 0 ||
         (Array.isArray(existingRequest.costingAttachments) && existingRequest.costingAttachments.length > 0))
@@ -2128,6 +2190,7 @@ const RequestForm: React.FC = () => {
     vatMode?: 'with' | 'without';
     vatRate?: number | null;
     deliveryLeadtime?: string;
+    clientAddressDelivery?: string;
     costingAttachments?: Attachment[];
   }) => {
     if (!existingRequest) return false;
@@ -3027,7 +3090,9 @@ const RequestForm: React.FC = () => {
                     disabled={isSubmitting || isSaving}
                     className="bg-primary hover:bg-primary/90 text-primary-foreground"
                   >
-                    {isSubmitting ? t.request.submitting : t.request.verifyAndSubmit}
+                    {isClarificationEdit
+                      ? (isSaving ? t.request.saving : t.request.saveClarificationChanges)
+                      : (isSubmitting ? t.request.submitting : t.request.verifyAndSubmit)}
                   </Button>
                 </>
               )}

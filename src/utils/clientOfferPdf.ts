@@ -17,6 +17,7 @@ export interface ClientOfferProfile {
   companyNameLocal: string;
   companyNameEn: string;
   address: string;
+  addressZh?: string;
   mobile: string;
   contactEmail: string;
   contactName: string;
@@ -681,6 +682,7 @@ export const generateClientOfferPDF = async (
     companyNameLocal: String(profileInput?.companyNameLocal ?? ''),
     companyNameEn: String(profileInput?.companyNameEn ?? ''),
     address: String(profileInput?.address ?? ''),
+    addressZh: String(profileInput?.addressZh ?? ''),
     mobile: String(profileInput?.mobile ?? ''),
     contactEmail: String(profileInput?.contactEmail ?? ''),
     contactName: String(profileInput?.contactName ?? ''),
@@ -785,9 +787,13 @@ export const generateClientOfferPDF = async (
     pdf.setTextColor(mr, mg, mb);
     pdf.setFontSize(PDF_TYPE.micro);
     setFont('bold');
+    const headerAddress =
+      language === 'zh' && String(profile.addressZh ?? '').trim()
+        ? String(profile.addressZh ?? '').trim()
+        : String(profile.address || '-');
     pdf.text(String(profile.companyNameEn || profile.companyNameLocal || '-').toUpperCase(), headerLeftX, 9);
     setFont('normal');
-    pdf.text(String(profile.address || '-'), headerLeftX, 13.8);
+    pdf.text(headerAddress, headerLeftX, 13.8);
 
     setFont('bold');
     pdf.text(String(t.clientOffer.contactName || 'Contact').toUpperCase(), headerRightX, 9, { align: 'right' });

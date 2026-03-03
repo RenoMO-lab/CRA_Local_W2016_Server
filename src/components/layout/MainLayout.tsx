@@ -5,6 +5,7 @@ import { useAppShell } from '@/context/AppShellContext';
 import Sidebar from './Sidebar';
 import MobileTopNav from './MobileTopNav';
 import DesktopAppChrome from './DesktopAppChrome';
+import FeedbackDialog from '@/components/feedback/FeedbackDialog';
 import { cn } from '@/lib/utils';
 
 const MainLayout: React.FC = () => {
@@ -44,6 +45,10 @@ const MainLayout: React.FC = () => {
         width={desktopSidebarWidth}
         onResize={setSidebarWidth}
       />
+
+      <div className="hidden">
+        <FeedbackDialog trigger={<span />} />
+      </div>
       
       <main 
         className={cn(

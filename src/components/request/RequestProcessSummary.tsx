@@ -238,8 +238,7 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
     (request.costingNotes ?? "").trim() ||
       typeof request.sellingPrice === "number" ||
       typeof request.calculatedMargin === "number" ||
-      (request.incoterm ?? "").trim() ||
-      (request.deliveryLeadtime ?? "").trim() ||
+      typeof request.vatRate === "number" ||
       (Array.isArray(request.costingAttachments) && request.costingAttachments.length > 0)
   );
   const hasSalesData = Boolean(
@@ -400,10 +399,25 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
               value={typeof request.sellingPrice === "number" ? `${request.sellingCurrency ?? "EUR"} ${request.sellingPrice.toFixed(2)}` : "-"}
             />
             <FieldLine
+              label={t.panels.currency}
+              value={request.sellingCurrency?.trim() ? request.sellingCurrency : "-"}
+            />
+            <FieldLine
               label={t.panels.margin}
               value={typeof request.calculatedMargin === "number" ? `${request.calculatedMargin.toFixed(1)}%` : "-"}
             />
-            <FieldLine label={t.panels.incoterm} value={request.incoterm ? translateOption(request.incoterm) : "-"} />
+            <FieldLine
+              label={t.panels.incoterm}
+              value={(() => {
+                const inc = String(request.incoterm ?? "").trim();
+                if (!inc) return "-";
+                if (inc.toLowerCase() === "other") {
+                  const other = String(request.incotermOther ?? "").trim();
+                  return other || t.common.other;
+                }
+                return inc;
+              })()}
+            />
             <FieldLine
               label={t.panels.vatMode}
               value={(() => {
@@ -414,6 +428,10 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
                 }
                 return t.panels.withoutVat;
               })()}
+            />
+            <FieldLine
+              label={t.request.clientAddressDelivery}
+              value={request.clientAddressDelivery?.trim() ? request.clientAddressDelivery : "-"}
             />
             <FieldLine label={t.panels.deliveryLeadtime} value={request.deliveryLeadtime?.trim() ? request.deliveryLeadtime : "-"} />
             <FieldLine

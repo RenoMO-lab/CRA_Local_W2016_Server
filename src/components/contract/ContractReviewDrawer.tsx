@@ -11,8 +11,10 @@ import { buildAttachmentHref } from '@/lib/attachmentPreview';
 import ContractStatusBadge from '@/components/contract/ContractStatusBadge';
 import AttachmentPreviewDialog from '@/components/shared/AttachmentPreviewDialog';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
 
 type Props = {
   open: boolean;
@@ -21,8 +23,8 @@ type Props = {
   userRole: UserRole;
   onView: (id: string) => void;
   onEdit: (id: string) => void;
-  onApprove: (id: string) => void;
-  onReject: (id: string) => void;
+  onApprove: (id: string, comment?: string) => Promise<boolean> | boolean;
+  onReject: (id: string, comment: string) => Promise<boolean> | boolean;
   onFinanceUpload: (id: string) => void;
   onComplete: (id: string) => void;
 };
@@ -76,6 +78,8 @@ const ContractReviewDrawer: React.FC<Props> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [decisionComment, setDecisionComment] = useState('');
+  const [decisionError, setDecisionError] = useState('');
   const latestContractIdRef = useRef<string | null>(null);
 
   const load = async (id: string) => {
@@ -111,6 +115,8 @@ const ContractReviewDrawer: React.FC<Props> = ({
     setContract(null);
     setIsLoading(false);
     setLoadError(null);
+    setDecisionComment('');
+    setDecisionError('');
     latestContractIdRef.current = null;
   }, [open]);
 
@@ -140,6 +146,29 @@ const ContractReviewDrawer: React.FC<Props> = ({
     if (!contract?.history?.length) return [];
     return [...contract.history].sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp));
   }, [contract]);
+
+  const handleApproveClick = async () => {
+    if (!contractId) return;
+    const ok = await onApprove(contractId, decisionComment.trim());
+    if (ok !== false) {
+      setDecisionComment('');
+      setDecisionError('');
+    }
+  };
+
+  const handleRejectClick = async () => {
+    if (!contractId) return;
+    const trimmedComment = decisionComment.trim();
+    if (!trimmedComment) {
+      setDecisionError(t.contractApproval.validation.rejectCommentRequired);
+      return;
+    }
+    const ok = await onReject(contractId, trimmedComment);
+    if (ok !== false) {
+      setDecisionComment('');
+      setDecisionError('');
+    }
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -176,12 +205,12 @@ const ContractReviewDrawer: React.FC<Props> = ({
             ) : null}
             {canFinanceDecision || canAdminDecision ? (
               <>
-                <Button onClick={() => contractId && onApprove(contractId)} disabled={!contractId} className={primaryActionBtnClass}>
-                  {t.contractApproval.approve}
+                <Button onClick={handleApproveClick} disabled={!contractId} className={primaryActionBtnClass}>
+                  {canFinanceDecision ? (t.contractApproval.reviewAction ?? t.contractApproval.approve) : t.contractApproval.approve}
                 </Button>
                 <Button
                   variant="destructive"
-                  onClick={() => contractId && onReject(contractId)}
+                  onClick={handleRejectClick}
                   disabled={!contractId}
                   className={primaryActionBtnClass}
                 >
@@ -208,6 +237,25 @@ const ContractReviewDrawer: React.FC<Props> = ({
               {t.common.update}
             </Button>
           </div>
+          {canFinanceDecision || canAdminDecision ? (
+            <div className="mt-3 rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+              <Label className="text-sm font-medium">{t.contractApproval.fields.comments}</Label>
+              <Textarea
+                value={decisionComment}
+                onChange={(event) => {
+                  setDecisionComment(event.target.value);
+                  if (decisionError) setDecisionError('');
+                }}
+                rows={3}
+                placeholder={
+                  canFinanceDecision
+                    ? (t.contractApproval.prompts.reviewComment ?? t.contractApproval.prompts.approveComment)
+                    : t.contractApproval.prompts.approveComment
+                }
+              />
+              {decisionError ? <p className="text-xs text-destructive">{decisionError}</p> : null}
+            </div>
+          ) : null}
         </SheetHeader>
 
         <div className="mt-6 space-y-6">

@@ -52,6 +52,7 @@ import { Label } from '@/components/ui/label';
 import { useLanguage } from '@/context/LanguageContext';
 import { useRequests } from '@/context/RequestContext';
 import { useAppShell } from '@/context/AppShellContext';
+import { useAuth } from '@/context/AuthContext';
 import { Language } from '@/i18n/translations';
 
 interface RequestsTableProps {
@@ -90,13 +91,6 @@ interface RowActionItem {
   separatorBefore?: boolean;
   destructive?: boolean;
 }
-
-const PRIORITY_OPTIONS: Array<{ value: RequestPriority; label: string }> = [
-  { value: 'low', label: 'Low' },
-  { value: 'normal', label: 'Normal' },
-  { value: 'high', label: 'High' },
-  { value: 'urgent', label: 'Urgent' },
-];
 
 const PRIORITY_WEIGHT: Record<RequestPriority, number> = {
   low: 1,
@@ -163,6 +157,7 @@ const compareNumber = (left: number, right: number, direction: SortDirection) =>
 
 const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDelete }) => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { t, translateOption, language } = useLanguage();
   const { density, setSaveState } = useAppShell();
   const { getRequestByIdAsync, updateRequest } = useRequests();
@@ -176,6 +171,15 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
   const [rowContextMenu, setRowContextMenu] = useState<RowContextMenuState | null>(null);
   const rowContextMenuRef = useRef<HTMLDivElement | null>(null);
   const quickReviewTimerRef = useRef<number | null>(null);
+  const priorityOptions = useMemo<Array<{ value: RequestPriority; label: string }>>(
+    () => [
+      { value: 'low', label: t.table.priorityLow },
+      { value: 'normal', label: t.table.priorityNormal },
+      { value: 'high', label: t.table.priorityHigh },
+      { value: 'urgent', label: t.table.priorityUrgent },
+    ],
+    [t.table.priorityHigh, t.table.priorityLow, t.table.priorityNormal, t.table.priorityUrgent]
+  );
 
   const getPrimaryProduct = (request: CustomerRequest): Partial<RequestProduct> => {
     if (request.products && request.products.length) {
@@ -231,7 +235,16 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
     return parts.length > 0 ? parts.join(' / ') : '-';
   };
 
-  const canEditRoute = userRole === 'admin';
+  const canEditRequest = (request: CustomerRequest) => {
+    if (userRole === 'admin') return true;
+    if (userRole !== 'sales') return false;
+
+    const ownerId = String(request.createdBy ?? '').trim();
+    const actorId = String(user?.id ?? '').trim();
+    const status = String(request.status ?? '').trim();
+    return ownerId.length > 0 && ownerId === actorId && (status === 'draft' || status === 'clarification_needed');
+  };
+
   const canDelete = () => userRole === 'admin';
 
   const getNextActionLabel = (request: CustomerRequest) => {
@@ -264,15 +277,15 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
   const handleExportRow = (request: CustomerRequest) => {
     const csv = buildRowCsv(request);
     downloadTextFile(`cra-request-${request.id}.csv`, csv, 'text/csv;charset=utf-8');
-    toast.success(`Exported ${request.id}`);
+    toast.success(`${t.table.exportedPrefix} ${request.id}`);
   };
 
   const handleCopyId = async (id: string) => {
     try {
       await navigator.clipboard.writeText(id);
-      toast.success(`Copied ${id}`);
+      toast.success(`${t.table.copiedPrefix} ${id}`);
     } catch {
-      toast.error('Copy failed');
+      toast.error(t.common.copyFailed);
     }
   };
 
@@ -312,10 +325,10 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
       setSaveState('saving');
       await updateRequest(requestId, { priority, historyEvent: 'edited' });
       setSaveState('saved');
-      toast.success('Priority updated');
+      toast.success(t.table.priorityUpdated);
     } catch (error) {
-      setSaveState('error', String((error as Error)?.message ?? 'Failed to save priority'));
-      toast.error('Failed to update priority');
+      setSaveState('error', String((error as Error)?.message ?? t.table.failedSavePriority));
+      toast.error(t.table.priorityUpdateFailed);
     }
   };
 
@@ -327,7 +340,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
         icon: Eye,
         onSelect: () => handleView(request.id),
       },
-      ...(canEditRoute
+      ...(canEditRequest(request)
         ? [
             {
               key: 'edit',
@@ -339,7 +352,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
         : []),
       {
         key: 'duplicate',
-        label: 'Duplicate',
+        label: t.table.duplicate,
         icon: Files,
         onSelect: () => handleDuplicate(request.id),
       },
@@ -351,13 +364,13 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
       },
       {
         key: 'export-row',
-        label: 'Export row',
+        label: t.table.exportRow,
         icon: Download,
         onSelect: () => handleExportRow(request),
       },
       {
         key: 'copy-id',
-        label: 'Copy ID',
+        label: t.table.copyId,
         icon: Copy,
         onSelect: () => handleCopyId(request.id),
       },
@@ -585,9 +598,9 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                 <span className="font-medium text-right">{translateOption(request.country)}</span>
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Priority</span>
+                <span className="text-muted-foreground">{t.table.priority}</span>
                 <span className="font-medium text-right">
-                  {PRIORITY_OPTIONS.find((option) => option.value === toPriority(request.priority))?.label ?? 'Normal'}
+                  {priorityOptions.find((option) => option.value === toPriority(request.priority))?.label ?? t.table.priorityNormal}
                 </span>
               </div>
             </div>
@@ -598,7 +611,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                 {t.table.view}
               </Button>
               <Button size="sm" variant="outline" onClick={() => handleDuplicate(request.id)}>
-                Duplicate
+                {t.table.duplicate}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -607,7 +620,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-44 bg-card border border-border shadow-lg">
-                  {canEditRoute ? (
+                  {canEditRequest(request) ? (
                     <DropdownMenuItem onClick={() => handleEdit(request.id)}>
                       <Edit size={14} className="mr-2" />
                       {t.table.edit}
@@ -619,7 +632,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => handleCopyId(request.id)}>
                     <Copy size={14} className="mr-2" />
-                    Copy ID
+                    {t.table.copyId}
                   </DropdownMenuItem>
                   {canDelete() && onDelete ? (
                     <>
@@ -645,7 +658,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
           <TableHeader>
             <TableRow className="bg-muted/50 hover:bg-muted/50">
               {renderSortableHead(t.table.requestId, 'id')}
-              {renderSortableHead('Priority', 'priority')}
+              {renderSortableHead(t.table.priority, 'priority')}
               {renderSortableHead(t.table.status, 'status')}
               <TableHead className="font-semibold">{t.table.nextActionBy}</TableHead>
               {renderSortableHead(t.table.clientName, 'clientName')}
@@ -704,7 +717,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-card border border-border shadow-lg">
-                        {PRIORITY_OPTIONS.map((option) => (
+                        {priorityOptions.map((option) => (
                           <SelectItem key={option.value} value={option.value} className="focus:bg-muted focus:text-foreground">
                             {option.label}
                           </SelectItem>
@@ -818,14 +831,14 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
           </DialogHeader>
           <div className="space-y-2">
             <Label className="text-sm font-medium">{t.table.pdfLanguage}</Label>
-            <Select value={pdfLanguage} onValueChange={(value) => setPdfLanguage(value as Language)}>
+              <Select value={pdfLanguage} onValueChange={(value) => setPdfLanguage(value as Language)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-card border border-border">
-                <SelectItem value="en">English</SelectItem>
-                <SelectItem value="fr">French</SelectItem>
-                <SelectItem value="zh">Chinese</SelectItem>
+                <SelectItem value="en">{t.common.languageEnglish}</SelectItem>
+                <SelectItem value="fr">{t.common.languageFrench}</SelectItem>
+                <SelectItem value="zh">{t.common.languageChinese}</SelectItem>
               </SelectContent>
             </Select>
           </div>

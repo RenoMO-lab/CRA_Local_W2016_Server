@@ -139,6 +139,7 @@ export interface CustomerRequest {
   country: string;
   countryOther?: string;
   city?: string;
+  clientAddressDelivery?: string;
   expectedQty: number | null;
   repeatability: string;
   expectedDeliverySelections: string[];

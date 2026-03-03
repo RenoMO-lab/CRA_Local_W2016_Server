@@ -41,6 +41,7 @@ type ClientOfferProfile = {
   companyNameLocal: string;
   companyNameEn: string;
   address: string;
+  addressZh: string;
   mobile: string;
   contactEmail: string;
   contactName: string;
@@ -372,6 +373,7 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
           companyNameLocal: String(data?.companyNameLocal ?? ''),
           companyNameEn: String(data?.companyNameEn ?? ''),
           address: String(data?.address ?? ''),
+          addressZh: String(data?.addressZh ?? ''),
           mobile: String(data?.mobile ?? ''),
           contactEmail: String(data?.contactEmail ?? ''),
           contactName: String(data?.contactName ?? ''),
@@ -745,9 +747,9 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                           <SelectValue placeholder={t.table.pdfLanguage} />
                         </SelectTrigger>
                         <SelectContent className="bg-card border border-border">
-                          <SelectItem value="en">English</SelectItem>
-                          <SelectItem value="fr">Francais</SelectItem>
-                          <SelectItem value="zh">Chinese</SelectItem>
+                          <SelectItem value="en">{t.common.languageEnglish}</SelectItem>
+                          <SelectItem value="fr">{t.common.languageFrench}</SelectItem>
+                          <SelectItem value="zh">{t.common.languageChinese}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

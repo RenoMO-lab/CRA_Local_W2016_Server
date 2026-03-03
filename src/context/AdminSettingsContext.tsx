@@ -19,6 +19,9 @@ interface UserItem {
   role: 'sales' | 'design' | 'costing' | 'admin' | 'finance' | 'cashier';
   preferredLanguage: 'en' | 'fr' | 'zh';
   createdAt?: string | null;
+  online?: boolean;
+  lastSeenAt?: string | null;
+  activeSessionCount?: number;
 }
 
 interface UserCreateInput {
@@ -65,7 +68,7 @@ interface AdminSettingsContextType {
   // Users
   users: UserItem[];
   isUsersLoading: boolean;
-  refreshUsers: () => Promise<void>;
+  refreshUsers: (options?: { silent?: boolean }) => Promise<void>;
   createUser: (input: UserCreateInput) => Promise<UserItem>;
   updateUser: (id: string, input: UserUpdateInput) => Promise<UserItem>;
   deleteUser: (id: string) => Promise<void>;
@@ -154,6 +157,7 @@ const DEFAULT_DATA = {
     { id: '3', value: 'Feasibility confirmation' },
     { id: '4', value: 'Recommend Appropriate Solution' },
     { id: '5', value: 'Price Quote' },
+    { id: '6', value: 'Lead Time' },
   ],
   workingConditions: [
     { id: '1', value: 'Dry' },
@@ -331,7 +335,7 @@ export const AdminSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
         setCupLogoOptions(mergeDefaultList(lists.cupLogoOptions, DEFAULT_DATA.cupLogoOptions));
         setSuspensions(lists.suspensions ?? DEFAULT_DATA.suspensions);
         setRepeatabilityTypes(lists.repeatabilityTypes ?? DEFAULT_DATA.repeatabilityTypes);
-        setExpectedDeliveryOptions(lists.expectedDeliveryOptions ?? DEFAULT_DATA.expectedDeliveryOptions);
+        setExpectedDeliveryOptions(mergeDefaultList(lists.expectedDeliveryOptions, DEFAULT_DATA.expectedDeliveryOptions));
         setWorkingConditions(lists.workingConditions ?? DEFAULT_DATA.workingConditions);
         setUsageTypes(mergeDefaultList(lists.usageTypes, DEFAULT_DATA.usageTypes));
         setEnvironments(lists.environments ?? DEFAULT_DATA.environments);
@@ -428,19 +432,27 @@ export const AdminSettingsProvider: React.FC<{ children: React.ReactNode }> = ({
       role,
       preferredLanguage,
       createdAt: raw?.createdAt ? String(raw.createdAt) : null,
+      online: Boolean(raw?.online),
+      lastSeenAt: raw?.lastSeenAt ? String(raw.lastSeenAt) : null,
+      activeSessionCount: Number.parseInt(String(raw?.activeSessionCount ?? '0'), 10) || 0,
     };
   };
 
-  const refreshUsers = async () => {
+  const refreshUsers = async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
     const startedAt = Date.now();
-    setIsUsersLoading(true);
+    if (!silent) {
+      setIsUsersLoading(true);
+    }
     try {
       const data = await fetchJson<UserItem[]>(USERS_API_BASE);
       const mapped = Array.isArray(data) ? data.map(mapUser) : [];
       setUsers(mapped.filter((item) => item.id && item.email));
     } finally {
-      await ensureMinSpinnerMs(startedAt);
-      setIsUsersLoading(false);
+      if (!silent) {
+        await ensureMinSpinnerMs(startedAt);
+        setIsUsersLoading(false);
+      }
     }
   };
 

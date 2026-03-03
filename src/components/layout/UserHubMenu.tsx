@@ -15,7 +15,6 @@ import {
 import { useTheme } from 'next-themes';
 
 import AccountDialog from '@/components/account/AccountDialog';
-import FeedbackDialog from '@/components/feedback/FeedbackDialog';
 import HelpDialog from '@/components/help/HelpDialog';
 import {
   DropdownMenu,
@@ -121,9 +120,9 @@ const UserHubMenu: React.FC<UserHubMenuProps> = ({
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-44">
               {[
-                { code: 'en', label: 'English' },
-                { code: 'fr', label: 'Français' },
-                { code: 'zh', label: '中文' },
+                { code: 'en', label: t.common.languageEnglish },
+                { code: 'fr', label: t.common.languageFrench },
+                { code: 'zh', label: t.common.languageChinese },
               ].map((item) => {
                 const active = language === item.code;
                 return (
@@ -169,10 +168,6 @@ const UserHubMenu: React.FC<UserHubMenuProps> = ({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <div className="hidden">
-        <FeedbackDialog trigger={<span />} />
-      </div>
 
       <AccountDialog open={isAccountOpen} onOpenChange={setIsAccountOpen} />
     </>

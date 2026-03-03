@@ -166,10 +166,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
                       : 'text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground'
                   )}
                 >
-                  <Link to="/settings?tab=export" onClick={() => setAdminOpen(true)} className="flex flex-1 items-center gap-3 px-3 py-2.5">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setAdminOpen((value) => !value);
+                    }}
+                    className="flex flex-1 items-center gap-3 px-3 py-2.5 text-left"
+                    aria-label={adminOpen ? t.common.close : t.common.openMenu}
+                    title={adminOpen ? t.common.close : t.common.openMenu}
+                  >
                     <Settings size={20} className={isSettingsActive ? 'text-primary' : ''} />
                     <span className="font-medium flex-1 text-left">{t.nav.admin}</span>
-                  </Link>
+                  </button>
                   <button
                     type="button"
                     onClick={(event) => {

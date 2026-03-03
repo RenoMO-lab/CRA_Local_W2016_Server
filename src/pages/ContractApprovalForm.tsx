@@ -5,7 +5,6 @@ import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { Attachment, ContractApprovalStatus } from '@/types';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -76,8 +75,8 @@ const ContractApprovalForm: React.FC = () => {
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [craError, setCraError] = useState('');
   const [isLookingUpCra, setIsLookingUpCra] = useState(false);
-  const [decisionModal, setDecisionModal] = useState<{ type: 'approve' | 'reject' } | null>(null);
   const [decisionComment, setDecisionComment] = useState('');
+  const [decisionError, setDecisionError] = useState('');
   const draftInputRef = useRef<HTMLInputElement | null>(null);
   const stampedInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -328,7 +327,7 @@ const ContractApprovalForm: React.FC = () => {
       return;
     }
     if (!draftFiles.length) {
-      toast.error(t.contractApproval.validation.draftRequired ?? 'Draft contract PDF is required before submission.');
+      toast.error(t.contractApproval.validation.draftRequired);
       return;
     }
     if (approvedSnapshotWarningText) {
@@ -355,53 +354,65 @@ const ContractApprovalForm: React.FC = () => {
   };
 
   const approve = async () => {
-    setDecisionComment('');
-    setDecisionModal({ type: 'approve' });
-  };
-
-  const reject = async () => {
-    setDecisionComment('');
-    setDecisionModal({ type: 'reject' });
-  };
-
-  const submitDecision = async () => {
-    if (!contractId || !decisionModal) return;
+    if (!contractId) return;
     let nextStatus: ContractApprovalStatus | null = null;
-    if (decisionModal.type === 'approve') {
-      if (status === 'submitted') nextStatus = 'finance_approved';
-      if (status === 'finance_approved') nextStatus = 'gm_approved';
-    } else {
-      if (!decisionComment.trim()) {
-        toast.error(t.contractApproval.validation.rejectCommentRequired);
-        return;
-      }
-      if (status === 'submitted') nextStatus = 'finance_rejected';
-      if (status === 'finance_approved') nextStatus = 'gm_rejected';
-    }
+    if (status === 'submitted') nextStatus = 'finance_approved';
+    if (status === 'finance_approved') nextStatus = 'gm_approved';
 
     if (!nextStatus) {
-      toast.error('Invalid decision state');
-      return;
+      toast.error(t.contractApproval.validation.invalidDecisionState);
+      return false;
     }
 
     try {
       await updateStatus(contractId, nextStatus, decisionComment.trim());
-      if (nextStatus === 'finance_approved') toast.success(t.contractApproval.messages.financeApproved);
-      else if (nextStatus === 'finance_rejected') toast.success(t.contractApproval.messages.financeRejected);
-      else toast.success(nextStatus === 'gm_approved' ? t.contractApproval.messages.approved : t.contractApproval.messages.rejected);
+      if (nextStatus === 'finance_approved') toast.success(t.contractApproval.messages.reviewed ?? t.contractApproval.messages.financeApproved);
+      else toast.success(t.contractApproval.messages.approved);
+      setDecisionComment('');
+      setDecisionError('');
       navigate('/contract-approvals');
+      return true;
     } catch (error: any) {
       toast.error(String(error?.message ?? error));
-    } finally {
-      setDecisionModal(null);
+      return false;
+    }
+  };
+
+  const reject = async () => {
+    if (!contractId) return;
+    const trimmedComment = decisionComment.trim();
+    if (!trimmedComment) {
+      setDecisionError(t.contractApproval.validation.rejectCommentRequired);
+      return false;
+    }
+
+    let nextStatus: ContractApprovalStatus | null = null;
+    if (status === 'submitted') nextStatus = 'finance_rejected';
+    if (status === 'finance_approved') nextStatus = 'gm_rejected';
+
+    if (!nextStatus) {
+      toast.error(t.contractApproval.validation.invalidDecisionState);
+      return false;
+    }
+
+    try {
+      await updateStatus(contractId, nextStatus, trimmedComment);
+      if (nextStatus === 'finance_rejected') toast.success(t.contractApproval.messages.financeRejected);
+      else toast.success(t.contractApproval.messages.rejected);
       setDecisionComment('');
+      setDecisionError('');
+      navigate('/contract-approvals');
+      return true;
+    } catch (error: any) {
+      toast.error(String(error?.message ?? error));
+      return false;
     }
   };
 
   const financeUpload = async () => {
     if (!contractId) return;
     if (!stampedFiles.length) {
-      toast.error('Stamped contract PDF is required.');
+      toast.error(t.contractApproval.validation.stampedRequired);
       return;
     }
     try {
@@ -796,12 +807,31 @@ const ContractApprovalForm: React.FC = () => {
               </>
             ) : null}
             {canFinanceReview || canAdminDecision ? (
-              <>
-                <Button size="sm" onClick={approve}>{t.contractApproval.approve}</Button>
-                <Button size="sm" variant="destructive" onClick={reject}>
-                  {t.contractApproval.reject}
-                </Button>
-              </>
+              <div className="w-full space-y-2">
+                <Label>{t.contractApproval.fields.comments}</Label>
+                <Textarea
+                  value={decisionComment}
+                  onChange={(event) => {
+                    setDecisionComment(event.target.value);
+                    if (decisionError) setDecisionError('');
+                  }}
+                  rows={3}
+                  placeholder={
+                    canFinanceReview
+                      ? (t.contractApproval.prompts.reviewComment ?? t.contractApproval.prompts.approveComment)
+                      : t.contractApproval.prompts.approveComment
+                  }
+                />
+                {decisionError ? <p className="text-xs text-destructive">{decisionError}</p> : null}
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" onClick={approve}>
+                    {canFinanceReview ? (t.contractApproval.reviewAction ?? t.contractApproval.approve) : t.contractApproval.approve}
+                  </Button>
+                  <Button size="sm" variant="destructive" onClick={reject}>
+                    {t.contractApproval.reject}
+                  </Button>
+                </div>
+              </div>
             ) : null}
             {canCashierUpload && status === 'gm_approved' ? (
               <Button size="sm" onClick={financeUpload}>{t.contractApproval.uploadStamped}</Button>
@@ -812,33 +842,6 @@ const ContractApprovalForm: React.FC = () => {
           </div>
         </>
       )}
-      <Dialog open={Boolean(decisionModal)} onOpenChange={(open) => !open && setDecisionModal(null)}>
-        <DialogContent className="bg-card">
-          <DialogHeader>
-            <DialogTitle>{decisionModal?.type === 'approve' ? t.contractApproval.approve : t.contractApproval.reject}</DialogTitle>
-            <DialogDescription>
-              {decisionModal?.type === 'approve' ? t.contractApproval.prompts.approveComment : t.contractApproval.prompts.rejectComment}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label>{t.contractApproval.fields.comments}</Label>
-            <Textarea
-              value={decisionComment}
-              onChange={(event) => setDecisionComment(event.target.value)}
-              rows={4}
-              placeholder={decisionModal?.type === 'approve' ? t.contractApproval.prompts.approveComment : t.contractApproval.prompts.rejectComment}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDecisionModal(null)}>
-              {t.common.cancel}
-            </Button>
-            <Button variant={decisionModal?.type === 'reject' ? 'destructive' : 'default'} onClick={submitDecision}>
-              {decisionModal?.type === 'approve' ? t.contractApproval.approve : t.contractApproval.reject}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
       <AttachmentPreviewDialog
         open={isPreviewOpen}
         onOpenChange={(next) => {

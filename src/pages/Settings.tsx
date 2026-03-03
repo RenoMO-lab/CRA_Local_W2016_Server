@@ -198,6 +198,7 @@ interface ClientOfferProfile {
   companyNameLocal: string;
   companyNameEn: string;
   address: string;
+  addressZh: string;
   phone: string;
   email: string;
   contactName: string;
@@ -552,6 +553,7 @@ const Settings: React.FC = () => {
     companyNameLocal: '',
     companyNameEn: '',
     address: '',
+    addressZh: '',
     phone: '',
     email: '',
     contactName: '',
@@ -815,6 +817,11 @@ const Settings: React.FC = () => {
     return format(d, 'MMM d, yyyy HH:mm');
   };
 
+  const formatLastSeen = (lastSeenAt: string | null | undefined, online: boolean) => {
+    if (online) return t.settings.justNow;
+    return formatDateTime(lastSeenAt);
+  };
+
   const MIN_SPINNER_MS = 600;
   const sleepMs = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
   const ensureMinSpinnerMs = async (startedAtMs: number, minMs = MIN_SPINNER_MS) => {
@@ -988,6 +995,7 @@ const Settings: React.FC = () => {
         companyNameLocal: String(data?.companyNameLocal ?? ''),
         companyNameEn: String(data?.companyNameEn ?? ''),
         address: String(data?.address ?? ''),
+        addressZh: String(data?.addressZh ?? ''),
         phone: String(data?.phone ?? ''),
         email: String(data?.email ?? ''),
         contactName: String(data?.contactName ?? ''),
@@ -1017,6 +1025,7 @@ const Settings: React.FC = () => {
           companyNameLocal: clientOfferProfile.companyNameLocal,
           companyNameEn: clientOfferProfile.companyNameEn,
           address: clientOfferProfile.address,
+          addressZh: clientOfferProfile.addressZh,
           phone: clientOfferProfile.phone,
           email: clientOfferProfile.email,
           contactName: clientOfferProfile.contactName,
@@ -1030,6 +1039,7 @@ const Settings: React.FC = () => {
         companyNameLocal: String(data?.companyNameLocal ?? ''),
         companyNameEn: String(data?.companyNameEn ?? ''),
         address: String(data?.address ?? ''),
+        addressZh: String(data?.addressZh ?? ''),
         phone: String(data?.phone ?? ''),
         email: String(data?.email ?? ''),
         contactName: String(data?.contactName ?? ''),
@@ -1623,6 +1633,16 @@ const Settings: React.FC = () => {
     if (activeTab !== 'offer-profile') return;
     loadClientOfferProfile();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'users') return;
+    const timer = window.setInterval(() => {
+      refreshUsers({ silent: true }).catch((error) => {
+        console.error('Failed to refresh live user status:', error);
+      });
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [activeTab, refreshUsers]);
 
   const loadFeedback = useCallback(async () => {
     const startedAt = Date.now();
@@ -2625,6 +2645,7 @@ const Settings: React.FC = () => {
                   <TableHead className="font-semibold">{t.common.name}</TableHead>
                   <TableHead className="font-semibold">{t.common.email}</TableHead>
                   <TableHead className="font-semibold">{t.common.role}</TableHead>
+                  <TableHead className="font-semibold">{t.settings.loginStatus}</TableHead>
                   <TableHead className="font-semibold">{t.common.language}</TableHead>
                   <TableHead className="font-semibold text-right">{t.common.actions}</TableHead>
                 </TableRow>
@@ -2632,7 +2653,7 @@ const Settings: React.FC = () => {
               <TableBody>
                 {isUsersLoading && users.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="text-center text-muted-foreground">
                       {t.common.loading}
                     </TableCell>
                   </TableRow>
@@ -2681,6 +2702,40 @@ const Settings: React.FC = () => {
                             <span className={cn('h-2.5 w-2.5 rounded-full ring-1 ring-border/60', roleDotClass[userItem.role])} />
                             <span className="truncate">{roleLabel}</span>
                           </span>
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const online = Boolean(userItem.online);
+                        const activeSessionCount = Number.parseInt(String(userItem.activeSessionCount ?? '0'), 10) || 0;
+                        return (
+                          <div className="flex min-w-[11rem] flex-col gap-1">
+                            <span
+                              className={cn(
+                                'inline-flex w-fit items-center gap-2 rounded-full border px-2 py-0.5 text-[11px] font-semibold',
+                                online
+                                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                                  : 'border-border bg-muted/25 text-muted-foreground'
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  'h-1.5 w-1.5 rounded-full',
+                                  online ? 'bg-emerald-400' : 'bg-muted-foreground/70'
+                                )}
+                              />
+                              {online ? t.settings.online : t.settings.offline}
+                            </span>
+                            <span className="text-[11px] text-muted-foreground">
+                              {t.settings.lastSeen}: {formatLastSeen(userItem.lastSeenAt ?? null, online)}
+                            </span>
+                            {activeSessionCount > 0 ? (
+                              <span className="text-[11px] text-muted-foreground">
+                                {t.settings.activeSessions}: {activeSessionCount}
+                              </span>
+                            ) : null}
+                          </div>
                         );
                       })()}
                     </TableCell>
@@ -3039,30 +3094,12 @@ const Settings: React.FC = () => {
                     }
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label>{t.clientOffer.phone}</Label>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>{t.clientOffer.addressZh}</Label>
                   <Input
-                    value={clientOfferProfile.phone}
+                    value={clientOfferProfile.addressZh}
                     onChange={(e) =>
-                      setClientOfferProfile((prev) => ({ ...prev, phone: e.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t.clientOffer.email}</Label>
-                  <Input
-                    value={clientOfferProfile.email}
-                    onChange={(e) =>
-                      setClientOfferProfile((prev) => ({ ...prev, email: e.target.value }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t.clientOffer.contactName}</Label>
-                  <Input
-                    value={clientOfferProfile.contactName}
-                    onChange={(e) =>
-                      setClientOfferProfile((prev) => ({ ...prev, contactName: e.target.value }))
+                      setClientOfferProfile((prev) => ({ ...prev, addressZh: e.target.value }))
                     }
                   />
                 </div>

@@ -9,9 +9,6 @@ import { useLanguage } from '@/context/LanguageContext';
 import { useAppShell } from '@/context/AppShellContext';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import KPICard from '@/components/dashboard/KPICard';
 import ContractApprovalsTable from '@/components/contract/ContractApprovalsTable';
 import ContractReviewDrawer from '@/components/contract/ContractReviewDrawer';
@@ -36,8 +33,6 @@ const ContractApprovals: React.FC = () => {
   const [ownershipFilter, setOwnershipFilter] = useState<OwnershipFilter>('all');
   const [reviewContractId, setReviewContractId] = useState<string | null>(null);
   const [isReviewOpen, setIsReviewOpen] = useState(false);
-  const [decisionModal, setDecisionModal] = useState<{ type: 'approve' | 'reject'; id: string } | null>(null);
-  const [decisionComment, setDecisionComment] = useState('');
   const [searchMatchedIds, setSearchMatchedIds] = useState<Set<string>>(new Set());
 
   const ownershipFiltered = useMemo(() => {
@@ -107,12 +102,12 @@ const ContractApprovals: React.FC = () => {
     const countNeedsAttention = countBy(NEEDS_ATTENTION_STATUSES);
     const countCompleted = countBy(COMPLETED_STATUSES);
     return [
-      { title: t.contractApproval.metrics?.total ?? 'Total Contracts', value: base.length, icon: FileText, filterValue: 'all' as FilterType },
-      { title: t.contractApproval.metrics?.inProgress ?? 'In Progress', value: countInProgress, icon: Clock, filterValue: 'in_progress' as FilterType },
-      { title: t.contractApproval.metrics?.completed ?? 'Completed', value: countCompleted, icon: CheckCircle, filterValue: 'completed_group' as FilterType },
-      { title: t.contractApproval.metrics?.needsAttention ?? 'Needs Attention', value: countNeedsAttention, icon: AlertCircle, filterValue: 'needs_attention' as FilterType },
+      { title: t.contractApproval.metrics.total, value: base.length, icon: FileText, filterValue: 'all' as FilterType },
+      { title: t.contractApproval.metrics.inProgress, value: countInProgress, icon: Clock, filterValue: 'in_progress' as FilterType },
+      { title: t.contractApproval.metrics.completed, value: countCompleted, icon: CheckCircle, filterValue: 'completed_group' as FilterType },
+      { title: t.contractApproval.metrics.needsAttention, value: countNeedsAttention, icon: AlertCircle, filterValue: 'needs_attention' as FilterType },
     ];
-  }, [ownershipFiltered, t.contractApproval.metrics]);
+  }, [ownershipFiltered, t.contractApproval.metrics.completed, t.contractApproval.metrics.inProgress, t.contractApproval.metrics.needsAttention, t.contractApproval.metrics.total]);
 
   const clearFilters = () => {
     setStatusFilter('all');
@@ -124,55 +119,63 @@ const ContractApprovals: React.FC = () => {
     setIsReviewOpen(true);
   };
 
-  const onRequestApprove = (id: string) => {
-    setDecisionComment('');
-    setDecisionModal({ type: 'approve', id });
-  };
-
-  const onRequestReject = (id: string) => {
-    setDecisionComment('');
-    setDecisionModal({ type: 'reject', id });
-  };
-
-  const submitDecision = async () => {
-    if (!decisionModal) return;
-    const targetContract = contracts.find((item) => item.id === decisionModal.id);
+  const onRequestApprove = async (id: string, comment?: string) => {
+    const targetContract = contracts.find((item) => item.id === id);
     if (!targetContract) {
-      setDecisionModal(null);
-      return;
+      return false;
     }
 
     let status: ContractApprovalStatus | null = null;
-    if (decisionModal.type === 'approve') {
-      if (targetContract.status === 'submitted') status = 'finance_approved';
-      if (targetContract.status === 'finance_approved') status = 'gm_approved';
-    } else {
-      if (!decisionComment.trim()) {
-        toast.error(t.contractApproval.validation.rejectCommentRequired);
-        return;
-      }
-      if (targetContract.status === 'submitted') status = 'finance_rejected';
-      if (targetContract.status === 'finance_approved') status = 'gm_rejected';
-    }
+    if (targetContract.status === 'submitted') status = 'finance_approved';
+    if (targetContract.status === 'finance_approved') status = 'gm_approved';
 
     if (!status) {
-      toast.error('Invalid decision state');
-      setDecisionModal(null);
-      setDecisionComment('');
-      return;
+      toast.error(t.contractApproval.validation.invalidDecisionState);
+      return false;
     }
 
     try {
-      await updateStatus(decisionModal.id, status, decisionComment.trim());
-      if (status === 'finance_approved') toast.success(t.contractApproval.messages.financeApproved);
-      else if (status === 'finance_rejected') toast.success(t.contractApproval.messages.financeRejected);
-      else toast.success(status === 'gm_approved' ? t.contractApproval.messages.approved : t.contractApproval.messages.rejected);
+      await updateStatus(id, status, (comment ?? '').trim());
+      if (status === 'finance_approved') toast.success(t.contractApproval.messages.reviewed ?? t.contractApproval.messages.financeApproved);
+      else toast.success(t.contractApproval.messages.approved);
       await refreshContracts();
+      return true;
     } catch (error: any) {
       toast.error(String(error?.message ?? error));
-    } finally {
-      setDecisionModal(null);
-      setDecisionComment('');
+      return false;
+    }
+  };
+
+  const onRequestReject = async (id: string, comment: string) => {
+    const trimmedComment = comment.trim();
+    if (!trimmedComment) {
+      toast.error(t.contractApproval.validation.rejectCommentRequired);
+      return false;
+    }
+
+    const targetContract = contracts.find((item) => item.id === id);
+    if (!targetContract) {
+      return false;
+    }
+
+    let status: ContractApprovalStatus | null = null;
+    if (targetContract.status === 'submitted') status = 'finance_rejected';
+    if (targetContract.status === 'finance_approved') status = 'gm_rejected';
+
+    if (!status) {
+      toast.error(t.contractApproval.validation.invalidDecisionState);
+      return false;
+    }
+
+    try {
+      await updateStatus(id, status, trimmedComment);
+      if (status === 'finance_rejected') toast.success(t.contractApproval.messages.financeRejected);
+      else toast.success(t.contractApproval.messages.rejected);
+      await refreshContracts();
+      return true;
+    } catch (error: any) {
+      toast.error(String(error?.message ?? error));
+      return false;
     }
   };
 
@@ -232,9 +235,9 @@ const ContractApprovals: React.FC = () => {
             </SelectTrigger>
             <SelectContent className="bg-card border border-border">
               <SelectItem value="all">{t.contractApproval.filters.allStatuses}</SelectItem>
-              <SelectItem value="in_progress">{t.contractApproval.metrics?.inProgress ?? 'In Progress'}</SelectItem>
-              <SelectItem value="completed_group">{t.contractApproval.metrics?.completed ?? 'Completed'}</SelectItem>
-              <SelectItem value="needs_attention">{t.contractApproval.metrics?.needsAttention ?? 'Needs Attention'}</SelectItem>
+              <SelectItem value="in_progress">{t.contractApproval.metrics.inProgress}</SelectItem>
+              <SelectItem value="completed_group">{t.contractApproval.metrics.completed}</SelectItem>
+              <SelectItem value="needs_attention">{t.contractApproval.metrics.needsAttention}</SelectItem>
               {(['draft', 'submitted', 'finance_approved', 'finance_rejected', 'gm_approved', 'gm_rejected', 'finance_upload', 'completed'] as ContractApprovalStatus[]).map((status) => (
                 <SelectItem key={status} value={status}>
                   {t.contractApproval.statuses[status]}
@@ -269,40 +272,10 @@ const ContractApprovals: React.FC = () => {
           onQuickReview={onQuickReview}
           onView={(id) => navigate(`/contract-approvals/${id}`)}
           onEdit={(id) => navigate(`/contract-approvals/${id}/edit`)}
-          onApprove={onRequestApprove}
-          onReject={onRequestReject}
           onFinanceUpload={(id) => navigate(`/contract-approvals/${id}/edit`)}
           onComplete={onComplete}
         />
       )}
-
-      <Dialog open={Boolean(decisionModal)} onOpenChange={(open) => !open && setDecisionModal(null)}>
-        <DialogContent className="bg-card">
-          <DialogHeader>
-            <DialogTitle>{decisionModal?.type === 'approve' ? t.contractApproval.approve : t.contractApproval.reject}</DialogTitle>
-            <DialogDescription>
-              {decisionModal?.type === 'approve' ? t.contractApproval.prompts.approveComment : t.contractApproval.prompts.rejectComment}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label>{t.contractApproval.fields.comments}</Label>
-            <Textarea
-              value={decisionComment}
-              onChange={(event) => setDecisionComment(event.target.value)}
-              rows={4}
-              placeholder={decisionModal?.type === 'approve' ? t.contractApproval.prompts.approveComment : t.contractApproval.prompts.rejectComment}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDecisionModal(null)}>
-              {t.common.cancel}
-            </Button>
-            <Button variant={decisionModal?.type === 'reject' ? 'destructive' : 'default'} onClick={submitDecision}>
-              {decisionModal?.type === 'approve' ? t.contractApproval.approve : t.contractApproval.reject}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <ContractReviewDrawer
         open={isReviewOpen}

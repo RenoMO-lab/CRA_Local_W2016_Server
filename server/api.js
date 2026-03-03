@@ -361,6 +361,7 @@ const CLIENT_OFFER_PROFILE_DEFAULT = Object.freeze({
   companyNameLocal: "青岛蒙路可机械有限公司",
   companyNameEn: "Qingdao Monroc Mechanical Co., LTD",
   address: "Tonghe Industrial Zone,Pingdu,Qingdao,P.R.C",
+  addressZh: "山东省青岛平度市同和街道办事处高尔夫路51号",
   phone: "+86 132 5688 9718",
   email: "kevin@sonasia.monroc.com",
   contactName: "Kevin Zhu",
@@ -370,6 +371,7 @@ const sanitizeClientOfferProfileInput = (input) => ({
   companyNameLocal: typeof input?.companyNameLocal === "string" ? input.companyNameLocal.trim() : "",
   companyNameEn: typeof input?.companyNameEn === "string" ? input.companyNameEn.trim() : "",
   address: typeof input?.address === "string" ? input.address.trim() : "",
+  addressZh: typeof input?.addressZh === "string" ? input.addressZh.trim() : "",
   phone: typeof input?.phone === "string" ? input.phone.trim() : "",
   email: typeof input?.email === "string" ? input.email.trim() : "",
   contactName: typeof input?.contactName === "string" ? input.contactName.trim() : "",
@@ -381,6 +383,7 @@ const mapClientOfferProfileRow = (row) => {
     companyNameLocal: String(row?.company_name_local ?? fallback.companyNameLocal),
     companyNameEn: String(row?.company_name_en ?? fallback.companyNameEn),
     address: String(row?.address ?? fallback.address),
+    addressZh: String(row?.address_zh ?? fallback.addressZh),
     phone: String(row?.phone ?? fallback.phone),
     email: String(row?.email ?? fallback.email),
     contactName: String(row?.contact_name ?? fallback.contactName),
@@ -394,15 +397,16 @@ const ensureClientOfferProfileRow = async (pool) => {
   await pool.query(
     `
     INSERT INTO client_offer_profile_settings
-      (id, company_name_local, company_name_en, address, phone, email, contact_name)
+      (id, company_name_local, company_name_en, address, address_zh, phone, email, contact_name)
     VALUES
-      (1,$1,$2,$3,$4,$5,$6)
+      (1,$1,$2,$3,$4,$5,$6,$7)
     ON CONFLICT (id) DO NOTHING
     `,
     [
       fallback.companyNameLocal,
       fallback.companyNameEn,
       fallback.address,
+      fallback.addressZh,
       fallback.phone,
       fallback.email,
       fallback.contactName,
@@ -418,6 +422,7 @@ const getClientOfferProfile = async (pool) => {
       company_name_local,
       company_name_en,
       address,
+      address_zh,
       phone,
       email,
       contact_name,
@@ -441,16 +446,18 @@ const updateClientOfferProfile = async (pool, input, actorUserId) => {
         company_name_local = $1,
         company_name_en = $2,
         address = $3,
-        phone = $4,
-        email = $5,
-        contact_name = $6,
+        address_zh = $4,
+        phone = $5,
+        email = $6,
+        contact_name = $7,
         updated_at = now(),
-        updated_by_user_id = $7
+        updated_by_user_id = $8
     WHERE id = 1
     RETURNING
       company_name_local,
       company_name_en,
       address,
+      address_zh,
       phone,
       email,
       contact_name,
@@ -461,6 +468,7 @@ const updateClientOfferProfile = async (pool, input, actorUserId) => {
       next.companyNameLocal,
       next.companyNameEn,
       next.address,
+      next.addressZh,
       next.phone,
       next.email,
       next.contactName,
@@ -583,6 +591,7 @@ const getRequestOwnerOfferProfileForPdf = async (pool, requestId) => {
     companyNameLocal: String(globalProfile?.companyNameLocal ?? ""),
     companyNameEn: String(globalProfile?.companyNameEn ?? ""),
     address: String(globalProfile?.address ?? ""),
+    addressZh: String(globalProfile?.addressZh ?? ""),
     contactName: String(ownerProfile?.contactName ?? ""),
     contactEmail: String(ownerProfile?.contactEmail ?? ""),
     mobile: String(ownerProfile?.mobile ?? ""),
@@ -2251,6 +2260,7 @@ const normalizeRequestData = (data, nowIso) => {
       typeof data.designResultBomFolderLink === "string" ? data.designResultBomFolderLink : "",
     designResultAttachments,
     city: typeof data.city === "string" ? data.city : "",
+    clientAddressDelivery: typeof data.clientAddressDelivery === "string" ? data.clientAddressDelivery : "",
     incoterm: typeof data.incoterm === "string" ? data.incoterm : "",
     incotermOther: typeof data.incotermOther === "string" ? data.incotermOther : "",
     sellingCurrency: typeof data.sellingCurrency === "string" ? data.sellingCurrency : "EUR",
@@ -2694,6 +2704,36 @@ const validateContractSubmitPayload = async (pool, contract) => {
   const prefill = await resolveContractCraPrefill(pool, craNumber);
   if (!prefill.ok) return { ok: false, status: prefill.status, error: prefill.error };
   return { ok: true, craRequestId: String(prefill.request?.id ?? craNumber) };
+};
+
+const validateRequestSubmittedPayload = (request) => {
+  const currency = String(request?.sellingCurrency ?? "").trim().toUpperCase();
+  if (!(currency === "USD" || currency === "EUR" || currency === "RMB")) {
+    return { ok: false, status: 400, error: "Currency is required before submission" };
+  }
+
+  const incoterm = String(request?.incoterm ?? "").trim();
+  if (!incoterm) {
+    return { ok: false, status: 400, error: "Incoterm is required before submission" };
+  }
+  if (incoterm.toLowerCase() === "other") {
+    const incotermOther = String(request?.incotermOther ?? "").trim();
+    if (!incotermOther) {
+      return { ok: false, status: 400, error: "Incoterm detail is required when Incoterm is Other" };
+    }
+  }
+
+  const vatMode = String(request?.vatMode ?? "").trim().toLowerCase();
+  if (!(vatMode === "with" || vatMode === "without")) {
+    return { ok: false, status: 400, error: "Taxation is required before submission" };
+  }
+
+  const clientAddressDelivery = String(request?.clientAddressDelivery ?? "").trim();
+  if (!clientAddressDelivery) {
+    return { ok: false, status: 400, error: "Client Address Delivery is required before submission" };
+  }
+
+  return { ok: true };
 };
 
 const safeParseRequest = (value, context) => {
@@ -5607,22 +5647,74 @@ export const apiRouter = (() => {
       let rows = [];
       try {
         ({ rows } = await pool.query(
-          `SELECT id, name, email, role, preferred_language, created_at
-             FROM app_users
-            WHERE is_active = true
-            ORDER BY lower(email)`
+          `SELECT
+             u.id,
+             u.name,
+             u.email,
+             u.role,
+             u.preferred_language,
+             u.created_at,
+             COALESCE(s.active_session_count, 0)::int AS "activeSessionCount",
+             s.last_seen_at AS "lastSeenAt",
+             (
+               COALESCE(s.active_session_count, 0) > 0
+               AND s.last_seen_at IS NOT NULL
+               AND s.last_seen_at >= now() - interval '3 minutes'
+             ) AS online
+           FROM app_users u
+           LEFT JOIN (
+             SELECT
+               user_id,
+               COUNT(*)::int AS active_session_count,
+               MAX(last_seen_at) AS last_seen_at
+             FROM auth_sessions
+             WHERE revoked_at IS NULL
+               AND expires_at > now()
+             GROUP BY user_id
+           ) s ON s.user_id = u.id
+           WHERE u.is_active = true
+           ORDER BY lower(u.email)`
         ));
       } catch (error) {
         // Backward-compat: older DBs may not have preferred_language yet.
         if (String(error?.code ?? "") !== "42703") throw error;
         ({ rows } = await pool.query(
-          `SELECT id, name, email, role, created_at
-             FROM app_users
-            WHERE is_active = true
-            ORDER BY lower(email)`
+          `SELECT
+             u.id,
+             u.name,
+             u.email,
+             u.role,
+             u.created_at,
+             COALESCE(s.active_session_count, 0)::int AS "activeSessionCount",
+             s.last_seen_at AS "lastSeenAt",
+             (
+               COALESCE(s.active_session_count, 0) > 0
+               AND s.last_seen_at IS NOT NULL
+               AND s.last_seen_at >= now() - interval '3 minutes'
+             ) AS online
+           FROM app_users u
+           LEFT JOIN (
+             SELECT
+               user_id,
+               COUNT(*)::int AS active_session_count,
+               MAX(last_seen_at) AS last_seen_at
+             FROM auth_sessions
+             WHERE revoked_at IS NULL
+               AND expires_at > now()
+             GROUP BY user_id
+           ) s ON s.user_id = u.id
+           WHERE u.is_active = true
+           ORDER BY lower(u.email)`
         ));
       }
-      res.json(rows.map((row) => mapUserRow(row)));
+      res.json(
+        rows.map((row) => ({
+          ...mapUserRow(row),
+          online: Boolean(row?.online),
+          lastSeenAt: row?.lastSeenAt ?? null,
+          activeSessionCount: Number.parseInt(String(row?.activeSessionCount ?? "0"), 10) || 0,
+        }))
+      );
     })
   );
 
@@ -8961,6 +9053,13 @@ export const apiRouter = (() => {
       const pool = await getPool();
       const nowIso = new Date().toISOString();
       const status = String(body.status ?? "draft").trim() || "draft";
+      if (status === "submitted") {
+        const submittedValidation = validateRequestSubmittedPayload(body);
+        if (!submittedValidation.ok) {
+          res.status(submittedValidation.status).json({ error: submittedValidation.error });
+          return;
+        }
+      }
       const createdBy = String(body.createdBy ?? req.authUser?.id ?? "").trim();
       const createdByName = String(body.createdByName ?? req.authUser?.name ?? "").trim();
       const draftSessionKey = typeof body.draftSessionKey === "string" ? body.draftSessionKey.trim() : "";
@@ -9173,6 +9272,17 @@ export const apiRouter = (() => {
           allowedTransitions: allowed,
         });
         return;
+      }
+      if (previousStatus === "clarification_needed" && requestedStatus === "submitted" && !comment) {
+        res.status(400).json({ error: "Clarification response is required before resubmitting to Design" });
+        return;
+      }
+      if (requestedStatus === "submitted") {
+        const submittedValidation = validateRequestSubmittedPayload(existing);
+        if (!submittedValidation.ok) {
+          res.status(submittedValidation.status).json({ error: submittedValidation.error });
+          return;
+        }
       }
 
       // Cancelling a request must include a reason (auditability + context).
@@ -9465,6 +9575,13 @@ export const apiRouter = (() => {
         res.status(404).json({ error: "Request not found" });
         return;
       }
+      const actorRole = String(req.authUser?.role ?? "").trim().toLowerCase();
+      const actorId = String(req.authUser?.id ?? "").trim();
+      const ownerId = String(existing.createdBy ?? "").trim();
+      if (actorRole === "sales" && (!ownerId || ownerId !== actorId)) {
+        res.status(403).json({ error: "You can only edit your own requests" });
+        return;
+      }
 
       const nowIso = new Date().toISOString();
       const historyEvent = body.historyEvent;
@@ -9484,7 +9601,6 @@ export const apiRouter = (() => {
           res.status(401).json({ error: "Authentication required" });
           return;
         }
-        const actorRole = String(req.authUser?.role ?? "").trim().toLowerCase();
         if (actorRole !== "sales" && actorRole !== "admin") {
           res.status(403).json({ error: "Client offer configuration is restricted to Sales and Admin" });
           return;

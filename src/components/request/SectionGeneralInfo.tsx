@@ -29,6 +29,7 @@ const SectionGeneralInfo: React.FC<SectionGeneralInfoProps> = ({
   const { t, translateOption } = useLanguage();
   const showCountryOther = formData.country === 'other';
   const showCity = formData.country === 'China';
+  const showIncotermOther = String(formData.incoterm ?? '').trim().toLowerCase() === 'other';
   const hasCountryOptions = countryOptions.length > 0;
 
   return (
@@ -72,6 +73,82 @@ const SectionGeneralInfo: React.FC<SectionGeneralInfoProps> = ({
           />
           {errors.clientContact && (
             <p className="text-xs text-destructive">{errors.clientContact}</p>
+          )}
+        </div>
+
+        {/* Currency */}
+        <div className="space-y-2">
+          <Label htmlFor="sellingCurrency" className="text-sm font-medium">
+            {t.panels.currency} <span className="text-destructive">*</span>
+          </Label>
+          <Select
+            value={formData.sellingCurrency || ''}
+            onValueChange={(value) => onChange('sellingCurrency', value as 'USD' | 'EUR' | 'RMB')}
+            disabled={isReadOnly}
+          >
+            <SelectTrigger className={errors.sellingCurrency ? 'border-destructive' : ''}>
+              <SelectValue placeholder={t.panels.selectCurrency} />
+            </SelectTrigger>
+            <SelectContent className="z-50 bg-card border border-border">
+              <SelectItem value="USD">{t.panels.currencyUsd}</SelectItem>
+              <SelectItem value="EUR">{t.panels.currencyEur}</SelectItem>
+              <SelectItem value="RMB">{t.panels.currencyRmb}</SelectItem>
+            </SelectContent>
+          </Select>
+          {errors.sellingCurrency && (
+            <p className="text-xs text-destructive">{errors.sellingCurrency}</p>
+          )}
+        </div>
+
+        {/* Incoterm */}
+        <div className="space-y-2">
+          <Label htmlFor="incoterm" className="text-sm font-medium">
+            {t.panels.incoterm} <span className="text-destructive">*</span>
+          </Label>
+          <Select
+            value={formData.incoterm || ''}
+            onValueChange={(value) => {
+              onChange('incoterm', value);
+              if (value !== 'other') {
+                onChange('incotermOther', '');
+              }
+            }}
+            disabled={isReadOnly}
+          >
+            <SelectTrigger className={errors.incoterm ? 'border-destructive' : ''}>
+              <SelectValue placeholder={t.panels.selectIncoterm} />
+            </SelectTrigger>
+            <SelectContent className="z-50 bg-card border border-border">
+              <SelectItem value="EXW">EXW</SelectItem>
+              <SelectItem value="FOB">FOB</SelectItem>
+              <SelectItem value="other">{t.common.other}</SelectItem>
+            </SelectContent>
+          </Select>
+          {errors.incoterm && (
+            <p className="text-xs text-destructive">{errors.incoterm}</p>
+          )}
+        </div>
+
+        {/* Taxation */}
+        <div className="space-y-2">
+          <Label htmlFor="vatMode" className="text-sm font-medium">
+            {t.panels.vatMode} <span className="text-destructive">*</span>
+          </Label>
+          <Select
+            value={formData.vatMode || ''}
+            onValueChange={(value) => onChange('vatMode', value as 'with' | 'without')}
+            disabled={isReadOnly}
+          >
+            <SelectTrigger className={errors.vatMode ? 'border-destructive' : ''}>
+              <SelectValue placeholder={t.panels.selectVatMode} />
+            </SelectTrigger>
+            <SelectContent className="z-50 bg-card border border-border">
+              <SelectItem value="with">{t.panels.withVat}</SelectItem>
+              <SelectItem value="without">{t.panels.withoutVat}</SelectItem>
+            </SelectContent>
+          </Select>
+          {errors.vatMode && (
+            <p className="text-xs text-destructive">{errors.vatMode}</p>
           )}
         </div>
 
@@ -121,6 +198,26 @@ const SectionGeneralInfo: React.FC<SectionGeneralInfoProps> = ({
           )}
         </div>
 
+        {/* Incoterm Other */}
+        {showIncotermOther && (
+          <div className="space-y-2">
+            <Label htmlFor="incotermOther" className="text-sm font-medium">
+              {t.panels.enterIncoterm} <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="incotermOther"
+              value={formData.incotermOther || ''}
+              onChange={(e) => onChange('incotermOther', e.target.value)}
+              placeholder={t.panels.enterIncoterm}
+              disabled={isReadOnly}
+              className={errors.incotermOther ? 'border-destructive' : ''}
+            />
+            {errors.incotermOther && (
+              <p className="text-xs text-destructive">{errors.incotermOther}</p>
+            )}
+          </div>
+        )}
+
         {/* City */}
         {showCity && (
           <div className="space-y-2">
@@ -140,6 +237,24 @@ const SectionGeneralInfo: React.FC<SectionGeneralInfoProps> = ({
             )}
           </div>
         )}
+
+        {/* Client Address Delivery */}
+        <div className="space-y-2 sm:col-span-2 lg:col-span-3">
+          <Label htmlFor="clientAddressDelivery" className="text-sm font-medium">
+            {t.request.clientAddressDelivery} <span className="text-destructive">*</span>
+          </Label>
+          <Input
+            id="clientAddressDelivery"
+            value={formData.clientAddressDelivery || ''}
+            onChange={(e) => onChange('clientAddressDelivery', e.target.value)}
+            placeholder={t.request.enterClientAddressDelivery}
+            disabled={isReadOnly}
+            className={errors.clientAddressDelivery ? 'border-destructive' : ''}
+          />
+          {errors.clientAddressDelivery && (
+            <p className="text-xs text-destructive">{errors.clientAddressDelivery}</p>
+          )}
+        </div>
 
         {/* Country Other - shown when "Other" is selected */}
         {showCountryOther && hasCountryOptions && (

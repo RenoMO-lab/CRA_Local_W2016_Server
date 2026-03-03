@@ -188,6 +188,7 @@ const reviveRequest = (r: any): CustomerRequest => {
     designResultAttachments: Array.isArray(r?.designResultAttachments)
       ? r.designResultAttachments.map(reviveAttachment)
       : [],
+    clientAddressDelivery: r?.clientAddressDelivery ?? '',
     incoterm: r?.incoterm ?? '',
     incotermOther: r?.incotermOther ?? '',
     vatMode: r?.vatMode ?? 'without',

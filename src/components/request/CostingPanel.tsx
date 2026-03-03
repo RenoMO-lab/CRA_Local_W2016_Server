@@ -28,6 +28,7 @@ interface CostingPanelProps {
     vatMode?: 'with' | 'without';
     vatRate?: number | null;
     deliveryLeadtime?: string;
+    clientAddressDelivery?: string;
     costingAttachments?: Attachment[];
   }) => void | Promise<void>;
   onSaveEdits?: (data: {
@@ -40,6 +41,7 @@ interface CostingPanelProps {
     vatMode?: 'with' | 'without';
     vatRate?: number | null;
     deliveryLeadtime?: string;
+    clientAddressDelivery?: string;
     costingAttachments?: Attachment[];
   }) => void | Promise<void>;
   isUpdating: boolean;
@@ -75,6 +77,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
     typeof request.vatRate === 'number' ? request.vatRate.toString() : ''
   );
   const [deliveryLeadtime, setDeliveryLeadtime] = useState<string>(request.deliveryLeadtime || '');
+  const [clientAddressDelivery, setClientAddressDelivery] = useState<string>(request.clientAddressDelivery || '');
   const [costingAttachments, setCostingAttachments] = useState<Attachment[]>(
     Array.isArray(request.costingAttachments) ? request.costingAttachments : []
   );
@@ -264,6 +267,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
       vatMode,
       vatRate: vatMode === 'with' ? parseFloat(vatRate) : null,
       deliveryLeadtime,
+      clientAddressDelivery,
       costingAttachments,
     });
     onUpdateStatus(
@@ -281,6 +285,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
       vatMode,
       vatRate: vatMode === 'with' ? parseFloat(vatRate) : null,
       deliveryLeadtime,
+      clientAddressDelivery,
       costingAttachments,
     });
   };
@@ -447,6 +452,17 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
             />
           </div>
 
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">{t.request.clientAddressDelivery}</Label>
+            <Input
+              value={clientAddressDelivery}
+              onChange={(e) => setClientAddressDelivery(e.target.value)}
+              placeholder={t.request.enterClientAddressDelivery}
+              disabled={readOnly}
+              className="bg-background"
+            />
+          </div>
+
           <div className="space-y-3">
             <Label className="text-sm font-medium">{t.panels.costingAttachments}</Label>
             <input
@@ -549,6 +565,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
                 vatMode,
                 vatRate: vatMode === 'with' ? parseFloat(vatRate) : null,
                 deliveryLeadtime,
+                clientAddressDelivery,
                 costingAttachments,
               };
               if (onSaveEdits) {
@@ -595,6 +612,11 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
             {request.deliveryLeadtime && (
               <p className="text-sm text-foreground">
                 <span className="text-muted-foreground">{t.panels.deliveryLeadtime}:</span> {request.deliveryLeadtime}
+              </p>
+            )}
+            {request.clientAddressDelivery && (
+              <p className="text-sm text-foreground">
+                <span className="text-muted-foreground">{t.request.clientAddressDelivery}:</span> {request.clientAddressDelivery}
               </p>
             )}
             {request.costingNotes && (

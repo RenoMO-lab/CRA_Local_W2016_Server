@@ -90,9 +90,9 @@ const ContractApprovalsTable: React.FC<Props> = ({
   const copyId = async (id: string) => {
     try {
       await navigator.clipboard.writeText(id);
-      toast.success(`Copied ${id}`);
+      toast.success(`${t.table.copiedPrefix} ${id}`);
     } catch {
-      toast.error('Copy failed');
+      toast.error(t.common.copyFailed);
     }
   };
 
@@ -135,7 +135,7 @@ const ContractApprovalsTable: React.FC<Props> = ({
 
     actions.push({
       key: 'copy-id',
-      label: 'Copy ID',
+      label: t.table.copyId,
       icon: Copy,
       onSelect: () => {
         void copyId(contract.id);
