@@ -21,9 +21,9 @@ import { cn } from '@/lib/utils';
 type FilterType = 'all' | ContractApprovalStatus | 'in_progress' | 'completed_group' | 'needs_attention';
 type OwnershipFilter = 'all' | 'mine';
 
-const IN_PROGRESS_STATUSES: ContractApprovalStatus[] = ['submitted', 'gm_approved', 'finance_upload'];
+const IN_PROGRESS_STATUSES: ContractApprovalStatus[] = ['submitted', 'finance_approved', 'gm_approved', 'finance_upload'];
 const COMPLETED_STATUSES: ContractApprovalStatus[] = ['completed'];
-const NEEDS_ATTENTION_STATUSES: ContractApprovalStatus[] = ['gm_rejected'];
+const NEEDS_ATTENTION_STATUSES: ContractApprovalStatus[] = ['finance_rejected', 'gm_rejected'];
 
 const ContractApprovals: React.FC = () => {
   const { user } = useAuth();
@@ -136,10 +136,37 @@ const ContractApprovals: React.FC = () => {
 
   const submitDecision = async () => {
     if (!decisionModal) return;
-    const status = decisionModal.type === 'approve' ? 'gm_approved' : 'gm_rejected';
+    const targetContract = contracts.find((item) => item.id === decisionModal.id);
+    if (!targetContract) {
+      setDecisionModal(null);
+      return;
+    }
+
+    let status: ContractApprovalStatus | null = null;
+    if (decisionModal.type === 'approve') {
+      if (targetContract.status === 'submitted') status = 'finance_approved';
+      if (targetContract.status === 'finance_approved') status = 'gm_approved';
+    } else {
+      if (!decisionComment.trim()) {
+        toast.error(t.contractApproval.validation.rejectCommentRequired);
+        return;
+      }
+      if (targetContract.status === 'submitted') status = 'finance_rejected';
+      if (targetContract.status === 'finance_approved') status = 'gm_rejected';
+    }
+
+    if (!status) {
+      toast.error('Invalid decision state');
+      setDecisionModal(null);
+      setDecisionComment('');
+      return;
+    }
+
     try {
       await updateStatus(decisionModal.id, status, decisionComment.trim());
-      toast.success(status === 'gm_approved' ? t.contractApproval.messages.approved : t.contractApproval.messages.rejected);
+      if (status === 'finance_approved') toast.success(t.contractApproval.messages.financeApproved);
+      else if (status === 'finance_rejected') toast.success(t.contractApproval.messages.financeRejected);
+      else toast.success(status === 'gm_approved' ? t.contractApproval.messages.approved : t.contractApproval.messages.rejected);
       await refreshContracts();
     } catch (error: any) {
       toast.error(String(error?.message ?? error));
@@ -208,7 +235,7 @@ const ContractApprovals: React.FC = () => {
               <SelectItem value="in_progress">{t.contractApproval.metrics?.inProgress ?? 'In Progress'}</SelectItem>
               <SelectItem value="completed_group">{t.contractApproval.metrics?.completed ?? 'Completed'}</SelectItem>
               <SelectItem value="needs_attention">{t.contractApproval.metrics?.needsAttention ?? 'Needs Attention'}</SelectItem>
-              {(['draft', 'submitted', 'gm_approved', 'gm_rejected', 'finance_upload', 'completed'] as ContractApprovalStatus[]).map((status) => (
+              {(['draft', 'submitted', 'finance_approved', 'finance_rejected', 'gm_approved', 'gm_rejected', 'finance_upload', 'completed'] as ContractApprovalStatus[]).map((status) => (
                 <SelectItem key={status} value={status}>
                   {t.contractApproval.statuses[status]}
                 </SelectItem>

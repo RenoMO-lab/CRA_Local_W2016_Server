@@ -116,6 +116,7 @@ export const translations = {
       costing: 'Costing',
       admin: 'Admin',
       finance: 'Finance',
+      cashier: 'Cashier',
     },
 
     // Status
@@ -171,7 +172,7 @@ export const translations = {
 
     contractApproval: {
       title: 'Contract Approval',
-      description: 'Manage contract approvals from Sales submission to Finance completion.',
+      description: 'Manage contract approvals from Sales submission through Finance review, GM/Admin decision, and Cashier stamping.',
       approvedSnapshotTitle: 'GM-Approved Sales Snapshot',
       approvedSnapshotHint: 'Prefilled from linked CRA and editable in draft/rejected stages.',
       newContract: 'New Contract Approval',
@@ -205,9 +206,11 @@ export const translations = {
       statuses: {
         draft: 'Draft',
         submitted: 'Submitted',
+        finance_approved: 'Finance Approved',
+        finance_rejected: 'Finance Rejected',
         gm_approved: 'GM Approved',
         gm_rejected: 'GM Rejected',
-        finance_upload: 'Finance Upload',
+        finance_upload: 'Finance Upload (Legacy)',
         completed: 'Completed',
       },
       table: {
@@ -242,15 +245,18 @@ export const translations = {
         loadFailed: 'Unable to load contract details. Please refresh and try again.',
       },
       prompts: {
-        approveComment: 'Optional GM approval comment',
-        rejectComment: 'Optional GM rejection comment',
+        approveComment: 'Optional approval comment',
+        rejectComment: 'Rejection comment (required)',
       },
       messages: {
         saved: 'Draft saved.',
         submitted: 'Contract submitted.',
+        financeApproved: 'Finance review approved.',
+        financeRejected: 'Finance review rejected.',
         approved: 'Contract approved.',
         rejected: 'Contract rejected.',
         financeUploaded: 'Stamped contract uploaded.',
+        cashierCompleted: 'Stamped contract uploaded. Contract marked completed.',
         completed: 'Contract approval completed.',
         prefillApplied: 'CRA prefill applied.',
         prefillApprovedSnapshotApplied: 'CRA prefill applied with GM-approved commercial snapshot.',
@@ -259,6 +265,7 @@ export const translations = {
         invalidCra: 'CRA number is invalid or not GM-approved.',
         approvedSnapshotMissing: 'Some GM-approved fields are still empty: {fields}.',
         draftRequired: 'Draft contract PDF is required before submission.',
+        rejectCommentRequired: 'Rejection comment is required.',
       },
     },
 
@@ -1614,6 +1621,7 @@ export const translations = {
       costing: 'Chiffrage',
       admin: 'Admin',
       finance: 'Finance',
+      cashier: 'Caissier',
     },
 
     // Status
@@ -1669,7 +1677,7 @@ export const translations = {
 
     contractApproval: {
       title: 'Approbation de contrat',
-      description: "Gérez l'approbation des contrats, de la soumission commerciale à la clôture finance.",
+      description: "Gérez l'approbation des contrats : soumission commerciale, revue Finance, décision DG/Admin, puis cachet Caissier.",
       approvedSnapshotTitle: 'Instantané commercial approuvé par la DG',
       approvedSnapshotHint: 'Prérempli depuis la CRA liée et modifiable aux étapes brouillon/rejeté.',
       newContract: 'Nouvelle approbation',
@@ -1703,9 +1711,11 @@ export const translations = {
       statuses: {
         draft: 'Brouillon',
         submitted: 'Soumis',
+        finance_approved: 'Approuvé Finance',
+        finance_rejected: 'Rejeté Finance',
         gm_approved: 'Approuvé DG',
         gm_rejected: 'Rejeté DG',
-        finance_upload: 'Téléversement finance',
+        finance_upload: 'Téléversement finance (legacy)',
         completed: 'Terminé',
       },
       table: {
@@ -1740,15 +1750,18 @@ export const translations = {
         loadFailed: "Impossible de charger les détails du contrat. Veuillez actualiser et réessayer.",
       },
       prompts: {
-        approveComment: "Commentaire d'approbation DG (optionnel)",
-        rejectComment: 'Commentaire de rejet DG (optionnel)',
+        approveComment: "Commentaire d'approbation (optionnel)",
+        rejectComment: 'Commentaire de rejet (obligatoire)',
       },
       messages: {
         saved: 'Brouillon enregistré.',
         submitted: 'Contrat soumis.',
+        financeApproved: 'Revue Finance approuvée.',
+        financeRejected: 'Revue Finance rejetée.',
         approved: 'Contrat approuvé.',
         rejected: 'Contrat rejeté.',
         financeUploaded: 'Contrat tamponné téléversé.',
+        cashierCompleted: 'Contrat tamponné téléversé. Contrat marqué terminé.',
         completed: 'Approbation de contrat terminée.',
         prefillApplied: 'Préremplissage CRA appliqué.',
         prefillApprovedSnapshotApplied: 'Préremplissage CRA appliqué avec instantané commercial approuvé par la DG.',
@@ -1757,6 +1770,7 @@ export const translations = {
         invalidCra: "Le numéro CRA est invalide ou non approuvé par le DG.",
         approvedSnapshotMissing: 'Certains champs approuvés par la DG sont encore vides : {fields}.',
         draftRequired: 'Le contrat brouillon PDF est requis avant soumission.',
+        rejectCommentRequired: 'Le commentaire de rejet est obligatoire.',
       },
     },
 
@@ -3112,6 +3126,7 @@ export const translations = {
       costing: '成本',
       admin: '管理员',
       finance: '财务',
+      cashier: '出纳',
     },
 
     // Status
@@ -3167,7 +3182,7 @@ export const translations = {
 
     contractApproval: {
       title: '合同审批',
-      description: '管理从销售提交到财务完成的合同审批流程。',
+      description: '管理合同审批流程：销售提交 -> 财务审核 -> 总经理/管理员审批 -> 出纳盖章完成。',
       approvedSnapshotTitle: '总经理已批准销售快照',
       approvedSnapshotHint: '从关联 CRA 预填充，草稿/驳回阶段可编辑。',
       newContract: '新建合同审批',
@@ -3201,9 +3216,11 @@ export const translations = {
       statuses: {
         draft: '草稿',
         submitted: '已提交',
+        finance_approved: '财务已通过',
+        finance_rejected: '财务已驳回',
         gm_approved: '总经理已批准',
         gm_rejected: '总经理已驳回',
-        finance_upload: '财务上传中',
+        finance_upload: '财务上传中（历史）',
         completed: '已完成',
       },
       table: {
@@ -3238,15 +3255,18 @@ export const translations = {
         loadFailed: '无法加载合同详情。请刷新后重试。',
       },
       prompts: {
-        approveComment: '输入总经理审批备注（可选）',
-        rejectComment: '输入总经理驳回备注（可选）',
+        approveComment: '输入审批备注（可选）',
+        rejectComment: '输入驳回备注（必填）',
       },
       messages: {
         saved: '草稿已保存。',
         submitted: '合同已提交。',
+        financeApproved: '财务审核已通过。',
+        financeRejected: '财务审核已驳回。',
         approved: '合同已批准。',
         rejected: '合同已驳回。',
         financeUploaded: '盖章合同已上传。',
+        cashierCompleted: '盖章合同已上传，流程已完成。',
         completed: '合同审批已完成。',
         prefillApplied: 'CRA 预填充已应用。',
         prefillApprovedSnapshotApplied: '已应用 CRA 预填充并带入总经理已批准商业快照。',
@@ -3255,6 +3275,7 @@ export const translations = {
         invalidCra: 'CRA 编号无效或未经过总经理批准。',
         approvedSnapshotMissing: '以下总经理已批准字段仍为空：{fields}。',
         draftRequired: '提交前必须上传合同草稿 PDF。',
+        rejectCommentRequired: '驳回时必须填写备注。',
       },
     },
 

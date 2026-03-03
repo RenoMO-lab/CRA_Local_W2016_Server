@@ -1,4 +1,4 @@
-export type UserRole = 'sales' | 'design' | 'costing' | 'admin' | 'finance';
+export type UserRole = 'sales' | 'design' | 'costing' | 'admin' | 'finance' | 'cashier';
 
 export type RequestStatus = 
   | 'draft'
@@ -241,6 +241,8 @@ export interface CustomerRequest {
 export type ContractApprovalStatus =
   | 'draft'
   | 'submitted'
+  | 'finance_approved'
+  | 'finance_rejected'
   | 'gm_approved'
   | 'gm_rejected'
   | 'finance_upload'
@@ -362,4 +364,5 @@ export const ROLE_CONFIG: Record<UserRole, { label: string; color: string }> = {
   costing: { label: 'Costing', color: 'bg-success text-success-foreground' },
   admin: { label: 'Admin', color: 'bg-primary text-primary-foreground' },
   finance: { label: 'Finance', color: 'bg-emerald-600 text-white' },
+  cashier: { label: 'Cashier', color: 'bg-cyan-600 text-white' },
 };

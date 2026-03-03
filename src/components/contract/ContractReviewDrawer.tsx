@@ -116,13 +116,16 @@ const ContractReviewDrawer: React.FC<Props> = ({
 
   const canEdit = useMemo(() => {
     if (!contract) return false;
-    if (userRole === 'admin') return contract.status === 'draft' || contract.status === 'gm_rejected';
-    if (userRole === 'sales') return contract.salesOwnerUserId === user?.id && (contract.status === 'draft' || contract.status === 'gm_rejected');
+    if (userRole === 'admin') return contract.status === 'draft' || contract.status === 'finance_rejected' || contract.status === 'gm_rejected';
+    if (userRole === 'sales') {
+      return contract.salesOwnerUserId === user?.id && (contract.status === 'draft' || contract.status === 'finance_rejected' || contract.status === 'gm_rejected');
+    }
     return false;
   }, [contract, user?.id, userRole]);
 
-  const canApproveReject = userRole === 'admin' && contract?.status === 'submitted';
-  const canFinanceUpload = userRole === 'finance' && contract?.status === 'gm_approved';
+  const canFinanceDecision = userRole === 'finance' && contract?.status === 'submitted';
+  const canAdminDecision = userRole === 'admin' && contract?.status === 'finance_approved';
+  const canCashierUpload = userRole === 'cashier' && contract?.status === 'gm_approved';
   const canMarkCompleted = userRole === 'finance' && contract?.status === 'finance_upload';
   const primaryActionBtnClass = 'h-11 min-w-40 justify-center';
 
@@ -171,7 +174,7 @@ const ContractReviewDrawer: React.FC<Props> = ({
                 {t.table.edit}
               </Button>
             ) : null}
-            {canApproveReject ? (
+            {canFinanceDecision || canAdminDecision ? (
               <>
                 <Button onClick={() => contractId && onApprove(contractId)} disabled={!contractId} className={primaryActionBtnClass}>
                   {t.contractApproval.approve}
@@ -186,7 +189,7 @@ const ContractReviewDrawer: React.FC<Props> = ({
                 </Button>
               </>
             ) : null}
-            {canFinanceUpload ? (
+            {canCashierUpload ? (
               <Button onClick={() => contractId && onFinanceUpload(contractId)} disabled={!contractId} className={primaryActionBtnClass}>
                 <Upload size={16} className="mr-2" />
                 {t.contractApproval.uploadStamped}

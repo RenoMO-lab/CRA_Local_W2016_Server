@@ -58,7 +58,7 @@ const MobileTopNav: React.FC = () => {
 
   const navItems = [
     { path: '/dashboard', label: t.nav.dashboard, roles: ['sales', 'design', 'costing', 'admin'] },
-    { path: '/contract-approvals', label: t.nav.contractApprovals, roles: ['sales', 'admin', 'finance'] },
+    { path: '/contract-approvals', label: t.nav.contractApprovals, roles: ['sales', 'admin', 'finance', 'cashier'] },
     { path: '/price-list', label: t.nav.priceList, roles: ['sales', 'admin'] },
     { path: '/performance', label: t.nav.performance, roles: ['sales', 'design', 'costing', 'admin'] },
   ];

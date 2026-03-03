@@ -107,7 +107,7 @@ const ContractApprovalsTable: React.FC<Props> = ({
       },
     ];
 
-    if ((userRole === 'sales' || userRole === 'admin') && (contract.status === 'draft' || contract.status === 'gm_rejected')) {
+    if ((userRole === 'sales' || userRole === 'admin') && (contract.status === 'draft' || contract.status === 'finance_rejected' || contract.status === 'gm_rejected')) {
       actions.push({
         key: 'edit',
         label: t.table.edit,
@@ -116,7 +116,7 @@ const ContractApprovalsTable: React.FC<Props> = ({
       });
     }
 
-    if (userRole === 'admin' && contract.status === 'submitted') {
+    if (userRole === 'finance' && contract.status === 'submitted') {
       actions.push(
         {
           key: 'approve',
@@ -134,9 +134,27 @@ const ContractApprovalsTable: React.FC<Props> = ({
       );
     }
 
-    if (userRole === 'finance' && contract.status === 'gm_approved') {
+    if (userRole === 'admin' && contract.status === 'finance_approved') {
+      actions.push(
+        {
+          key: 'approve',
+          label: t.contractApproval.approve,
+          icon: Check,
+          onSelect: () => onApprove(contract.id),
+        },
+        {
+          key: 'reject',
+          label: t.contractApproval.reject,
+          icon: Edit,
+          onSelect: () => onReject(contract.id),
+          destructive: true,
+        }
+      );
+    }
+
+    if (userRole === 'cashier' && contract.status === 'gm_approved') {
       actions.push({
-        key: 'finance-upload',
+        key: 'cashier-upload',
         label: t.contractApproval.uploadStamped,
         icon: Upload,
         onSelect: () => onFinanceUpload(contract.id),

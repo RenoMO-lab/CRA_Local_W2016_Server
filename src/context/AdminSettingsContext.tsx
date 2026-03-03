@@ -16,7 +16,7 @@ interface UserItem {
   id: string;
   name: string;
   email: string;
-  role: 'sales' | 'design' | 'costing' | 'admin' | 'finance';
+  role: 'sales' | 'design' | 'costing' | 'admin' | 'finance' | 'cashier';
   preferredLanguage: 'en' | 'fr' | 'zh';
   createdAt?: string | null;
 }
@@ -215,7 +215,7 @@ const normalizeEmail = (value: unknown) => String(value ?? '').trim().toLowerCas
 const normalizeName = (value: unknown) => String(value ?? '').trim();
 const normalizeRole = (value: unknown): UserItem['role'] | null => {
   const role = String(value ?? '').trim().toLowerCase();
-  if (role === 'sales' || role === 'design' || role === 'costing' || role === 'admin' || role === 'finance') {
+  if (role === 'sales' || role === 'design' || role === 'costing' || role === 'admin' || role === 'finance' || role === 'cashier') {
     return role;
   }
   return null;

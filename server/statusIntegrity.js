@@ -37,6 +37,8 @@ const REQUEST_STATUS_TRANSITIONS = Object.freeze({
 const CONTRACT_APPROVAL_STATUS_ORDER = Object.freeze([
   "draft",
   "submitted",
+  "finance_approved",
+  "finance_rejected",
   "gm_approved",
   "gm_rejected",
   "finance_upload",
@@ -45,8 +47,10 @@ const CONTRACT_APPROVAL_STATUS_ORDER = Object.freeze([
 
 const CONTRACT_APPROVAL_STATUS_TRANSITIONS = Object.freeze({
   draft: toTransitionSet(["submitted"]),
-  submitted: toTransitionSet(["gm_approved", "gm_rejected"]),
-  gm_approved: toTransitionSet(["finance_upload"]),
+  submitted: toTransitionSet(["finance_approved", "finance_rejected"]),
+  finance_approved: toTransitionSet(["gm_approved", "gm_rejected"]),
+  finance_rejected: toTransitionSet(["submitted"]),
+  gm_approved: toTransitionSet(["completed", "finance_upload"]),
   gm_rejected: toTransitionSet(["submitted"]),
   finance_upload: toTransitionSet(["completed"]),
   completed: toTransitionSet([]),

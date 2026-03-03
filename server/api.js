@@ -2286,6 +2286,8 @@ const normalizeRequestData = (data, nowIso) => {
 const CONTRACT_APPROVAL_STATUSES = new Set([
   "draft",
   "submitted",
+  "finance_approved",
+  "finance_rejected",
   "gm_approved",
   "gm_rejected",
   "finance_upload",
@@ -2385,38 +2387,42 @@ const canViewContractApproval = (user, contract) => {
   if (!role) return false;
   if (role === "admin") return true;
   if (role === "sales") return String(contract?.salesOwnerUserId ?? "").trim() === String(user?.id ?? "").trim();
-  if (role === "finance") {
-    const status = String(contract?.status ?? "").trim();
-    return status === "gm_approved" || status === "finance_upload" || status === "completed";
-  }
+  if (role === "finance" || role === "cashier") return true;
   return false;
 };
 
 const canEditContractApproval = (user, contract) => {
   const role = String(user?.role ?? "").trim().toLowerCase();
   const status = String(contract?.status ?? "").trim();
-  if (role === "admin") return status === "draft" || status === "gm_rejected";
+  if (role === "admin") return status === "draft" || status === "gm_rejected" || status === "finance_rejected";
   if (role === "sales") {
     const ownerId = String(contract?.salesOwnerUserId ?? "").trim();
-    return ownerId && ownerId === String(user?.id ?? "").trim() && (status === "draft" || status === "gm_rejected");
+    return ownerId && ownerId === String(user?.id ?? "").trim() && (status === "draft" || status === "gm_rejected" || status === "finance_rejected");
   }
   return false;
 };
 
 const resolveContractNextActionForStatus = (status) => {
   const normalized = String(status ?? "").trim();
-  if (normalized === "draft" || normalized === "gm_rejected") return { role: "sales", label: "Sales" };
-  if (normalized === "submitted") return { role: "admin", label: "Admin" };
-  if (normalized === "gm_approved" || normalized === "finance_upload") return { role: "finance", label: "Finance" };
+  if (normalized === "draft" || normalized === "finance_rejected" || normalized === "gm_rejected") {
+    return { role: "sales", label: "Sales" };
+  }
+  if (normalized === "submitted") return { role: "finance", label: "Finance" };
+  if (normalized === "finance_approved") return { role: "admin", label: "Admin" };
+  if (normalized === "gm_approved") return { role: "cashier", label: "Cashier" };
+  if (normalized === "finance_upload") return { role: "finance", label: "Finance" };
   return { role: "none", label: "No action" };
 };
 
 const resolveContractNotifyRecipientRoles = (status) => {
   const normalized = String(status ?? "").trim();
-  if (normalized === "submitted") return ["admin"];
-  if (normalized === "gm_approved" || normalized === "finance_upload") return ["finance"];
+  if (normalized === "submitted") return ["finance"];
+  if (normalized === "finance_approved") return ["admin"];
+  if (normalized === "finance_rejected") return ["sales"];
+  if (normalized === "gm_approved") return ["cashier"];
   if (normalized === "gm_rejected") return ["sales"];
-  if (normalized === "completed") return ["sales", "admin", "finance"];
+  if (normalized === "finance_upload") return ["finance"];
+  if (normalized === "completed") return ["sales", "admin", "finance", "cashier"];
   return [];
 };
 
@@ -7577,8 +7583,8 @@ export const apiRouter = (() => {
     requireAuth,
     asyncHandler(async (req, res) => {
       const role = String(req.authUser?.role ?? "").trim().toLowerCase();
-      if (role !== "sales" && role !== "admin" && role !== "finance") {
-        res.status(403).json({ error: "Contract approvals are restricted to Sales, Admin, and Finance" });
+      if (role !== "sales" && role !== "admin" && role !== "finance" && role !== "cashier") {
+        res.status(403).json({ error: "Contract approvals are restricted to Sales, Admin, Finance, and Cashier" });
         return;
       }
 
@@ -7592,8 +7598,6 @@ export const apiRouter = (() => {
 
       if (role === "sales") {
         where.push(`c.sales_owner_user_id = ${pushParam(String(req.authUser?.id ?? ""))}`);
-      } else if (role === "finance") {
-        where.push(`c.status::text = ANY(${pushParam(["gm_approved", "finance_upload", "completed"])}::text[])`);
       }
 
       const statusFilter = String(req.query?.status ?? "").trim();
@@ -7945,9 +7949,10 @@ export const apiRouter = (() => {
       const role = String(req.authUser?.role ?? "").trim().toLowerCase();
       const nowIso = new Date().toISOString();
       const draftEditable = canEditContractApproval(req.authUser, existing);
-      const financeEditable = role === "finance" && (existing.status === "gm_approved" || existing.status === "finance_upload");
+      const financeLegacyEditable = role === "finance" && existing.status === "finance_upload";
+      const cashierEditable = role === "cashier" && existing.status === "gm_approved";
 
-      if (!draftEditable && !financeEditable) {
+      if (!draftEditable && !financeLegacyEditable && !cashierEditable) {
         res.status(403).json({ error: "Contract approval is read-only at this stage" });
         return;
       }
@@ -7965,11 +7970,11 @@ export const apiRouter = (() => {
           history: existing.history,
           updatedAt: nowIso,
         };
-      } else if (financeEditable) {
+      } else if (financeLegacyEditable || cashierEditable) {
         const allowedFinanceKeys = new Set(["stampedContractAttachments", "comments"]);
         const disallowedKey = Object.keys(body).find((key) => !allowedFinanceKeys.has(key));
         if (disallowedKey) {
-          res.status(403).json({ error: `Finance cannot modify field '${disallowedKey}'` });
+          res.status(403).json({ error: `${cashierEditable ? "Cashier" : "Finance"} cannot modify field '${disallowedKey}'` });
           return;
         }
         merged = {
@@ -7982,7 +7987,34 @@ export const apiRouter = (() => {
         };
       }
 
-      const normalized = normalizeContractApprovalData(merged, nowIso);
+      let normalized = normalizeContractApprovalData(merged, nowIso);
+      const hasStampedAttachments = Array.isArray(normalized.stampedContractAttachments) && normalized.stampedContractAttachments.length > 0;
+      const autoCompletedByCashier = cashierEditable && existing.status === "gm_approved" && hasStampedAttachments;
+      if (autoCompletedByCashier) {
+        normalized = normalizeContractApprovalData(
+          {
+            ...normalized,
+            status: "completed",
+            completedAt: nowIso,
+            history: [
+              ...(Array.isArray(normalized.history) ? normalized.history : []),
+              normalizeContractHistoryEntry(
+                {
+                  status: "completed",
+                  comment: typeof body.comments === "string" ? body.comments : "",
+                  userId: req.authUser?.id,
+                  userName: req.authUser?.name,
+                },
+                "completed",
+                String(req.authUser?.id ?? ""),
+                String(req.authUser?.name ?? ""),
+                nowIso
+              ),
+            ],
+          },
+          nowIso
+        );
+      }
 
       await withTransaction(pool, async (client) => {
         await materializeContractAttachments(client, contractId, normalized);
@@ -8014,13 +8046,51 @@ export const apiRouter = (() => {
         );
       });
 
+      if (autoCompletedByCashier) {
+        try {
+          await enqueueContractInAppNotifications(pool, {
+            contract: normalized,
+            contractId,
+            status: "completed",
+            previousStatus: String(existing.status ?? ""),
+            actorUserId: String(req.authUser?.id ?? ""),
+            actorName: String(req.authUser?.name ?? ""),
+            comment: typeof body.comments === "string" ? body.comments.trim() : "",
+            eventType: "contract_approval.completed",
+          });
+        } catch (error) {
+          console.error("Failed to enqueue contract in-app completion notification:", error);
+        }
+
+        try {
+          const [settings, tokenState] = await Promise.all([getM365Settings(pool), getM365TokenState(pool)]);
+          if (settings.enabled && tokenState.hasRefreshToken) {
+            await enqueueContractEmailByPolicy(pool, {
+              settings,
+              contract: normalized,
+              contractId,
+              status: "completed",
+              previousStatus: String(existing.status ?? ""),
+              actorName: String(req.authUser?.name ?? ""),
+              comment: typeof body.comments === "string" ? body.comments.trim() : "",
+              eventType: "contract_approval.completed",
+            });
+          }
+        } catch (error) {
+          console.error("Failed to enqueue contract completion email:", error);
+        }
+      }
+
       await writeAuditLogBestEffort(pool, req, {
-        action: "contract_approval.updated",
+        action: autoCompletedByCashier ? "contract_approval.completed" : "contract_approval.updated",
         targetType: "contract_approval",
         targetId: contractId,
         metadata: {
           role,
           status: normalized.status,
+          fromStatus: existing.status,
+          toStatus: normalized.status,
+          autoCompletedByCashier,
         },
       });
 
@@ -8065,12 +8135,24 @@ export const apiRouter = (() => {
         res.status(403).json({ error: "Only Sales owner or Admin can submit contract approval" });
         return;
       }
+      if ((requestedStatus === "finance_approved" || requestedStatus === "finance_rejected") && role !== "finance") {
+        res.status(403).json({ error: "Only Finance can perform this review decision" });
+        return;
+      }
       if ((requestedStatus === "gm_approved" || requestedStatus === "gm_rejected") && role !== "admin") {
         res.status(403).json({ error: "Only Admin can make GM decision" });
         return;
       }
-      if ((requestedStatus === "finance_upload" || requestedStatus === "completed") && role !== "finance") {
-        res.status(403).json({ error: "Only Finance can perform this action" });
+      if (requestedStatus === "finance_upload") {
+        res.status(400).json({ error: "finance_upload is a legacy status and cannot be set manually" });
+        return;
+      }
+      if (requestedStatus === "completed" && !(role === "finance" && existing.status === "finance_upload")) {
+        res.status(403).json({ error: "Only Finance can complete legacy finance_upload contracts" });
+        return;
+      }
+      if ((requestedStatus === "finance_rejected" || requestedStatus === "gm_rejected") && !comment) {
+        res.status(400).json({ error: "Reject comment is required" });
         return;
       }
 
@@ -8119,7 +8201,7 @@ export const apiRouter = (() => {
         );
       }
 
-      if (requestedStatus === "finance_upload" || requestedStatus === "completed") {
+      if (requestedStatus === "completed") {
         const stampedAttachments = Array.isArray(updated.stampedContractAttachments)
           ? updated.stampedContractAttachments
           : [];
@@ -8158,6 +8240,8 @@ export const apiRouter = (() => {
 
       const actionByStatus = {
         submitted: "contract_approval.submitted",
+        finance_approved: "contract_approval.finance_approved",
+        finance_rejected: "contract_approval.finance_rejected",
         gm_approved: "contract_approval.gm_approved",
         gm_rejected: "contract_approval.gm_rejected",
         finance_upload: "contract_approval.finance_uploaded",

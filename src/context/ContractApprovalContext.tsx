@@ -113,7 +113,7 @@ export const ContractApprovalProvider: React.FC<{ children: React.ReactNode }> =
       setSyncError(null);
       return;
     }
-    if (user.role !== 'sales' && user.role !== 'admin' && user.role !== 'finance') {
+    if (user.role !== 'sales' && user.role !== 'admin' && user.role !== 'finance' && user.role !== 'cashier') {
       setContracts([]);
       setSyncState('idle');
       setSyncError(null);

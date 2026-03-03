@@ -19,7 +19,7 @@ const mapServerUser = (raw: any): User | null => {
   const name = String(raw.name ?? '').trim();
   const role = String(raw.role ?? '').trim();
   if (!id || !email || !name) return null;
-  if (role !== 'sales' && role !== 'design' && role !== 'costing' && role !== 'admin' && role !== 'finance') return null;
+  if (role !== 'sales' && role !== 'design' && role !== 'costing' && role !== 'admin' && role !== 'finance' && role !== 'cashier') return null;
   const createdAtRaw = String(raw.createdAt ?? '').trim();
   const createdAt = createdAtRaw ? new Date(createdAtRaw) : new Date();
   return {

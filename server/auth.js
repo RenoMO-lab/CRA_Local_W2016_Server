@@ -28,7 +28,7 @@ const LEGACY_SEED_USERS = [
   { name: "ZhaoHe", email: "zhaohe@sonasia.monroc.com", role: "design", password: "Z678" },
 ];
 
-const VALID_ROLES = new Set(["sales", "design", "costing", "admin", "finance"]);
+const VALID_ROLES = new Set(["sales", "design", "costing", "admin", "finance", "cashier"]);
 const VALID_LANGUAGES = new Set(["en", "fr", "zh"]);
 
 let bootstrapDone = false;

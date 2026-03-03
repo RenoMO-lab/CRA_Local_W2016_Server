@@ -132,17 +132,35 @@ const ContractApprovalForm: React.FC = () => {
   const canEditDraft = useMemo(() => {
     if (isNew) return user?.role === 'sales' || user?.role === 'admin';
     if (!isEditPath) return false;
-    if (user?.role === 'admin') return status === 'draft' || status === 'gm_rejected';
-    if (user?.role === 'sales') return salesOwnerUserId === user.id && (status === 'draft' || status === 'gm_rejected');
+    if (user?.role === 'admin') return status === 'draft' || status === 'finance_rejected' || status === 'gm_rejected';
+    if (user?.role === 'sales') {
+      return salesOwnerUserId === user.id && (status === 'draft' || status === 'finance_rejected' || status === 'gm_rejected');
+    }
     return false;
   }, [isEditPath, isNew, salesOwnerUserId, status, user]);
 
-  const canFinanceEdit = useMemo(() => {
+  const canFinanceReview = useMemo(() => {
     if (!isEditPath) return false;
-    return user?.role === 'finance' && (status === 'gm_approved' || status === 'finance_upload');
+    return user?.role === 'finance' && status === 'submitted';
   }, [isEditPath, status, user]);
 
-  const isReadOnly = !canEditDraft && !canFinanceEdit;
+  const canAdminDecision = useMemo(() => {
+    if (!isEditPath) return false;
+    return user?.role === 'admin' && status === 'finance_approved';
+  }, [isEditPath, status, user]);
+
+  const canCashierUpload = useMemo(() => {
+    if (!isEditPath) return false;
+    return user?.role === 'cashier' && status === 'gm_approved';
+  }, [isEditPath, status, user]);
+
+  const canFinanceLegacyEdit = useMemo(() => {
+    if (!isEditPath) return false;
+    return user?.role === 'finance' && status === 'finance_upload';
+  }, [isEditPath, status, user]);
+
+  const canStampedEdit = canCashierUpload || canFinanceLegacyEdit;
+  const canCommentEdit = canEditDraft || canStampedEdit || canFinanceReview || canAdminDecision;
 
   const openPreview = (attachment: Attachment) => {
     setPreviewAttachment(attachment);
@@ -348,10 +366,29 @@ const ContractApprovalForm: React.FC = () => {
 
   const submitDecision = async () => {
     if (!contractId || !decisionModal) return;
-    const nextStatus: ContractApprovalStatus = decisionModal.type === 'approve' ? 'gm_approved' : 'gm_rejected';
+    let nextStatus: ContractApprovalStatus | null = null;
+    if (decisionModal.type === 'approve') {
+      if (status === 'submitted') nextStatus = 'finance_approved';
+      if (status === 'finance_approved') nextStatus = 'gm_approved';
+    } else {
+      if (!decisionComment.trim()) {
+        toast.error(t.contractApproval.validation.rejectCommentRequired);
+        return;
+      }
+      if (status === 'submitted') nextStatus = 'finance_rejected';
+      if (status === 'finance_approved') nextStatus = 'gm_rejected';
+    }
+
+    if (!nextStatus) {
+      toast.error('Invalid decision state');
+      return;
+    }
+
     try {
       await updateStatus(contractId, nextStatus, decisionComment.trim());
-      toast.success(nextStatus === 'gm_approved' ? t.contractApproval.messages.approved : t.contractApproval.messages.rejected);
+      if (nextStatus === 'finance_approved') toast.success(t.contractApproval.messages.financeApproved);
+      else if (nextStatus === 'finance_rejected') toast.success(t.contractApproval.messages.financeRejected);
+      else toast.success(nextStatus === 'gm_approved' ? t.contractApproval.messages.approved : t.contractApproval.messages.rejected);
       navigate('/contract-approvals');
     } catch (error: any) {
       toast.error(String(error?.message ?? error));
@@ -363,10 +400,13 @@ const ContractApprovalForm: React.FC = () => {
 
   const financeUpload = async () => {
     if (!contractId) return;
+    if (!stampedFiles.length) {
+      toast.error('Stamped contract PDF is required.');
+      return;
+    }
     try {
       await updateContract(contractId, { stampedContractAttachments: stampedFiles, comments });
-      await updateStatus(contractId, 'finance_upload');
-      toast.success(t.contractApproval.messages.financeUploaded);
+      toast.success(t.contractApproval.messages.cashierCompleted ?? t.contractApproval.messages.completed);
       navigate(`/contract-approvals/${contractId}`);
     } catch (error: any) {
       toast.error(String(error?.message ?? error));
@@ -462,7 +502,7 @@ const ContractApprovalForm: React.FC = () => {
                   onChange={(e) => setComments(e.target.value)}
                   onFocus={() => setCommentsRows(4)}
                   onBlur={() => setCommentsRows(getCompactTextareaRows(comments))}
-                  disabled={isReadOnly && !canFinanceEdit}
+                  disabled={!canCommentEdit}
                   rows={commentsRows}
                   className="min-h-[4.5rem]"
                 />
@@ -646,7 +686,7 @@ const ContractApprovalForm: React.FC = () => {
 
             <div className="space-y-1.5">
               <Label>{t.contractApproval.fields.stampedContractFile}</Label>
-              {canFinanceEdit ? (
+              {canStampedEdit ? (
                 <>
                   <input
                     ref={stampedInputRef}
@@ -699,7 +739,7 @@ const ContractApprovalForm: React.FC = () => {
                         >
                           <Download size={14} />
                         </a>
-                        {canFinanceEdit ? (
+                        {canStampedEdit ? (
                           <button
                             type="button"
                             onClick={() => removeStampedAttachment(att.id)}
@@ -755,7 +795,7 @@ const ContractApprovalForm: React.FC = () => {
                 <Button size="sm" onClick={submitContract}>{t.contractApproval.submit}</Button>
               </>
             ) : null}
-            {user?.role === 'admin' && status === 'submitted' ? (
+            {canFinanceReview || canAdminDecision ? (
               <>
                 <Button size="sm" onClick={approve}>{t.contractApproval.approve}</Button>
                 <Button size="sm" variant="destructive" onClick={reject}>
@@ -763,10 +803,10 @@ const ContractApprovalForm: React.FC = () => {
                 </Button>
               </>
             ) : null}
-            {canFinanceEdit && status === 'gm_approved' ? (
+            {canCashierUpload && status === 'gm_approved' ? (
               <Button size="sm" onClick={financeUpload}>{t.contractApproval.uploadStamped}</Button>
             ) : null}
-            {canFinanceEdit && status === 'finance_upload' ? (
+            {canFinanceLegacyEdit && status === 'finance_upload' ? (
               <Button size="sm" onClick={complete}>{t.contractApproval.markCompleted}</Button>
             ) : null}
           </div>
