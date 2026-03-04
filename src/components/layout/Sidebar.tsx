@@ -112,7 +112,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
 
   return (
     <aside
-      className="fixed left-0 top-14 bottom-8 z-40 bg-sidebar transition-[width] duration-200 flex-col hidden md:flex border-r border-sidebar-border"
+      className="fixed left-0 top-[var(--cra-desktop-topbar-height)] bottom-[var(--cra-desktop-bottombar-height)] z-40 bg-sidebar transition-[width] duration-200 flex-col hidden md:flex border-r border-border/90"
       style={{ width: sidebarWidth, background: 'var(--gradient-sidebar)' }}
     >
       <nav className={cn('flex-1 overflow-y-auto scrollbar-thin', sidebarPadding)}>
@@ -224,7 +224,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
         ) : null}
       </nav>
 
-      <div className={cn('border-t border-sidebar-border', sectionPadding, isCollapsed && 'flex justify-center')}>
+      <div className={cn('border-t border-border/90', sectionPadding, isCollapsed && 'flex justify-center')}>
         {isCollapsed ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

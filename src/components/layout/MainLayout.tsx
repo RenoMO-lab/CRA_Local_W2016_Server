@@ -14,7 +14,9 @@ const MainLayout: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const desktopSidebarWidth = sidebarCollapsed ? 64 : sidebarWidth;
   const layoutStyle: React.CSSProperties = {
-    ['--cra-sidebar-width' as '--cra-sidebar-width']: `${desktopSidebarWidth}px`,
+    ['--cra-sidebar-width' as const]: `${desktopSidebarWidth}px`,
+    ['--cra-desktop-topbar-height' as const]: '56px',
+    ['--cra-desktop-bottombar-height' as const]: '32px',
   };
 
   if (isLoading) {
@@ -53,7 +55,7 @@ const MainLayout: React.FC = () => {
       <main 
         className={cn(
           'min-h-screen transition-all duration-300',
-          'md:pt-[64px] md:pb-12 md:ml-[var(--cra-sidebar-width)]',
+          'md:pt-[calc(var(--cra-desktop-topbar-height)+8px)] md:pb-[calc(var(--cra-desktop-bottombar-height)+16px)] md:ml-[var(--cra-sidebar-width)]',
           density === 'compact' ? 'p-2 sm:p-3 md:px-3' : 'p-3 sm:p-4 md:px-6'
         )}
       >
