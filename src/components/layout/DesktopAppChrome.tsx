@@ -144,6 +144,14 @@ const extractFirstInteger = (text: string) => {
   return match?.[1] ?? '0';
 };
 
+const extractClientUpdateVersion = (item: AppNotification) => {
+  const payloadVersion = String(item?.payload?.version ?? '').trim();
+  if (payloadVersion) return payloadVersion;
+  const title = String(item?.title ?? '').trim();
+  const match = title.match(/(v?\d+\.\d+(?:\.\d+)?)/i);
+  return match?.[1] ? String(match[1]).trim() : '';
+};
+
 const resolveNotificationDisplay = (item: AppNotification, t: any) => {
   const payload = item.payload ?? {};
   const type = String(payload?.eventType ?? item.type ?? '').trim().toLowerCase();
@@ -606,7 +614,13 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
       const currentVersion = String(await bridge.getCurrentVersion().catch(() => '')).trim();
       if (!currentVersion) {
-        if (desktopUpdatePillState !== 'restart_ready') {
+        if (
+          desktopUpdateTargetVersion &&
+          desktopUpdatePillState !== 'restart_ready' &&
+          desktopUpdatePillState !== 'installing'
+        ) {
+          setDesktopUpdatePillState('available');
+        } else if (desktopUpdatePillState !== 'restart_ready') {
           setDesktopUpdatePillState('hidden');
         }
         return false;
@@ -622,7 +636,13 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         }),
       });
       if (!prepareRes.ok) {
-        if (desktopUpdatePillState === 'hidden') {
+        if (
+          desktopUpdateTargetVersion &&
+          desktopUpdatePillState !== 'restart_ready' &&
+          desktopUpdatePillState !== 'installing'
+        ) {
+          setDesktopUpdatePillState('available');
+        } else if (desktopUpdatePillState === 'hidden') {
           setDesktopUpdatePillState('hidden');
         }
         return false;
@@ -806,6 +826,27 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     setDesktopUpdateTargetVersion('');
     setDesktopUpdatePrepare(null);
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (!isDesktopShellRuntime()) return;
+    if (desktopUpdatePillState === 'installing' || desktopUpdatePillState === 'restart_ready') return;
+
+    const latestUpdateNotification = notifications
+      .filter((item) => item.type === 'client_update_available')
+      .sort((left, right) => {
+        const leftMs = new Date(left.createdAt || 0).getTime();
+        const rightMs = new Date(right.createdAt || 0).getTime();
+        return rightMs - leftMs;
+      })[0];
+    if (!latestUpdateNotification) return;
+
+    const version = extractClientUpdateVersion(latestUpdateNotification);
+    if (!version) return;
+
+    setDesktopUpdateTargetVersion((prev) => prev || version);
+    setDesktopUpdatePillState('available');
+  }, [desktopUpdatePillState, notifications, user]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
