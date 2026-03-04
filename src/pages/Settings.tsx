@@ -360,6 +360,10 @@ type DbBackupRetentionKept = {
   day: string | null;
   'day-1': string | null;
   'week-1': string | null;
+  today07: string | null;
+  today12: string | null;
+  dayMinus1: string | null;
+  week1: string | null;
 };
 
 type DbBackupRun = {
@@ -378,6 +382,7 @@ type DbBackupAutomaticState = {
   schedule?: {
     hour: number;
     minute: number;
+    slots?: Array<{ hour: number; minute: number; label: string }>;
   } | null;
   taskName: string;
   policy: string;
@@ -420,15 +425,25 @@ const normalizeDbBackupDirectory = (value: unknown): string => {
 
 const normalizeDbBackupRetentionKept = (value: unknown): DbBackupRetentionKept | null => {
   if (!value || typeof value !== 'object') return null;
-  const src = value as Record<string, unknown>;
+  const root = value as Record<string, unknown>;
+  const kept = (root.kept && typeof root.kept === 'object' ? root.kept : root) as Record<string, unknown>;
+  const keptSlots = (root.keptSlots && typeof root.keptSlots === 'object' ? root.keptSlots : root) as Record<string, unknown>;
   const asName = (key: string) => {
-    const raw = String(src[key] ?? '').trim();
+    const raw = String(kept[key] ?? '').trim();
+    return raw || null;
+  };
+  const asSlot = (key: string) => {
+    const raw = String(keptSlots[key] ?? '').trim();
     return raw || null;
   };
   return {
     day: asName('day'),
     'day-1': asName('day-1'),
     'week-1': asName('week-1'),
+    today07: asSlot('today07'),
+    today12: asSlot('today12'),
+    dayMinus1: asSlot('dayMinus1'),
+    week1: asSlot('week1'),
   };
 };
 
@@ -586,6 +601,7 @@ const Settings: React.FC = () => {
   const [dbBackupSets, setDbBackupSets] = useState<DbBackupSet[]>([]);
   const [dbBackupDirectory, setDbBackupDirectory] = useState<string>('');
   const [dbBackupRetentionKept, setDbBackupRetentionKept] = useState<DbBackupRetentionKept | null>(null);
+  const [dbBackupWeek1Seeded, setDbBackupWeek1Seeded] = useState(false);
   const [dbBackupAutomatic, setDbBackupAutomatic] = useState<DbBackupAutomaticState | null>(null);
   const [dbBackupConfig, setDbBackupConfig] = useState<DbBackupConfig | null>(null);
   const [isDbBackupsLoading, setIsDbBackupsLoading] = useState(false);
@@ -805,9 +821,22 @@ const Settings: React.FC = () => {
       .replace(/_manifest\.json$/i, '');
   };
 
+  const getRetentionSlotTargets = () => {
+    const today12 = dbBackupRetentionKept?.today12 ?? dbBackupRetentionKept?.day ?? null;
+    const today07 = dbBackupRetentionKept?.today07 ?? null;
+    const dayMinus1 = dbBackupRetentionKept?.dayMinus1 ?? dbBackupRetentionKept?.['day-1'] ?? null;
+    const week1 = dbBackupRetentionKept?.week1 ?? dbBackupRetentionKept?.['week-1'] ?? null;
+    return { today07, today12, dayMinus1, week1 };
+  };
+
   const getRetentionBucketForDump = (dumpFileName: string | null | undefined) => {
     const name = String(dumpFileName ?? '').trim();
     if (!name) return '';
+    const slots = getRetentionSlotTargets();
+    if (slots.today07 && name === slots.today07) return 'today07';
+    if (slots.today12 && name === slots.today12) return 'today12';
+    if (slots.dayMinus1 && name === slots.dayMinus1) return 'dayMinus1';
+    if (slots.week1 && name === slots.week1) return 'week1';
     if (dbBackupRetentionKept?.day && name === dbBackupRetentionKept.day) return 'day';
     if (dbBackupRetentionKept?.['day-1'] && name === dbBackupRetentionKept['day-1']) return 'day-1';
     if (dbBackupRetentionKept?.['week-1'] && name === dbBackupRetentionKept['week-1']) return 'week-1';
@@ -1360,7 +1389,8 @@ const Settings: React.FC = () => {
       const sets = normalizeDbBackupSets(data?.sets);
       setDbBackupSets(sets.length ? sets : toBackupSetsFromItems(items));
       setDbBackupDirectory(normalizeDbBackupDirectory(data?.directory));
-      setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention?.kept));
+      setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention));
+      setDbBackupWeek1Seeded(Boolean(data?.retention?.week1Seeded));
       setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
     } catch (error) {
       console.error('Failed to load DB backups:', error);
@@ -1368,6 +1398,7 @@ const Settings: React.FC = () => {
       setDbBackups([]);
       setDbBackupSets([]);
       setDbBackupRetentionKept(null);
+      setDbBackupWeek1Seeded(false);
       setDbBackupAutomatic(null);
     } finally {
       await ensureMinSpinnerMs(startedAt);
@@ -1409,8 +1440,9 @@ const Settings: React.FC = () => {
       setDbBackupSets(sets.length ? sets : toBackupSetsFromItems(items));
       setDbBackupDirectory(normalizeDbBackupDirectory(data?.directory ?? dbBackupDirectory));
       setDbBackupRetentionKept(
-        normalizeDbBackupRetentionKept(data?.retention?.kept ?? data?.created?.retention?.kept)
+        normalizeDbBackupRetentionKept(data?.retention ?? data?.created?.retention)
       );
+      setDbBackupWeek1Seeded(Boolean(data?.retention?.week1Seeded ?? data?.created?.retention?.week1Seeded));
       setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
       const createdName = String(data?.created?.fileName ?? '').trim();
       toast({
@@ -1485,7 +1517,8 @@ const Settings: React.FC = () => {
       setDbBackups(items);
       const sets = normalizeDbBackupSets(data?.sets);
       setDbBackupSets(sets.length ? sets : toBackupSetsFromItems(items));
-      setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention?.kept));
+      setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention));
+      setDbBackupWeek1Seeded(Boolean(data?.retention?.week1Seeded));
       setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
       toast({
         title: t.settings.backupToastRestoreCompletedTitle,
@@ -1588,7 +1621,8 @@ const Settings: React.FC = () => {
       setDbBackups(items);
       const sets = normalizeDbBackupSets(data?.sets);
       setDbBackupSets(sets.length ? sets : toBackupSetsFromItems(items));
-      setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention?.kept));
+      setDbBackupRetentionKept(normalizeDbBackupRetentionKept(data?.retention));
+      setDbBackupWeek1Seeded(Boolean(data?.retention?.week1Seeded));
       setDbBackupAutomatic((data?.automatic ?? null) as DbBackupAutomaticState | null);
 
       toast({
@@ -3633,11 +3667,8 @@ const Settings: React.FC = () => {
               {(() => {
                 const configured = Boolean(dbBackupAutomatic?.configured);
                 const enabled = Boolean(dbBackupAutomatic?.enabled);
-                const keptCount = [
-                  dbBackupRetentionKept?.day,
-                  dbBackupRetentionKept?.['day-1'],
-                  dbBackupRetentionKept?.['week-1'],
-                ].filter(Boolean).length;
+                const slotTargets = getRetentionSlotTargets();
+                const keptCount = [slotTargets.today07, slotTargets.today12, slotTargets.dayMinus1, slotTargets.week1].filter(Boolean).length;
 
                 const pill = (label: string, value: string, tone: 'ok' | 'warn' | 'error' | 'muted' = 'muted') => {
                   const toneCls =
@@ -3710,7 +3741,7 @@ const Settings: React.FC = () => {
                           : '-',
                         dbBackupAutomatic?.latestAuto?.status === 'success' ? 'ok' : dbBackupAutomatic?.latestAuto?.status ? 'warn' : 'muted'
                       )}
-                      {pill(t.settings.backupPillRetention, `${keptCount}/3 ${t.settings.backupFilesLabel}`, keptCount === 3 ? 'ok' : 'error')}
+                      {pill(t.settings.backupPillRetention, `${keptCount}/4 ${t.settings.backupFilesLabel}`, keptCount === 4 ? 'ok' : 'error')}
                     </div>
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
@@ -3723,7 +3754,7 @@ const Settings: React.FC = () => {
                           </div>
                           <div>
                             <span className="text-muted-foreground">{t.settings.backupPolicy}:</span>{' '}
-                            <span className="text-foreground">{dbBackupAutomatic?.policy || 'Keep latest day, day-1, and week-1 backup'}</span>
+                            <span className="text-foreground">{dbBackupAutomatic?.policy || 'Keep today (07:00, 12:00), yesterday (07:00), and week-1 backup'}</span>
                           </div>
                           <div>
                             <span className="text-muted-foreground">{t.settings.backupTaskName}:</span>{' '}
@@ -4058,10 +4089,12 @@ const Settings: React.FC = () => {
                   </TableHeader>
                   <TableBody>
                     {(() => {
+                      const slotTargets = getRetentionSlotTargets();
                       const retainedTargets = [
-                        { bucket: 'day' as const, title: 'day', dumpFileName: dbBackupRetentionKept?.day ?? null },
-                        { bucket: 'day-1' as const, title: 'day-1', dumpFileName: dbBackupRetentionKept?.['day-1'] ?? null },
-                        { bucket: 'week-1' as const, title: 'week-1', dumpFileName: dbBackupRetentionKept?.['week-1'] ?? null },
+                        { bucket: 'today07' as const, title: t.settings.backupBucketToday07, dumpFileName: slotTargets.today07 ?? null },
+                        { bucket: 'today12' as const, title: t.settings.backupBucketToday12, dumpFileName: slotTargets.today12 ?? null },
+                        { bucket: 'dayMinus1' as const, title: t.settings.backupBucketDayMinus1, dumpFileName: slotTargets.dayMinus1 ?? null },
+                        { bucket: 'week1' as const, title: t.settings.backupBucketWeek1, dumpFileName: slotTargets.week1 ?? null },
                       ];
 
                       const retainedRows = retainedTargets.map((t) => {
@@ -4078,18 +4111,34 @@ const Settings: React.FC = () => {
                       const retainedPrefixes = new Set(retainedRows.map((r) => r.set?.prefix).filter(Boolean));
                       const otherSets = dbBackupSets.filter((s) => !retainedPrefixes.has(s.prefix));
 
-                      const retainedBadge = (bucket: 'day' | 'day-1' | 'week-1') => (
+                      const retainedBadge = (bucket: 'today07' | 'today12' | 'dayMinus1' | 'week1' | 'day' | 'day-1' | 'week-1') => (
                         <span
                           className={cn(
                             'inline-flex rounded-full px-2 py-0.5 text-[11px] border',
-                            bucket === 'day'
+                            bucket === 'today07'
                               ? 'border-green-500/40 text-green-300 bg-green-500/10'
-                              : bucket === 'day-1'
+                              : bucket === 'today12'
+                                ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'
+                                : bucket === 'dayMinus1'
+                                  ? 'border-blue-500/40 text-blue-300 bg-blue-500/10'
+                                  : bucket === 'week1'
+                                    ? 'border-purple-500/40 text-purple-300 bg-purple-500/10'
+                                    : bucket === 'day'
+                                ? 'border-green-500/40 text-green-300 bg-green-500/10'
+                                : bucket === 'day-1'
                                 ? 'border-blue-500/40 text-blue-300 bg-blue-500/10'
                                 : 'border-purple-500/40 text-purple-300 bg-purple-500/10'
                           )}
                         >
-                          {bucket}
+                          {bucket === 'today07'
+                            ? t.settings.backupBucketToday07
+                            : bucket === 'today12'
+                              ? t.settings.backupBucketToday12
+                              : bucket === 'dayMinus1'
+                                ? t.settings.backupBucketDayMinus1
+                                : bucket === 'week1'
+                                  ? t.settings.backupBucketWeek1
+                                  : bucket}
                         </span>
                       );
 
@@ -4103,7 +4152,7 @@ const Settings: React.FC = () => {
                         return (
                           <TableRow key={item.prefix}>
                             <TableCell className="text-xs">
-                              {retained ? retainedBadge(retained as 'day' | 'day-1' | 'week-1') : (
+                              {retained ? retainedBadge(retained as 'today07' | 'today12' | 'dayMinus1' | 'week1' | 'day' | 'day-1' | 'week-1') : (
                                 <span className="text-muted-foreground">-</span>
                               )}
                             </TableCell>
@@ -4207,7 +4256,7 @@ const Settings: React.FC = () => {
                                     </>
                                   ) : (
                                     <div className="text-sm text-muted-foreground">
-                                      Retention target {statusBadge}
+                                      {t.settings.backupRetentionTarget} {statusBadge}
                                     </div>
                                   )}
                                 </TableCell>
@@ -4228,6 +4277,11 @@ const Settings: React.FC = () => {
                                 </TableCell>
                                 <TableCell className="text-right">
                                   <div className="inline-flex items-center gap-2">
+                                    {r.bucket === 'week1' && dbBackupWeek1Seeded ? (
+                                      <span className="inline-flex rounded-full px-2 py-0.5 text-[11px] border border-amber-500/40 text-amber-300 bg-amber-500/10">
+                                        {t.settings.backupSeeded}
+                                      </span>
+                                    ) : null}
                                     <DropdownMenu>
                                       <DropdownMenuTrigger asChild>
                                         <Button size="sm" variant="outline" disabled={!item}>

@@ -30,7 +30,7 @@ const FIXED_SCHEDULE_SLOTS = Object.freeze([
 const DEFAULT_SCHEDULE_HOUR = FIXED_SCHEDULE_SLOTS[0].hour;
 const DEFAULT_SCHEDULE_MINUTE = 0;
 const DEFAULT_TASK_NAME = "CRA_Local_DailyDbBackup";
-const DEFAULT_RETENTION_POLICY = "Keep latest day, day-1, and week-1 backup";
+const DEFAULT_RETENTION_POLICY = "Keep today (07:00, 12:00), yesterday (07:00), and week-1 backup";
 
 const ENCRYPTION_KEY_SOURCE =
   String(process.env.BACKUP_CREDENTIALS_SECRET || "").trim() ||
@@ -311,22 +311,37 @@ const getBackupRetentionWindows = (now = new Date()) => {
   return { todayStart, tomorrowStart, yesterdayStart, week1Start, week1End };
 };
 
-const formatLocalDayKey = (date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+const normalizeScheduleSlotLabel = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const found = FIXED_SCHEDULE_SLOTS.find((slot) => slot.label === raw);
+  return found ? found.label : "";
 };
 
-const getBackupRetentionBucket = (mtimeMs, now = new Date()) => {
-  if (!Number.isFinite(mtimeMs)) return null;
-  const ts = new Date(mtimeMs);
-  if (Number.isNaN(ts.getTime())) return null;
-  const { todayStart, tomorrowStart, yesterdayStart, week1Start, week1End } = getBackupRetentionWindows(now);
-  if (ts >= todayStart && ts < tomorrowStart) return "day";
-  if (ts >= yesterdayStart && ts < todayStart) return "day-1";
-  if (ts >= week1Start && ts < week1End) return "week-1";
-  return null;
+const getNearestScheduleSlotLabel = (date) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return FIXED_SCHEDULE_SLOTS[0].label;
+  const targetMinutes = date.getHours() * 60 + date.getMinutes();
+  let best = FIXED_SCHEDULE_SLOTS[0];
+  let bestDiff = Number.POSITIVE_INFINITY;
+  for (const slot of FIXED_SCHEDULE_SLOTS) {
+    const slotMinutes = slot.hour * 60 + slot.minute;
+    const diff = Math.abs(targetMinutes - slotMinutes);
+    if (diff < bestDiff) {
+      best = slot;
+      bestDiff = diff;
+    }
+  }
+  return best.label;
+};
+
+const sortCandidatesByCompletenessAndTime = (a, b) => {
+  if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
+  return b.createdAtMs - a.createdAtMs;
+};
+
+const sortCandidatesByCompletenessAndTimeAsc = (a, b) => {
+  if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
+  return a.createdAtMs - b.createdAtMs;
 };
 
 const getDefaultSettings = () => ({
@@ -374,7 +389,7 @@ const buildSettingsFromRow = (row) => {
     scheduleHour: normalizeScheduleHour(row.schedule_hour),
     scheduleMinute: normalizeScheduleMinute(row.schedule_minute),
     taskName: String(row.task_name || DEFAULT_TASK_NAME),
-    retentionPolicy: String(row.retention_policy || DEFAULT_RETENTION_POLICY),
+    retentionPolicy: DEFAULT_RETENTION_POLICY,
     updatedAt: row.updated_at || null,
     updatedBy: row.updated_by || null,
   };
@@ -609,37 +624,205 @@ const readBackupArtifactEntries = async (backupDir) => {
   return items;
 };
 
-const applyDbBackupRetentionPolicy = async (backupDir) => {
-  const entries = await readBackupDirectoryEntries(backupDir);
-  const now = new Date();
-  const keepByBucket = new Map();
-  const keepPrefixes = new Set();
+const readBackupManifest = async (manifestPath) => {
+  try {
+    const raw = await fs.readFile(manifestPath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+};
 
-  for (const entry of entries) {
-    const bucket = getBackupRetentionBucket(entry.mtimeMs, now);
-    if (!bucket) continue;
-    if (keepByBucket.has(bucket)) continue;
-    keepByBucket.set(bucket, entry);
-    if (entry.prefix) keepPrefixes.add(entry.prefix);
+const buildRetentionCandidatesFromArtifacts = async (artifactEntries) => {
+  const byPrefix = new Map();
+  for (const entry of artifactEntries) {
+    const existing = byPrefix.get(entry.prefix) ?? {
+      prefix: entry.prefix,
+      dump: null,
+      globals: null,
+      manifest: null,
+      totalSizeBytes: 0,
+    };
+    existing.totalSizeBytes += Number(entry.sizeBytes) || 0;
+    if (entry.kind === "dump" && !existing.dump) existing.dump = entry;
+    if (entry.kind === "globals" && !existing.globals) existing.globals = entry;
+    if (entry.kind === "manifest" && !existing.manifest) existing.manifest = entry;
+    byPrefix.set(entry.prefix, existing);
   }
 
-  let bootstrapActive = false;
-  if (!keepByBucket.has("week-1")) {
-    const { todayStart, tomorrowStart } = getBackupRetentionWindows(now);
-    const bootstrapStart = new Date(todayStart);
-    bootstrapStart.setDate(bootstrapStart.getDate() - 7);
-    const keepByDay = new Map();
-    for (const entry of entries) {
-      const ts = new Date(entry.mtimeMs);
-      if (Number.isNaN(ts.getTime())) continue;
-      if (ts < bootstrapStart || ts >= tomorrowStart) continue;
-      const dayKey = formatLocalDayKey(ts);
-      if (keepByDay.has(dayKey)) continue;
-      keepByDay.set(dayKey, entry);
-      if (entry.prefix) keepPrefixes.add(entry.prefix);
+  const candidates = [];
+  for (const entry of byPrefix.values()) {
+    if (!entry.dump) continue;
+    const manifestData = entry.manifest ? await readBackupManifest(entry.manifest.filePath) : null;
+    const scheduleSlot = normalizeScheduleSlotLabel(manifestData?.scheduleSlot) || getNearestScheduleSlotLabel(new Date(entry.dump.mtimeMs));
+    candidates.push({
+      prefix: entry.prefix,
+      createdAtMs: entry.dump.mtimeMs,
+      createdAt: new Date(entry.dump.mtimeMs).toISOString(),
+      dumpFileName: entry.dump.fileName,
+      dumpPath: entry.dump.filePath,
+      globalsFileName: entry.globals?.fileName ?? null,
+      globalsPath: entry.globals?.filePath ?? null,
+      manifestFileName: entry.manifest?.fileName ?? null,
+      manifestPath: entry.manifest?.filePath ?? null,
+      totalSizeBytes: entry.totalSizeBytes,
+      scheduleSlot,
+      isComplete: Boolean(entry.dump && entry.globals && entry.manifest),
+      manifestData,
+    });
+  }
+
+  return candidates.sort((a, b) => b.createdAtMs - a.createdAtMs);
+};
+
+const selectRetentionTargets = (candidates, now = new Date()) => {
+  const { todayStart, tomorrowStart, yesterdayStart, week1Start, week1End } = getBackupRetentionWindows(now);
+  const used = new Set();
+
+  const inWindow = (candidate, start, end) => candidate.createdAtMs >= start.getTime() && candidate.createdAtMs < end.getTime();
+
+  const pick = ({ start, end, slotLabel = "", fallbackSort = "desc" }) => {
+    const filtered = candidates.filter((candidate) => {
+      if (used.has(candidate.prefix)) return false;
+      if (!inWindow(candidate, start, end)) return false;
+      if (slotLabel && candidate.scheduleSlot !== slotLabel) return false;
+      return true;
+    });
+    if (!filtered.length) return null;
+    const sorted = [...filtered];
+    if (fallbackSort === "asc") {
+      sorted.sort(sortCandidatesByCompletenessAndTimeAsc);
+    } else {
+      sorted.sort(sortCandidatesByCompletenessAndTime);
     }
-    bootstrapActive = keepByDay.size > 0;
+    return sorted[0] ?? null;
+  };
+
+  const pickFallback = ({ start, end, sort = "desc" }) => {
+    const filtered = candidates.filter((candidate) => !used.has(candidate.prefix) && inWindow(candidate, start, end));
+    if (!filtered.length) return null;
+    const sorted = [...filtered];
+    if (sort === "asc") {
+      sorted.sort(sortCandidatesByCompletenessAndTimeAsc);
+    } else {
+      sorted.sort(sortCandidatesByCompletenessAndTime);
+    }
+    return sorted[0] ?? null;
+  };
+
+  const mark = (candidate) => {
+    if (!candidate) return null;
+    used.add(candidate.prefix);
+    return candidate;
+  };
+
+  const today07 = mark(
+    pick({ start: todayStart, end: tomorrowStart, slotLabel: "07:00", fallbackSort: "desc" }) ||
+      pickFallback({ start: todayStart, end: tomorrowStart, sort: "asc" })
+  );
+
+  const today12 = mark(
+    pick({ start: todayStart, end: tomorrowStart, slotLabel: "12:00", fallbackSort: "desc" }) ||
+      pickFallback({ start: todayStart, end: tomorrowStart, sort: "desc" })
+  );
+
+  const dayMinus1 = mark(
+    pick({ start: yesterdayStart, end: todayStart, slotLabel: "07:00", fallbackSort: "desc" }) ||
+      pickFallback({ start: yesterdayStart, end: todayStart, sort: "desc" })
+  );
+
+  const week1 = mark(
+    pick({ start: week1Start, end: week1End, slotLabel: "07:00", fallbackSort: "desc" }) ||
+      pickFallback({ start: week1Start, end: week1End, sort: "desc" })
+  );
+
+  return { today07, today12, dayMinus1, week1 };
+};
+
+const createSeededWeek1Set = async ({ backupDir, donor, week1Start }) => {
+  if (!donor?.isComplete || !donor.dumpPath || !donor.globalsPath || !donor.manifestPath) return null;
+
+  const seedPrefix = `${donor.prefix}_seed_week1_${formatBackupTimestamp(new Date())}`;
+  const seedDumpName = `${seedPrefix}.dump`;
+  const seedGlobalsName = `${seedPrefix}${BACKUP_GLOBALS_SUFFIX}`;
+  const seedManifestName = `${seedPrefix}${BACKUP_MANIFEST_SUFFIX}`;
+  const seedDumpPath = path.join(backupDir, seedDumpName);
+  const seedGlobalsPath = path.join(backupDir, seedGlobalsName);
+  const seedManifestPath = path.join(backupDir, seedManifestName);
+
+  await fs.copyFile(donor.dumpPath, seedDumpPath);
+  await fs.copyFile(donor.globalsPath, seedGlobalsPath);
+  await fs.copyFile(donor.manifestPath, seedManifestPath);
+
+  const [seedDumpStat, seedGlobalsStat] = await Promise.all([fs.stat(seedDumpPath), fs.stat(seedGlobalsPath)]);
+  const donorManifest = donor.manifestData && typeof donor.manifestData === "object" ? donor.manifestData : {};
+  const seededAt = new Date().toISOString();
+  const manifest = {
+    ...donorManifest,
+    generatedAt: seededAt,
+    scheduleSlot: "07:00",
+    seededWeek1: true,
+    seedSourcePrefix: donor.prefix,
+    seededAt,
+    files: {
+      dump: { fileName: seedDumpName, sizeBytes: seedDumpStat.size },
+      globals: { fileName: seedGlobalsName, sizeBytes: seedGlobalsStat.size },
+    },
+  };
+  await fs.writeFile(seedManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+  const seedDate = new Date(week1Start);
+  seedDate.setHours(7, 0, 0, 0);
+  await Promise.all([
+    fs.utimes(seedDumpPath, seedDate, seedDate),
+    fs.utimes(seedGlobalsPath, seedDate, seedDate),
+    fs.utimes(seedManifestPath, seedDate, seedDate),
+  ]);
+
+  return {
+    prefix: seedPrefix,
+    dumpFileName: seedDumpName,
+    globalsFileName: seedGlobalsName,
+    manifestFileName: seedManifestName,
+  };
+};
+
+const applyDbBackupRetentionPolicy = async (backupDir) => {
+  const artifactEntries = await readBackupArtifactEntries(backupDir);
+  let candidates = await buildRetentionCandidatesFromArtifacts(artifactEntries);
+  const now = new Date();
+  let selection = selectRetentionTargets(candidates, now);
+  let week1Seeded = false;
+
+  if (!selection.week1) {
+    const donor =
+      selection.dayMinus1 ||
+      selection.today07 ||
+      selection.today12 ||
+      candidates.filter((candidate) => candidate.isComplete).sort(sortCandidatesByCompletenessAndTime)[0] ||
+      null;
+    const windows = getBackupRetentionWindows(now);
+    const seeded = donor
+      ? await createSeededWeek1Set({
+          backupDir,
+          donor,
+          week1Start: windows.week1Start,
+        })
+      : null;
+    if (seeded) {
+      week1Seeded = true;
+      const refreshedEntries = await readBackupArtifactEntries(backupDir);
+      candidates = await buildRetentionCandidatesFromArtifacts(refreshedEntries);
+      selection = selectRetentionTargets(candidates, now);
+    }
   }
+
+  const keepPrefixes = new Set(
+    [selection.today07, selection.today12, selection.dayMinus1, selection.week1]
+      .filter(Boolean)
+      .map((candidate) => candidate.prefix)
+  );
 
   const deletedFiles = [];
   const allEntries = await fs.readdir(backupDir, { withFileTypes: true });
@@ -659,12 +842,19 @@ const applyDbBackupRetentionPolicy = async (backupDir) => {
   }
 
   return {
-    kept: {
-      day: keepByBucket.get("day")?.fileName ?? null,
-      "day-1": keepByBucket.get("day-1")?.fileName ?? null,
-      "week-1": keepByBucket.get("week-1")?.fileName ?? null,
+    model: "fixed-4-slots",
+    keptSlots: {
+      today07: selection.today07?.dumpFileName ?? null,
+      today12: selection.today12?.dumpFileName ?? null,
+      dayMinus1: selection.dayMinus1?.dumpFileName ?? null,
+      week1: selection.week1?.dumpFileName ?? null,
     },
-    bootstrapActive,
+    kept: {
+      day: selection.today12?.dumpFileName ?? selection.today07?.dumpFileName ?? null,
+      "day-1": selection.dayMinus1?.dumpFileName ?? null,
+      "week-1": selection.week1?.dumpFileName ?? null,
+    },
+    week1Seeded: week1Seeded || Boolean(selection.week1?.manifestData?.seededWeek1),
     deletedCount: deletedFiles.length,
   };
 };
@@ -924,6 +1114,7 @@ const buildBackupManifest = async ({
   cfg,
   pgDumpPath,
   pgDumpAllPath,
+  scheduleSlot = "",
 }) => {
   const manifestFileName = `${backupPrefix}${BACKUP_MANIFEST_SUFFIX}`;
   const manifestFilePath = path.join(backupDir, manifestFileName);
@@ -937,6 +1128,7 @@ const buildBackupManifest = async ({
     database: cfg.database,
     host: cfg.host,
     port: cfg.port,
+    ...(normalizeScheduleSlotLabel(scheduleSlot) ? { scheduleSlot: normalizeScheduleSlotLabel(scheduleSlot) } : {}),
     files: {
       dump: { fileName: dumpFileName, sizeBytes: dumpStat.size },
       globals: { fileName: globalsFileName, sizeBytes: globalsStat.size },
@@ -1244,6 +1436,7 @@ export const createDbBackup = async ({ mode = "manual", actor = null, scheduleSl
         cfg,
         pgDumpPath,
         pgDumpAllPath,
+        scheduleSlot: normalizedScheduleSlot,
       });
 
       const retention = await applyDbBackupRetentionPolicy(backupDir);
