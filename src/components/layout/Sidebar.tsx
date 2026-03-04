@@ -105,9 +105,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
     window.addEventListener('mouseup', onMouseUp);
   };
 
-  const sidebarPadding = density === 'compact' ? 'pt-2 px-2 pb-2' : 'pt-3 px-3 pb-3';
-  const sectionPadding = density === 'compact' ? 'px-2 py-2' : 'px-3 py-3';
-  const navItemPadding = density === 'compact' ? 'px-3 py-2' : 'px-3 py-2.5';
+  const sidebarPadding = density === 'compact' ? 'pt-1.5 px-1.5 pb-1.5' : 'pt-3 px-3 pb-3';
+  const sectionPadding = density === 'compact' ? 'px-1.5 py-1.5' : 'px-3 py-3';
+  const navItemPadding = density === 'compact' ? 'px-2.5 py-1.5' : 'px-3 py-2.5';
   const sidebarWidth = isCollapsed ? 64 : width;
 
   return (
@@ -128,8 +128,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
                   'flex items-center gap-3 rounded-lg transition-all duration-150',
                   navItemPadding,
                   active
-                    ? 'bg-sidebar-accent text-sidebar-foreground border-l-2 border-primary'
-                    : 'text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                    ? 'bg-sidebar-accent/90 text-sidebar-foreground border-l-2 border-primary shadow-sm'
+                    : 'text-sidebar-muted hover:bg-sidebar-accent/70 hover:text-sidebar-foreground',
                   isCollapsed && 'justify-center px-2'
                 )}
               >
@@ -148,8 +148,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
                 className={cn(
                   'flex items-center gap-3 rounded-lg transition-all duration-150 justify-center px-2 py-2.5',
                   isSettingsActive
-                    ? 'bg-sidebar-accent text-sidebar-foreground border-l-2 border-primary'
-                    : 'text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                    ? 'bg-sidebar-accent/90 text-sidebar-foreground border-l-2 border-primary shadow-sm'
+                    : 'text-sidebar-muted hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'
                 )}
                 aria-label={t.nav.admin}
                 title={t.nav.admin}
@@ -162,8 +162,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
                   className={cn(
                     'w-full flex items-center rounded-lg transition-all duration-150 overflow-hidden',
                     isSettingsActive
-                      ? 'bg-sidebar-accent text-sidebar-foreground border-l-2 border-primary'
-                      : 'text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                      ? 'bg-sidebar-accent/90 text-sidebar-foreground border-l-2 border-primary shadow-sm'
+                      : 'text-sidebar-muted hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'
                   )}
                 >
                   <button
@@ -207,8 +207,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
                           className={cn(
                             'flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-150 text-sm',
                             active
-                              ? 'bg-sidebar-accent text-sidebar-foreground'
-                              : 'text-sidebar-muted hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                              ? 'bg-sidebar-accent/90 text-sidebar-foreground'
+                              : 'text-sidebar-muted hover:bg-sidebar-accent/70 hover:text-sidebar-foreground'
                           )}
                         >
                           <Icon size={16} className={active ? 'text-primary' : ''} />

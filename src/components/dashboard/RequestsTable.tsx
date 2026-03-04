@@ -565,7 +565,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
         {sortedRequests.map((request) => (
           <div
             key={request.id}
-            className={cn('space-y-3 cursor-pointer transition-colors hover:bg-muted/20', density === 'compact' ? 'p-3' : 'p-4')}
+            className={cn('space-y-3 cursor-pointer transition-colors hover:bg-muted/20', density === 'compact' ? 'p-2.5' : 'p-4')}
             onClick={() => handleQuickReview(request.id)}
             role="button"
             tabIndex={0}
@@ -656,7 +656,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
       <div className="hidden md:block">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/50 hover:bg-muted/50">
+            <TableRow className="bg-muted/70 hover:bg-muted/70">
               {renderSortableHead(t.table.requestId, 'id')}
               {renderSortableHead(t.table.priority, 'priority')}
               {renderSortableHead(t.table.status, 'status')}
@@ -686,8 +686,8 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                 key={request.id}
                 className={cn(
                   'cursor-pointer transition-colors hover:bg-muted/30',
-                  index % 2 === 0 ? 'bg-card' : 'bg-muted/10',
-                  density === 'compact' ? 'h-10' : 'h-12'
+                  index % 2 === 0 ? 'bg-card' : 'bg-muted/20',
+                  density === 'compact' ? 'h-9' : 'h-12'
                 )}
                 style={{ animationDelay: `${index * 40}ms` }}
                 onClick={() => onRowClick(request.id)}
@@ -702,8 +702,8 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                   }
                 }}
               >
-                <TableCell className={cn('font-medium text-primary', density === 'compact' ? 'py-1.5' : 'py-2')}>{request.id}</TableCell>
-                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')} onClick={(event) => event.stopPropagation()}>
+                <TableCell className={cn('font-medium text-primary', density === 'compact' ? 'py-1' : 'py-2')}>{request.id}</TableCell>
+                <TableCell className={cn(density === 'compact' ? 'py-1' : 'py-2')} onClick={(event) => event.stopPropagation()}>
                     <Select
                       value={toPriority(request.priority)}
                       onValueChange={(value) => handlePriorityChange(request.id, value as RequestPriority)}
@@ -711,7 +711,7 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                       <SelectTrigger
                         className={cn(
                           'w-[104px] rounded-full border-border/70 bg-muted/25 text-foreground shadow-none transition-colors hover:bg-muted/45 focus:ring-0 focus:ring-offset-0',
-                          density === 'compact' ? 'h-7 px-2.5 text-xs' : 'h-8 px-3 text-sm'
+                          density === 'compact' ? 'h-6 px-2 text-[11px]' : 'h-8 px-3 text-sm'
                         )}
                       >
                         <SelectValue />
@@ -725,29 +725,29 @@ const RequestsTable: React.FC<RequestsTableProps> = ({ requests, userRole, onDel
                     </SelectContent>
                   </Select>
                 </TableCell>
-                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>
+                <TableCell className={cn(density === 'compact' ? 'py-1' : 'py-2')}>
                   <StatusBadge status={request.status} />
                 </TableCell>
-                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>
+                <TableCell className={cn(density === 'compact' ? 'py-1' : 'py-2')}>
                   {getNextActionLabel(request)}
                 </TableCell>
-                <TableCell className={cn('max-w-[180px] truncate', density === 'compact' ? 'py-1.5' : 'py-2')}>{request.clientName}</TableCell>
-                <TableCell className={cn('max-w-[180px] truncate', density === 'compact' ? 'py-1.5' : 'py-2')}>
+                <TableCell className={cn('max-w-[180px] truncate', density === 'compact' ? 'py-1' : 'py-2')}>{request.clientName}</TableCell>
+                <TableCell className={cn('max-w-[180px] truncate', density === 'compact' ? 'py-1' : 'py-2')}>
                   {translateOption(request.applicationVehicle)}
                 </TableCell>
-                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>{translateOption(request.country)}</TableCell>
-                <TableCell className={cn('max-w-[220px] truncate', density === 'compact' ? 'py-1.5' : 'py-2')}>
+                <TableCell className={cn(density === 'compact' ? 'py-1' : 'py-2')}>{translateOption(request.country)}</TableCell>
+                <TableCell className={cn('max-w-[220px] truncate', density === 'compact' ? 'py-1' : 'py-2')}>
                   {getProductTypeLabel(getPrimaryProduct(request))}
                 </TableCell>
-                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>{request.createdByName}</TableCell>
-                <TableCell className={cn('whitespace-nowrap min-w-[132px]', density === 'compact' ? 'py-1.5' : 'py-2')}>
+                <TableCell className={cn(density === 'compact' ? 'py-1' : 'py-2')}>{request.createdByName}</TableCell>
+                <TableCell className={cn('whitespace-nowrap min-w-[132px]', density === 'compact' ? 'py-1' : 'py-2')}>
                   {format(new Date(request.createdAt), 'MMM d, yyyy')}
                 </TableCell>
-                <TableCell className={cn('text-right', density === 'compact' ? 'py-1.5' : 'py-2')} onClick={(event) => event.stopPropagation()}>
+                <TableCell className={cn('text-right', density === 'compact' ? 'py-1' : 'py-2')} onClick={(event) => event.stopPropagation()}>
                   <div className="flex items-center justify-end gap-2">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                        <Button variant="ghost" size="sm" className={cn('p-0', density === 'compact' ? 'h-7 w-7' : 'h-8 w-8')}>
                           <MoreHorizontal size={16} />
                         </Button>
                       </DropdownMenuTrigger>

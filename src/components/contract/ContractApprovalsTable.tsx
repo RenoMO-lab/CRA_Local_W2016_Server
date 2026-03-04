@@ -310,7 +310,7 @@ const ContractApprovalsTable: React.FC<Props> = ({
         {sortedContracts.map((contract) => (
           <div
             key={contract.id}
-            className={cn('space-y-3 cursor-pointer transition-colors hover:bg-muted/20', density === 'compact' ? 'p-3' : 'p-4')}
+            className={cn('space-y-3 cursor-pointer transition-colors hover:bg-muted/20', density === 'compact' ? 'p-2.5' : 'p-4')}
             onClick={() => onQuickReview(contract.id)}
             role="button"
             tabIndex={0}
@@ -386,7 +386,7 @@ const ContractApprovalsTable: React.FC<Props> = ({
       <div className="hidden md:block">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/50 hover:bg-muted/50">
+            <TableRow className="bg-muted/70 hover:bg-muted/70">
               {renderSortableHead(t.contractApproval.table.contractId, 'id')}
               {renderSortableHead(t.contractApproval.table.clientName, 'clientName')}
               {renderSortableHead(t.contractApproval.table.craNumber, 'craNumber')}
@@ -405,8 +405,8 @@ const ContractApprovalsTable: React.FC<Props> = ({
                 key={contract.id}
                 className={cn(
                   'cursor-pointer transition-colors hover:bg-muted/30',
-                  index % 2 === 0 ? 'bg-card' : 'bg-muted/10',
-                  density === 'compact' ? 'h-10' : 'h-12'
+                  index % 2 === 0 ? 'bg-card' : 'bg-muted/20',
+                  density === 'compact' ? 'h-9' : 'h-12'
                 )}
                 onClick={() => onRowClick(contract.id)}
                 onDoubleClick={() => onRowDoubleClick(contract.id)}
@@ -420,21 +420,21 @@ const ContractApprovalsTable: React.FC<Props> = ({
                   }
                 }}
               >
-                <TableCell className={cn('font-semibold text-primary', density === 'compact' ? 'py-1.5' : 'py-2')}>{contract.id}</TableCell>
-                <TableCell className={cn('max-w-[180px] truncate', density === 'compact' ? 'py-1.5' : 'py-2')}>{contract.clientName || '-'}</TableCell>
-                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>{contract.craNumber || '-'}</TableCell>
-                <TableCell className={cn('max-w-[160px] truncate', density === 'compact' ? 'py-1.5' : 'py-2')}>{contract.salesOwnerName || '-'}</TableCell>
-                <TableCell className={cn('text-right tabular-nums', density === 'compact' ? 'py-1.5' : 'py-2')}>{toAmount(contract.contractAmount)}</TableCell>
-                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>
+                <TableCell className={cn('font-semibold text-primary', density === 'compact' ? 'py-1' : 'py-2')}>{contract.id}</TableCell>
+                <TableCell className={cn('max-w-[180px] truncate', density === 'compact' ? 'py-1' : 'py-2')}>{contract.clientName || '-'}</TableCell>
+                <TableCell className={cn(density === 'compact' ? 'py-1' : 'py-2')}>{contract.craNumber || '-'}</TableCell>
+                <TableCell className={cn('max-w-[160px] truncate', density === 'compact' ? 'py-1' : 'py-2')}>{contract.salesOwnerName || '-'}</TableCell>
+                <TableCell className={cn('text-right tabular-nums', density === 'compact' ? 'py-1' : 'py-2')}>{toAmount(contract.contractAmount)}</TableCell>
+                <TableCell className={cn(density === 'compact' ? 'py-1' : 'py-2')}>
                   <ContractStatusBadge status={contract.status} />
                 </TableCell>
-                <TableCell className={cn(density === 'compact' ? 'py-1.5' : 'py-2')}>{getNextActionLabel(contract) || '-'}</TableCell>
-                <TableCell className={cn('whitespace-nowrap min-w-[128px]', density === 'compact' ? 'py-1.5' : 'py-2')}>{toDate(contract.submittedAt)}</TableCell>
-                <TableCell className={cn('whitespace-nowrap min-w-[128px]', density === 'compact' ? 'py-1.5' : 'py-2')}>{toDate(contract.updatedAt)}</TableCell>
-                <TableCell className={cn('text-right', density === 'compact' ? 'py-1.5' : 'py-2')} onClick={(event) => event.stopPropagation()}>
+                <TableCell className={cn(density === 'compact' ? 'py-1' : 'py-2')}>{getNextActionLabel(contract) || '-'}</TableCell>
+                <TableCell className={cn('whitespace-nowrap min-w-[128px]', density === 'compact' ? 'py-1' : 'py-2')}>{toDate(contract.submittedAt)}</TableCell>
+                <TableCell className={cn('whitespace-nowrap min-w-[128px]', density === 'compact' ? 'py-1' : 'py-2')}>{toDate(contract.updatedAt)}</TableCell>
+                <TableCell className={cn('text-right', density === 'compact' ? 'py-1' : 'py-2')} onClick={(event) => event.stopPropagation()}>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                      <Button variant="ghost" size="sm" className={cn('p-0', density === 'compact' ? 'h-7 w-7' : 'h-8 w-8')}>
                         <MoreHorizontal size={16} />
                       </Button>
                     </DropdownMenuTrigger>

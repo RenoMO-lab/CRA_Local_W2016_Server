@@ -190,8 +190,8 @@ const ContractApprovals: React.FC = () => {
   };
 
   return (
-    <div className={density === 'compact' ? 'space-y-4' : 'space-y-6'}>
-      <div className={cn('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4', density === 'compact' ? 'gap-3' : 'gap-6')}>
+    <div className={density === 'compact' ? 'space-y-3' : 'space-y-6'}>
+      <div className={cn('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4', density === 'compact' ? 'gap-2' : 'gap-6')}>
         {kpis.map((kpi, index) => (
           <div key={kpi.title} className="animate-slide-up h-full" style={{ animationDelay: `${index * 100}ms` }}>
             <KPICard
@@ -207,21 +207,21 @@ const ContractApprovals: React.FC = () => {
 
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">{t.contractApproval.title}</h1>
-          <p className="text-sm text-muted-foreground">{t.contractApproval.description}</p>
+          <h1 className={cn('font-semibold text-foreground', density === 'compact' ? 'text-xl' : 'text-2xl')}>{t.contractApproval.title}</h1>
+          <p className={cn('text-muted-foreground', density === 'compact' ? 'text-xs' : 'text-sm')}>{t.contractApproval.description}</p>
         </div>
         {user?.role === 'sales' || user?.role === 'admin' ? (
-          <Button onClick={() => navigate('/contract-approvals/new')}>
+          <Button onClick={() => navigate('/contract-approvals/new')} className={density === 'compact' ? 'h-8 px-3 text-xs' : undefined}>
             <Plus size={14} className="mr-2" />
             {t.contractApproval.newContract}
           </Button>
         ) : null}
       </div>
 
-      <div className="rounded-lg border border-border bg-card p-3">
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className={cn('rounded-lg border border-border bg-card', density === 'compact' ? 'p-2.5' : 'p-3')}>
+        <div className={cn('grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3', density === 'compact' ? 'gap-2' : 'gap-3')}>
           <Select value={ownershipFilter} onValueChange={(value) => setOwnershipFilter(value as OwnershipFilter)}>
-            <SelectTrigger className={density === 'compact' ? 'h-8' : 'h-9'}>
+            <SelectTrigger className={density === 'compact' ? 'h-7' : 'h-9'}>
               <SelectValue placeholder={t.dashboard.ownership} />
             </SelectTrigger>
             <SelectContent className="bg-card border border-border">
@@ -230,7 +230,7 @@ const ContractApprovals: React.FC = () => {
             </SelectContent>
           </Select>
           <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as FilterType)}>
-            <SelectTrigger className={density === 'compact' ? 'h-8' : 'h-9'}>
+            <SelectTrigger className={density === 'compact' ? 'h-7' : 'h-9'}>
               <SelectValue placeholder={t.contractApproval.filters.status} />
             </SelectTrigger>
             <SelectContent className="bg-card border border-border">
@@ -246,13 +246,13 @@ const ContractApprovals: React.FC = () => {
             </SelectContent>
           </Select>
           {hasActiveFilters ? (
-            <Button variant="outline" size="sm" onClick={clearFilters} className={cn('text-muted-foreground', density === 'compact' ? 'h-8' : 'h-9')}>
+            <Button variant="outline" size="sm" onClick={clearFilters} className={cn('text-muted-foreground', density === 'compact' ? 'h-7' : 'h-9')}>
               <Filter size={14} className="mr-2" />
               {t.common.clearFilters}
             </Button>
           ) : null}
         </div>
-        <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+        <div className={cn('flex items-center gap-2 text-muted-foreground', density === 'compact' ? 'mt-2 text-xs' : 'mt-3 text-sm')}>
           <span>{displayedContracts.length}</span>
           <span>{isSearchMode ? t.common.filtered : t.common.total}</span>
           {isSearchMode ? (

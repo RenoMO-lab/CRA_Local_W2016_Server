@@ -184,8 +184,8 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className={density === 'compact' ? 'space-y-4' : 'space-y-6'}>
-      <div className={cn('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4', density === 'compact' ? 'gap-3' : 'gap-6')}>
+    <div className={density === 'compact' ? 'space-y-3' : 'space-y-6'}>
+      <div className={cn('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4', density === 'compact' ? 'gap-2' : 'gap-6')}>
         {kpis.map((kpi, index) => (
           <div 
             key={kpi.title}
@@ -203,10 +203,10 @@ const Dashboard: React.FC = () => {
         ))}
       </div>
 
-      <div className={density === 'compact' ? 'space-y-3' : 'space-y-4'}>
+      <div className={density === 'compact' ? 'space-y-2' : 'space-y-4'}>
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <h2 className={cn('font-semibold text-foreground', density === 'compact' ? 'text-lg' : 'text-xl')}>{t.dashboard.requests}</h2>
+            <h2 className={cn('font-semibold text-foreground', density === 'compact' ? 'text-[17px]' : 'text-xl')}>{t.dashboard.requests}</h2>
             <span className="text-sm text-muted-foreground">
               {displayedRequests.length} {activeFilter !== 'all' || ownershipFilter !== 'all' || isSearchMode ? t.common.filtered : t.common.total}
             </span>
@@ -219,7 +219,7 @@ const Dashboard: React.FC = () => {
 
           <div className="flex flex-wrap items-center gap-2">
             {(user?.role === 'sales' || user?.role === 'admin') ? (
-              <Button onClick={() => navigate('/requests/new')}>
+              <Button onClick={() => navigate('/requests/new')} className={density === 'compact' ? 'h-8 px-3 text-xs' : undefined}>
                 <Plus size={14} className="mr-2" />
                 {t.nav.newRequest}
               </Button>
@@ -241,7 +241,7 @@ const Dashboard: React.FC = () => {
             )}
 
             <Select value={ownershipFilter} onValueChange={(value) => setOwnershipFilter(value as OwnershipFilter)}>
-              <SelectTrigger className={cn('w-[150px]', density === 'compact' ? 'h-8' : 'h-9')}>
+              <SelectTrigger className={cn('w-[150px]', density === 'compact' ? 'h-7' : 'h-9')}>
                 <SelectValue placeholder={t.dashboard.ownership} />
               </SelectTrigger>
               <SelectContent className="bg-card border border-border">
@@ -251,7 +251,7 @@ const Dashboard: React.FC = () => {
             </Select>
             
              <Select value={activeFilter} onValueChange={(value) => setActiveFilter(value as FilterType)}>
-              <SelectTrigger className={cn('w-[180px]', density === 'compact' ? 'h-8' : 'h-9')}>
+              <SelectTrigger className={cn('w-[180px]', density === 'compact' ? 'h-7' : 'h-9')}>
                 <Filter size={14} className="mr-2" />
                 <SelectValue placeholder={t.common.filter} />
               </SelectTrigger>

@@ -605,7 +605,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   return (
     <>
-      <div className="hidden md:grid fixed top-0 left-0 right-0 z-50 h-14 px-4 border-b border-border bg-background items-center gap-3 whitespace-nowrap grid-cols-[minmax(0,1fr)_minmax(220px,420px)_auto]">
+      <div className="hidden md:grid fixed top-0 left-0 right-0 z-50 h-14 px-4 border-b border-border/90 bg-background/96 backdrop-blur items-center gap-3 whitespace-nowrap grid-cols-[minmax(0,1fr)_minmax(220px,420px)_auto]">
         <div className="min-w-0 flex items-center gap-3 overflow-hidden">
           <Button
             variant="outline"
@@ -715,7 +715,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         </div>
       </div>
 
-      <div className="hidden md:flex fixed bottom-0 left-0 right-0 z-50 h-8 px-4 border-t border-border bg-background/95 backdrop-blur items-center justify-between text-[11px] text-muted-foreground">
+      <div className="hidden md:flex fixed bottom-0 left-0 right-0 z-50 h-8 px-4 border-t border-border/90 bg-background/96 backdrop-blur items-center justify-between text-[11px] text-muted-foreground">
         <div className="flex items-center gap-3 min-w-0">
           <span className="truncate">{t.appChrome.dbLabel}: {shellStatus?.db?.healthLabel ?? '--'}</span>
           <span className="truncate">{t.appChrome.syncLabel}: {syncState === 'refreshing' ? t.appChrome.syncRefreshing : syncState === 'error' ? t.appChrome.syncError : t.appChrome.syncReady}</span>
