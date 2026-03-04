@@ -78,6 +78,9 @@ export interface RequestProduct {
 
   // Product-specific comments
   productComments: string;
+  offerProductName: string;
+  offerProductPartNumber: string;
+  designResultAttachments: Attachment[];
 
   // Attachments
   attachments: Attachment[];

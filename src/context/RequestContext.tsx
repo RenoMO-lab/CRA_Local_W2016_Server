@@ -63,6 +63,11 @@ const buildLegacyProduct = (r: any, attachments: any[]): RequestProduct => ({
   cupLogo: r?.cupLogo ?? '',
   suspension: r?.suspension ?? '',
   productComments: typeof r?.productComments === 'string' ? r.productComments : r?.otherRequirements ?? '',
+  offerProductName: typeof r?.offerProductName === 'string' ? r.offerProductName : '',
+  offerProductPartNumber: typeof r?.offerProductPartNumber === 'string' ? r.offerProductPartNumber : '',
+  designResultAttachments: Array.isArray(r?.designResultAttachments)
+    ? r.designResultAttachments.map(reviveAttachment)
+    : [],
   attachments,
 });
 
@@ -92,6 +97,11 @@ const reviveProduct = (p: any): RequestProduct => ({
   cupLogo: p?.cupLogo ?? '',
   suspension: p?.suspension ?? '',
   productComments: typeof p?.productComments === 'string' ? p.productComments : p?.otherRequirements ?? '',
+  offerProductName: typeof p?.offerProductName === 'string' ? p.offerProductName : '',
+  offerProductPartNumber: typeof p?.offerProductPartNumber === 'string' ? p.offerProductPartNumber : '',
+  designResultAttachments: Array.isArray(p?.designResultAttachments)
+    ? p.designResultAttachments.map(reviveAttachment)
+    : [],
   attachments: Array.isArray(p?.attachments) ? p.attachments.map(reviveAttachment) : [],
 });
 
@@ -130,6 +140,8 @@ const reviveClientOfferLine = (line: any, index: number): ClientOfferLine => ({
       : null,
   description: typeof line?.description === 'string' ? line.description : '',
   specification: typeof line?.specification === 'string' ? line.specification : '',
+  offerDescription: typeof line?.offerDescription === 'string' ? line.offerDescription : '',
+  offerSpecification: typeof line?.offerSpecification === 'string' ? line.offerSpecification : '',
   quantity: parseOptionalNumber(line?.quantity),
   unitPrice: parseOptionalNumber(line?.unitPrice),
   remark: typeof line?.remark === 'string' ? line.remark : '',
@@ -161,10 +173,31 @@ const reviveClientOfferConfig = (raw: any): ClientOfferConfig | undefined => {
 
 const reviveRequest = (r: any): CustomerRequest => {
   const attachments = Array.isArray(r?.attachments) ? r.attachments.map(reviveAttachment) : [];
+  const legacyDesignAttachments = Array.isArray(r?.designResultAttachments)
+    ? r.designResultAttachments.map(reviveAttachment)
+    : [];
   const rawProducts = Array.isArray(r?.products) ? r.products : [];
   const normalizedProducts = rawProducts.length
     ? rawProducts.map(reviveProduct)
     : [buildLegacyProduct(r, attachments)];
+
+  const hasProductDesignAttachments = normalizedProducts.some(
+    (product) => Array.isArray(product.designResultAttachments) && product.designResultAttachments.length > 0
+  );
+  if (!hasProductDesignAttachments && legacyDesignAttachments.length > 0 && normalizedProducts.length > 0) {
+    const seen = new Set<string>();
+    const migrated = legacyDesignAttachments.filter((item) => {
+      const id = String(item?.id ?? '').trim();
+      if (!id) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    normalizedProducts[0] = {
+      ...normalizedProducts[0],
+      designResultAttachments: migrated,
+    };
+  }
 
   if (normalizedProducts.length === 1 && normalizedProducts[0].attachments.length === 0 && attachments.length) {
     normalizedProducts[0] = { ...normalizedProducts[0], attachments };
@@ -185,9 +218,7 @@ const reviveRequest = (r: any): CustomerRequest => {
     clientExpectedDeliveryDate: r?.clientExpectedDeliveryDate ?? '',
     attachments,
     designResultComments: r?.designResultComments ?? '',
-    designResultAttachments: Array.isArray(r?.designResultAttachments)
-      ? r.designResultAttachments.map(reviveAttachment)
-      : [],
+    designResultAttachments: legacyDesignAttachments,
     clientAddressDelivery: r?.clientAddressDelivery ?? '',
     incoterm: r?.incoterm ?? '',
     incotermOther: r?.incotermOther ?? '',

@@ -2041,6 +2041,12 @@ const normalizeProduct = (product) => ({
   cupLogo: product?.cupLogo ?? "",
   suspension: product?.suspension ?? "",
   productComments: typeof product?.productComments === "string" ? product.productComments : product?.otherRequirements ?? "",
+  offerProductName: typeof product?.offerProductName === "string" ? product.offerProductName : "",
+  offerProductPartNumber:
+    typeof product?.offerProductPartNumber === "string" ? product.offerProductPartNumber : "",
+  designResultAttachments: Array.isArray(product?.designResultAttachments)
+    ? product.designResultAttachments
+    : [],
   attachments: Array.isArray(product?.attachments) ? product.attachments : [],
 });
 
@@ -2071,6 +2077,9 @@ const buildLegacyProduct = (data, attachments) =>
     cupLogo: data?.cupLogo,
     suspension: data?.suspension,
     productComments: data?.productComments ?? data?.otherRequirements,
+    offerProductName: data?.offerProductName,
+    offerProductPartNumber: data?.offerProductPartNumber,
+    designResultAttachments: Array.isArray(data?.designResultAttachments) ? data.designResultAttachments : [],
     attachments,
   });
 
@@ -2101,6 +2110,9 @@ const LEGACY_PRODUCT_FIELDS = new Set([
   "suspension",
   "otherRequirements",
   "productComments",
+  "offerProductName",
+  "offerProductPartNumber",
+  "designResultAttachments",
   "attachments",
 ]);
 
@@ -2138,6 +2150,14 @@ const syncLegacyFromProduct = (target, product) => ({
   cupLogo: product?.cupLogo ?? "",
   suspension: product?.suspension ?? "",
   otherRequirements: typeof product?.productComments === "string" ? product.productComments : target?.otherRequirements,
+  offerProductName: typeof product?.offerProductName === "string" ? product.offerProductName : "",
+  offerProductPartNumber:
+    typeof product?.offerProductPartNumber === "string" ? product.offerProductPartNumber : "",
+  designResultAttachments: Array.isArray(product?.designResultAttachments)
+    ? product.designResultAttachments
+    : Array.isArray(target?.designResultAttachments)
+      ? target.designResultAttachments
+      : [],
   attachments: Array.isArray(product?.attachments) ? product.attachments : [],
 });
 
@@ -2247,6 +2267,84 @@ const normalizeRequestPriority = (value) => {
   return "normal";
 };
 
+const isBlankSalesValue = (value) => {
+  if (value === null || value === undefined) return true;
+  if (typeof value === "string") return value.trim() === "";
+  return false;
+};
+
+const isIsoDate = (value) => {
+  const raw = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const [yearStr, monthStr, dayStr] = raw.split("-");
+  const year = Number.parseInt(yearStr, 10);
+  const month = Number.parseInt(monthStr, 10);
+  const day = Number.parseInt(dayStr, 10);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return (
+    dt.getUTCFullYear() === year &&
+    dt.getUTCMonth() === month - 1 &&
+    dt.getUTCDate() === day
+  );
+};
+
+const applyCostingPrefillToSales = (requestData) => {
+  const next = { ...requestData };
+  const copiedFields = [];
+  const DEFAULT_SALES_WARRANTY_PERIOD = "12";
+  const DEFAULT_SALES_OFFER_VALIDITY = "30 days";
+  const copyField = (field, value, predicate = () => true) => {
+    if (!predicate()) return;
+    if (!isBlankSalesValue(next[field])) return;
+    next[field] = value;
+    copiedFields.push(field);
+  };
+
+  const sellingPrice = parseOptionalFiniteNumber(next.sellingPrice);
+  const calculatedMargin = parseOptionalFiniteNumber(next.calculatedMargin);
+  const vatRate = parseOptionalFiniteNumber(next.vatRate);
+  const sourceIncoterm = String(next.incoterm ?? "").trim();
+  const sourceIncotermOther = String(next.incotermOther ?? "").trim();
+  const sourceVatMode = String(next.vatMode ?? "").trim().toLowerCase();
+  const sourceLeadtime = String(next.deliveryLeadtime ?? "").trim();
+  const sourceSellingCurrency = String(next.sellingCurrency ?? "").trim();
+
+  copyField("salesFinalPrice", sellingPrice, () => sellingPrice !== null);
+  copyField("salesCurrency", sourceSellingCurrency, () => sourceSellingCurrency !== "");
+  copyField("salesMargin", calculatedMargin, () => calculatedMargin !== null);
+  copyField("salesIncoterm", sourceIncoterm, () => sourceIncoterm !== "");
+  copyField(
+    "salesIncotermOther",
+    sourceIncotermOther,
+    () => sourceIncoterm.toLowerCase() === "other" && sourceIncotermOther !== ""
+  );
+  copyField(
+    "salesVatMode",
+    sourceVatMode === "with" ? "with" : "without",
+    () => sourceVatMode === "with" || sourceVatMode === "without"
+  );
+
+  const effectiveSalesVatMode = String(next.salesVatMode ?? "").trim().toLowerCase();
+  if (effectiveSalesVatMode === "with") {
+    copyField("salesVatRate", vatRate, () => vatRate !== null);
+  } else if (isBlankSalesValue(next.salesVatRate)) {
+    next.salesVatRate = null;
+    copiedFields.push("salesVatRate");
+  }
+
+  copyField("salesExpectedDeliveryDate", sourceLeadtime, () => isIsoDate(sourceLeadtime));
+  copyField("salesWarrantyPeriod", DEFAULT_SALES_WARRANTY_PERIOD, () => true);
+  copyField("salesOfferValidityPeriod", DEFAULT_SALES_OFFER_VALIDITY, () => true);
+
+  return {
+    requestData: next,
+    prefillApplied: copiedFields.length > 0,
+    copiedFields,
+  };
+};
+
 const normalizeRequestData = (data, nowIso) => {
   const history = Array.isArray(data.history) ? data.history : [];
   const attachments = Array.isArray(data.attachments) ? data.attachments : [];
@@ -2267,6 +2365,23 @@ const normalizeRequestData = (data, nowIso) => {
   const products = productsPayload.length
     ? productsPayload.map(normalizeProduct)
     : [buildLegacyProduct(data, attachments)];
+  const hasProductDesignAttachments = products.some(
+    (product) => Array.isArray(product?.designResultAttachments) && product.designResultAttachments.length > 0
+  );
+  if (!hasProductDesignAttachments && designResultAttachments.length > 0 && products.length > 0) {
+    const seenDesignAttachmentIds = new Set();
+    const migratedLegacyDesignAttachments = designResultAttachments.filter((attachment) => {
+      const id = String(attachment?.id ?? "").trim();
+      if (!id) return true;
+      if (seenDesignAttachmentIds.has(id)) return false;
+      seenDesignAttachmentIds.add(id);
+      return true;
+    });
+    products[0] = {
+      ...products[0],
+      designResultAttachments: migratedLegacyDesignAttachments,
+    };
+  }
   const clientOfferConfig = normalizeClientOfferConfig(data.clientOfferConfig, nowIso);
 
   return {
@@ -2845,6 +2960,7 @@ const collectAttachmentIds = (request) => {
   if (Array.isArray(request?.products)) {
     for (const p of request.products) {
       visitArray(p?.attachments);
+      visitArray(p?.designResultAttachments);
     }
   }
 
@@ -2919,6 +3035,7 @@ const extractInlineAttachments = (request) => {
   if (Array.isArray(request?.products)) {
     for (const p of request.products) {
       visitArray(p?.attachments);
+      visitArray(p?.designResultAttachments);
     }
   }
 
@@ -9272,6 +9389,13 @@ export const apiRouter = (() => {
         res.status(404).json({ error: "Request not found" });
         return;
       }
+      const actorRole = String(req.authUser?.role ?? "").trim().toLowerCase();
+      const actorId = String(req.authUser?.id ?? "").trim();
+      const ownerId = String(existing.createdBy ?? "").trim();
+      if (actorRole === "sales" && (!ownerId || ownerId !== actorId)) {
+        res.status(403).json({ error: "You can only process your own requests in Sales Follow-up" });
+        return;
+      }
 
       const previousStatus = String(existing.status ?? "");
       const requestedStatus = String(body.status ?? "").trim();
@@ -9323,6 +9447,23 @@ export const apiRouter = (() => {
           res.status(400).json({ error: "BOM Folder Link is required before submitting Design Result" });
           return;
         }
+        const existingAttachments = Array.isArray(existing.attachments) ? existing.attachments : [];
+        const products = Array.isArray(existing.products) && existing.products.length
+          ? existing.products.map((product) => normalizeProduct(product))
+          : [buildLegacyProduct(existing, existingAttachments)];
+        const missingLineNumbers = products
+          .map((product, index) => {
+            const hasName = String(product?.offerProductName ?? "").trim().length > 0;
+            const hasPartNumber = String(product?.offerProductPartNumber ?? "").trim().length > 0;
+            return hasName && hasPartNumber ? null : index + 1;
+          })
+          .filter((value) => value !== null);
+        if (missingLineNumbers.length > 0) {
+          res.status(400).json({
+            error: `Product Name and Product Part Number are required for item(s): ${missingLineNumbers.join(", ")}`,
+          });
+          return;
+        }
       }
 
       // Workflow rule: a GM rejection returns the request to Sales Follow-up (WIP),
@@ -9361,15 +9502,22 @@ export const apiRouter = (() => {
             },
           ];
 
-      const updated = normalizeRequestData(
-        {
-          ...existing,
-          status: effectiveStatus,
-          updatedAt: nowIso,
-          history: [...historyList, ...historyEntries],
-        },
-        nowIso
-      );
+      let requestDataForUpdate = {
+        ...existing,
+        status: effectiveStatus,
+        updatedAt: nowIso,
+        history: [...historyList, ...historyEntries],
+      };
+      let salesPrefillApplied = false;
+      let salesPrefillFields = [];
+      if (previousStatus === "costing_complete" && requestedStatus === "sales_followup") {
+        const prefillResult = applyCostingPrefillToSales(requestDataForUpdate);
+        requestDataForUpdate = prefillResult.requestData;
+        salesPrefillApplied = prefillResult.prefillApplied;
+        salesPrefillFields = prefillResult.copiedFields;
+      }
+
+      const updated = normalizeRequestData(requestDataForUpdate, nowIso);
 
       await pool.query("UPDATE requests SET data=$2::jsonb, status=$3, updated_at=$4 WHERE id=$1", [
         requestId,
@@ -9450,6 +9598,8 @@ export const apiRouter = (() => {
           to: requestedStatus || null,
           effectiveTo: updated.status ?? null,
           deletedSiblingDrafts: deletedSiblingDrafts || 0,
+          salesPrefillApplied,
+          salesPrefillFields,
         },
       });
 

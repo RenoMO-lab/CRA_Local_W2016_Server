@@ -73,13 +73,19 @@ const getInitialProduct = (): RequestProduct => ({
   cupLogo: '',
   suspension: '',
   productComments: '',
+  offerProductName: '',
+  offerProductPartNumber: '',
+  designResultAttachments: [],
   attachments: [],
 });
 
 const cloneProductForNext = (source: RequestProduct): RequestProduct => ({
   ...source,
   attachments: [],
+  designResultAttachments: [],
   productComments: '',
+  offerProductName: '',
+  offerProductPartNumber: '',
   quantity: null,
 });
 
@@ -111,6 +117,15 @@ const buildLegacyProduct = (request: Partial<CustomerRequest>): RequestProduct =
   productComments: typeof (request as any).productComments === 'string'
     ? (request as any).productComments
     : request.otherRequirements ?? '',
+  offerProductName: typeof (request as any).offerProductName === 'string'
+    ? (request as any).offerProductName
+    : '',
+  offerProductPartNumber: typeof (request as any).offerProductPartNumber === 'string'
+    ? (request as any).offerProductPartNumber
+    : '',
+  designResultAttachments: Array.isArray((request as any).designResultAttachments)
+    ? (request as any).designResultAttachments
+    : [],
   attachments: Array.isArray(request.attachments) ? request.attachments : [],
 });
 
@@ -128,6 +143,15 @@ const normalizeProducts = (request?: Partial<CustomerRequest>): RequestProduct[]
       productComments: typeof (product as any).productComments === 'string'
         ? (product as any).productComments
         : (product as any).otherRequirements ?? '',
+      offerProductName: typeof (product as any).offerProductName === 'string'
+        ? (product as any).offerProductName
+        : '',
+      offerProductPartNumber: typeof (product as any).offerProductPartNumber === 'string'
+        ? (product as any).offerProductPartNumber
+        : '',
+      designResultAttachments: Array.isArray((product as any).designResultAttachments)
+        ? (product as any).designResultAttachments
+        : [],
       attachments: Array.isArray(product.attachments) ? product.attachments : [],
     }));
   }
@@ -211,6 +235,64 @@ const hasGmApprovedLifecycle = (request?: CustomerRequest) => {
   return history.some((entry) => String(entry?.status ?? '').trim() === 'gm_approved');
 };
 
+type DesignOfferLineInput = {
+  offerProductName: string;
+  offerProductPartNumber: string;
+  designResultAttachments: Attachment[];
+};
+
+const dedupeAttachmentsById = (items: Attachment[]): Attachment[] => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const id = String(item?.id ?? '').trim();
+    if (!id) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+};
+
+const toDesignOfferLineInputs = (
+  products: RequestProduct[],
+  legacyDesignAttachments?: Attachment[]
+): DesignOfferLineInput[] => {
+  const out = products.map((product) => ({
+    offerProductName: typeof product.offerProductName === 'string' ? product.offerProductName : '',
+    offerProductPartNumber: typeof product.offerProductPartNumber === 'string' ? product.offerProductPartNumber : '',
+    designResultAttachments: Array.isArray(product.designResultAttachments) ? product.designResultAttachments : [],
+  }));
+  const legacy = Array.isArray(legacyDesignAttachments) ? legacyDesignAttachments : [];
+  const hasPerProductAttachments = out.some(
+    (line) => Array.isArray(line.designResultAttachments) && line.designResultAttachments.length > 0
+  );
+  if (!hasPerProductAttachments && legacy.length > 0 && out.length > 0) {
+    out[0] = {
+      ...out[0],
+      designResultAttachments: dedupeAttachmentsById(legacy),
+    };
+  }
+  return out;
+};
+
+const mergeDesignOfferLineInputs = (
+  products: RequestProduct[],
+  lineInputs: DesignOfferLineInput[]
+): RequestProduct[] =>
+  products.map((product, index) => ({
+    ...product,
+    offerProductName: String(lineInputs[index]?.offerProductName ?? '').trim(),
+    offerProductPartNumber: String(lineInputs[index]?.offerProductPartNumber ?? '').trim(),
+    designResultAttachments: dedupeAttachmentsById(
+      Array.isArray(lineInputs[index]?.designResultAttachments) ? lineInputs[index].designResultAttachments : []
+    ),
+  }));
+
+const buildDesignOfferLineErrors = (lineInputs: DesignOfferLineInput[]) =>
+  lineInputs.map((line) => ({
+    offerProductName: String(line.offerProductName ?? '').trim() ? '' : 'name_required',
+    offerProductPartNumber: String(line.offerProductPartNumber ?? '').trim() ? '' : 'part_required',
+  }));
+
 const RequestForm: React.FC = () => {
   const { id } = useParams();
   const location = useLocation();
@@ -271,7 +353,8 @@ const RequestForm: React.FC = () => {
   const [showSubmitSuccess, setShowSubmitSuccess] = useState(false);
   const [designResultComments, setDesignResultComments] = useState('');
   const [designResultBomFolderLink, setDesignResultBomFolderLink] = useState('');
-  const [designResultAttachments, setDesignResultAttachments] = useState<Attachment[]>([]);
+  const [designResultLineInputs, setDesignResultLineInputs] = useState<DesignOfferLineInput[]>([]);
+  const [designResultLineErrors, setDesignResultLineErrors] = useState<Array<{ offerProductName: string; offerProductPartNumber: string }>>([]);
   const [designResultDirty, setDesignResultDirty] = useState(false);
   const [designPreviewAttachment, setDesignPreviewAttachment] = useState<Attachment | null>(null);
   const [designPreviewUrl, setDesignPreviewUrl] = useState('');
@@ -409,7 +492,8 @@ const RequestForm: React.FC = () => {
     if (!existingRequest) {
       setDesignResultComments('');
       setDesignResultBomFolderLink('');
-      setDesignResultAttachments([]);
+      setDesignResultLineInputs([]);
+      setDesignResultLineErrors([]);
       setDesignResultDirty(false);
       designResultRequestIdRef.current = null;
       return;
@@ -424,19 +508,55 @@ const RequestForm: React.FC = () => {
     if (requestChanged || !designResultDirty) {
       setDesignResultBomFolderLink(existingRequest.designResultBomFolderLink ?? '');
       setDesignResultComments(existingRequest.designResultComments ?? '');
-      setDesignResultAttachments(
-        Array.isArray(existingRequest.designResultAttachments)
-          ? existingRequest.designResultAttachments
-          : []
+      setDesignResultLineInputs(
+        toDesignOfferLineInputs(
+          normalizeProducts(existingRequest),
+          Array.isArray(existingRequest.designResultAttachments) ? existingRequest.designResultAttachments : []
+        )
       );
+      setDesignResultLineErrors([]);
     }
   }, [
     existingRequest?.id,
+    existingRequest?.products,
     existingRequest?.designResultBomFolderLink,
     existingRequest?.designResultComments,
     existingRequest?.designResultAttachments,
     designResultDirty,
   ]);
+
+  const handleDesignResultLineInputChange = (
+    index: number,
+    patch: Partial<DesignOfferLineInput>
+  ) => {
+    setDesignResultLineInputs((prev) =>
+      prev.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line))
+    );
+    setDesignResultLineErrors((prev) =>
+      prev.map((lineError, lineIndex) =>
+        lineIndex === index
+          ? {
+              offerProductName:
+                Object.prototype.hasOwnProperty.call(patch, 'offerProductName') ? '' : lineError.offerProductName,
+              offerProductPartNumber:
+                Object.prototype.hasOwnProperty.call(patch, 'offerProductPartNumber') ? '' : lineError.offerProductPartNumber,
+            }
+          : lineError
+      )
+    );
+    setDesignResultDirty(true);
+  };
+
+  const handleDesignResultLineAttachmentsChange = (index: number, attachments: Attachment[]) => {
+    setDesignResultLineInputs((prev) =>
+      prev.map((line, lineIndex) =>
+        lineIndex === index
+          ? { ...line, designResultAttachments: dedupeAttachmentsById(Array.isArray(attachments) ? attachments : []) }
+          : line
+      )
+    );
+    setDesignResultDirty(true);
+  };
 
   // Determine form mode
   const mode: FormMode = useMemo(() => {
@@ -468,6 +588,11 @@ const RequestForm: React.FC = () => {
   const isAdminEdit = user?.role === 'admin' && isEditMode;
   const isDesignRole = user?.role === 'design';
   const isSalesRole = user?.role === 'sales';
+  const isSalesOwner = Boolean(
+    isSalesRole &&
+      existingRequest &&
+      String(existingRequest.createdBy ?? '').trim() === String(user?.id ?? '').trim()
+  );
   const [isMyActionsOpen, setIsMyActionsOpen] = useState(false);
   const [isClientOfferOpen, setIsClientOfferOpen] = useState(false);
   const [myActionsResult, setMyActionsResult] = useState<null | {
@@ -1401,11 +1526,11 @@ const RequestForm: React.FC = () => {
   const salesStatuses = ['costing_complete', 'sales_followup', 'gm_approval_pending', 'gm_approved', 'gm_rejected'];
   const showSalesPanel = existingRequest
     ? salesStatuses.includes(existingRequest.status) &&
-      (existingRequest.status !== 'costing_complete' || isSalesRole || isAdminEdit)
+      (existingRequest.status !== 'costing_complete' || isAdminEdit || (isSalesRole && isSalesOwner))
     : false;
   const canEditSalesPanel = Boolean(
     existingRequest && (
-      (isSalesRole &&
+      ((isSalesRole && isSalesOwner) &&
         salesStatuses.includes(existingRequest.status) &&
         existingRequest.status !== 'gm_approved') ||
       isAdminEdit
@@ -1428,6 +1553,12 @@ const RequestForm: React.FC = () => {
     existingRequest &&
       ((existingRequest.designResultBomFolderLink ?? '').trim().length > 0 ||
         (existingRequest.designResultComments ?? '').trim().length > 0 ||
+        normalizeProducts(existingRequest).some(
+          (product) =>
+            String(product.offerProductName ?? '').trim().length > 0 ||
+            String(product.offerProductPartNumber ?? '').trim().length > 0 ||
+            (Array.isArray(product.designResultAttachments) && product.designResultAttachments.length > 0)
+        ) ||
         (Array.isArray(existingRequest.designResultAttachments) && existingRequest.designResultAttachments.length > 0))
   );
   const showDesignSummary = Boolean(existingRequest && hasDesignInfo);
@@ -1471,10 +1602,16 @@ const RequestForm: React.FC = () => {
         (existingRequest.salesIncoterm ?? '').trim().length > 0 ||
         (Array.isArray(existingRequest.salesAttachments) && existingRequest.salesAttachments.length > 0))
   );
-  const canReopenSalesEdits = Boolean(user?.role === 'sales' && isSalesSubmitted && hasSalesInfo);
+  const canReopenSalesEdits = Boolean(isSalesRole && isSalesOwner && isSalesSubmitted && hasSalesInfo);
+  const showSalesOwnerOnlyHint = Boolean(
+    isSalesRole &&
+      existingRequest &&
+      salesStatuses.includes(existingRequest.status) &&
+      !isSalesOwner
+  );
   const hasMyActions = Boolean(
     existingRequest && (
-      (user?.role === 'sales' && (showClarificationPanel || showSalesPanel || canReopenSalesEdits)) ||
+      (isSalesRole && (showClarificationPanel || showSalesPanel || canReopenSalesEdits || showSalesOwnerOnlyHint)) ||
       (user?.role === 'design' && (showDesignPanel || canEditDesignResult || canReopenDesignEdits)) ||
       (user?.role === 'costing' && (showCostingPanel || canReopenCostingEdits)) ||
       (user?.role === 'admin')
@@ -1608,6 +1745,14 @@ const RequestForm: React.FC = () => {
     }
 
     if (user?.role === 'sales') {
+      if (showSalesOwnerOnlyHint) {
+        return (
+          <div className="rounded-lg border border-border bg-muted/20 p-4">
+            <p className="text-sm text-muted-foreground">{t.request.salesOwnerOnlyAction}</p>
+          </div>
+        );
+      }
+
       if (showClarificationPanel) {
         return (
           <ClarificationPanel
@@ -1642,7 +1787,7 @@ const RequestForm: React.FC = () => {
               <SalesFollowupPanel
                 request={existingRequest}
                 onUpdateStatus={async (status, comment) => {
-                  const ok = await handleSalesStatusUpdate(status, comment);
+                  const ok = await handleSalesStatusUpdate(status, comment, { throwOnError: true });
                   if (!ok) return;
                   if (['gm_approval_pending', 'gm_approved', 'gm_rejected', 'cancelled', 'closed'].includes(status)) {
                     markMyActionComplete(status);
@@ -1692,7 +1837,7 @@ const RequestForm: React.FC = () => {
           <SalesFollowupPanel
             request={existingRequest}
             onUpdateStatus={async (status, comment) => {
-              const ok = await handleSalesStatusUpdate(status, comment);
+              const ok = await handleSalesStatusUpdate(status, comment, { throwOnError: true });
               if (!ok) return;
               if (['gm_approval_pending', 'gm_approved', 'gm_rejected', 'cancelled', 'closed'].includes(status)) {
                 markMyActionComplete(status);
@@ -1755,7 +1900,8 @@ const RequestForm: React.FC = () => {
               <DesignResultSection
                 bomFolderLink={designResultBomFolderLink}
                 comments={designResultComments}
-                attachments={designResultAttachments}
+                productLineFields={designResultLineInputs}
+                productLineErrors={designResultLineErrors}
                 onBomFolderLinkChange={(value) => {
                   setDesignResultBomFolderLink(value);
                   setDesignResultDirty(true);
@@ -1764,10 +1910,8 @@ const RequestForm: React.FC = () => {
                   setDesignResultComments(value);
                   setDesignResultDirty(true);
                 }}
-                onAttachmentsChange={(files) => {
-                  setDesignResultAttachments(files);
-                  setDesignResultDirty(true);
-                }}
+                onProductLineFieldChange={handleDesignResultLineInputChange}
+                onProductLineAttachmentsChange={handleDesignResultLineAttachmentsChange}
                 isReadOnly={false}
                 showEmptyState={true}
                 showRequiredMarker={true}
@@ -1778,7 +1922,7 @@ const RequestForm: React.FC = () => {
                   await handleDesignResultEditSave({
                     bomFolderLink: designResultBomFolderLink,
                     comments: designResultComments,
-                    attachments: designResultAttachments,
+                    lineInputs: designResultLineInputs,
                   });
                 }}
                 disabled={isUpdating}
@@ -1854,11 +1998,10 @@ const RequestForm: React.FC = () => {
                 <DesignResultSection
                   bomFolderLink={canEditDesignResult ? designResultBomFolderLink : (existingRequest.designResultBomFolderLink ?? '')}
                   comments={canEditDesignResult ? designResultComments : (existingRequest.designResultComments ?? '')}
-                  attachments={canEditDesignResult
-                    ? designResultAttachments
-                    : Array.isArray(existingRequest.designResultAttachments)
-                      ? existingRequest.designResultAttachments
-                      : []}
+                  productLineFields={canEditDesignResult
+                    ? designResultLineInputs
+                    : toDesignOfferLineInputs(normalizeProducts(existingRequest))}
+                  productLineErrors={canEditDesignResult ? designResultLineErrors : []}
                   onBomFolderLinkChange={canEditDesignResult ? (value) => {
                     setDesignResultBomFolderLink(value);
                     setDesignResultDirty(true);
@@ -1867,10 +2010,8 @@ const RequestForm: React.FC = () => {
                     setDesignResultComments(value);
                     setDesignResultDirty(true);
                   } : undefined}
-                  onAttachmentsChange={canEditDesignResult ? (files) => {
-                    setDesignResultAttachments(files);
-                    setDesignResultDirty(true);
-                  } : undefined}
+                  onProductLineFieldChange={canEditDesignResult ? handleDesignResultLineInputChange : undefined}
+                  onProductLineAttachmentsChange={canEditDesignResult ? handleDesignResultLineAttachmentsChange : undefined}
                   isReadOnly={!canEditDesignResult}
                   showEmptyState={true}
                   showRequiredMarker={canEditDesignResult}
@@ -1881,7 +2022,7 @@ const RequestForm: React.FC = () => {
                       const ok = await handleDesignResultSave({
                         bomFolderLink: designResultBomFolderLink,
                         comments: designResultComments,
-                        attachments: designResultAttachments,
+                        lineInputs: designResultLineInputs,
                       });
                       if (ok) {
                         markMyActionComplete('design_result');
@@ -1993,9 +2134,25 @@ const RequestForm: React.FC = () => {
     const statusLabel = lastDesignEntry
       ? (t.statuses[lastDesignEntry.status as keyof typeof t.statuses] || lastDesignEntry.status)
       : '';
-    const designAttachments = Array.isArray(existingRequest.designResultAttachments)
+    const designProducts = normalizeProducts(existingRequest);
+    const legacyDesignAttachments = Array.isArray(existingRequest.designResultAttachments)
       ? existingRequest.designResultAttachments
       : [];
+    const hasPerProductDesignAttachments = designProducts.some(
+      (product) => Array.isArray(product.designResultAttachments) && product.designResultAttachments.length > 0
+    );
+    const designAttachmentGroups = designProducts
+      .map((product, index) => ({
+        index,
+        attachments: Array.isArray(product.designResultAttachments) ? product.designResultAttachments : [],
+      }))
+      .filter((entry) => entry.attachments.length > 0);
+    if (!hasPerProductDesignAttachments && legacyDesignAttachments.length > 0 && designProducts.length > 0) {
+      designAttachmentGroups.push({
+        index: 0,
+        attachments: dedupeAttachmentsById(legacyDesignAttachments),
+      });
+    }
     const hasReviewNotes = Boolean(
       existingRequest.clarificationComment ||
         existingRequest.acceptanceMessage ||
@@ -2026,6 +2183,27 @@ const RequestForm: React.FC = () => {
               <span className="text-muted-foreground">{t.panels.designResultComments}:</span>{' '}
               {existingRequest.designResultComments}
             </p>
+          )}
+          {designProducts.some(
+            (product) =>
+              String(product.offerProductName ?? '').trim().length > 0 ||
+              String(product.offerProductPartNumber ?? '').trim().length > 0
+          ) && (
+            <div className="space-y-1.5">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">{t.panels.designResultProductFields}</p>
+              {designProducts.map((product, index) => (
+                <div key={`design-summary-product-${index}`} className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
+                  <p className="text-foreground">
+                    <span className="text-muted-foreground">#{index + 1} {t.clientOffer.productName}:</span>{' '}
+                    {String(product.offerProductName ?? '').trim() || '-'}
+                  </p>
+                  <p className="text-foreground">
+                    <span className="text-muted-foreground">{t.clientOffer.productNumber}:</span>{' '}
+                    {String(product.offerProductPartNumber ?? '').trim() || '-'}
+                  </p>
+                </div>
+              ))}
+            </div>
           )}
           {(existingRequest.designResultBomFolderLink ?? '').trim() ? (
             <p className="text-sm text-foreground">
@@ -2065,36 +2243,43 @@ const RequestForm: React.FC = () => {
           </div>
         )}
 
-        {designAttachments.length > 0 && (
+        {designAttachmentGroups.length > 0 && (
           <div className="space-y-2">
             <p className="text-sm font-medium text-foreground">{t.panels.designResultUploads}</p>
-            {designAttachments.map((attachment) => (
-              <div
-                key={attachment.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2"
-              >
-                <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <File size={16} className="text-primary" />
-                  <span className="text-sm truncate">{attachment.filename}</span>
-                </div>
-                <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => openDesignPreview(attachment)}
-                      className="rounded p-1.5 text-primary hover:bg-primary/20"
-                      title={t.table.view}
-                    >
-                      <Eye size={14} />
-                    </button>
-                    <a
-                      href={getAttachmentPreviewUrl(attachment) || attachment.url}
-                      download={attachment.filename}
-                      className="rounded p-1.5 text-primary hover:bg-primary/20"
-                      title={t.request.downloadFile}
-                    >
-                      <Download size={14} />
-                  </a>
-                </div>
+            {designAttachmentGroups.map((group) => (
+              <div key={`design-summary-group-${group.index}`} className="space-y-1.5">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  {t.clientOffer.item} #{group.index + 1}
+                </p>
+                {group.attachments.map((attachment) => (
+                  <div
+                    key={`${group.index}-${attachment.id}`}
+                    className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <File size={16} className="text-primary" />
+                      <span className="text-sm truncate">{attachment.filename}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openDesignPreview(attachment)}
+                        className="rounded p-1.5 text-primary hover:bg-primary/20"
+                        title={t.table.view}
+                      >
+                        <Eye size={14} />
+                      </button>
+                      <a
+                        href={getAttachmentPreviewUrl(attachment) || attachment.url}
+                        download={attachment.filename}
+                        className="rounded p-1.5 text-primary hover:bg-primary/20"
+                        title={t.request.downloadFile}
+                      >
+                        <Download size={14} />
+                      </a>
+                    </div>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -2103,7 +2288,11 @@ const RequestForm: React.FC = () => {
     );
   };
 
-  const handleDesignResultSave = async (payload: { bomFolderLink: string; comments: string; attachments: Attachment[] }) => {
+  const handleDesignResultSave = async (payload: {
+    bomFolderLink: string;
+    comments: string;
+    lineInputs: DesignOfferLineInput[];
+  }) => {
     if (!existingRequest) return false;
     if (!payload.bomFolderLink.trim()) {
       toast({
@@ -2113,15 +2302,37 @@ const RequestForm: React.FC = () => {
       });
       return false;
     }
+    const lineErrors = buildDesignOfferLineErrors(payload.lineInputs);
+    const missingLineNumbers = lineErrors
+      .map((line, index) =>
+        line.offerProductName || line.offerProductPartNumber ? index + 1 : null
+      )
+      .filter((lineNumber): lineNumber is number => lineNumber !== null);
+    if (missingLineNumbers.length > 0) {
+      setDesignResultLineErrors(lineErrors);
+      toast({
+        title: t.request.validationError,
+        description: String(t.request.designResultProductFieldsRequired)
+          .replace('{items}', missingLineNumbers.join(', ')),
+        variant: 'destructive',
+      });
+      return false;
+    }
+    const mergedProducts = mergeDesignOfferLineInputs(
+      normalizeProducts(existingRequest),
+      payload.lineInputs
+    );
     setIsUpdating(true);
     try {
       await updateRequest(existingRequest.id, {
+        products: mergedProducts,
         designResultBomFolderLink: payload.bomFolderLink,
         designResultComments: payload.comments,
-        designResultAttachments: payload.attachments,
+        designResultAttachments: [],
       });
       await updateStatus(existingRequest.id, 'design_result');
       setDesignResultDirty(false);
+      setDesignResultLineErrors([]);
       setIsDesignPanelCollapsed(true);
       toast({
         title: t.request.statusUpdated,
@@ -2140,14 +2351,23 @@ const RequestForm: React.FC = () => {
     }
   };
 
-  const handleDesignResultEditSave = async (payload: { bomFolderLink: string; comments: string; attachments: Attachment[] }) => {
+  const handleDesignResultEditSave = async (payload: {
+    bomFolderLink: string;
+    comments: string;
+    lineInputs: DesignOfferLineInput[];
+  }) => {
     if (!existingRequest) return false;
+    const mergedProducts = mergeDesignOfferLineInputs(
+      normalizeProducts(existingRequest),
+      payload.lineInputs
+    );
     setIsUpdating(true);
     try {
       await updateRequest(existingRequest.id, {
+        products: mergedProducts,
         designResultBomFolderLink: payload.bomFolderLink,
         designResultComments: payload.comments,
-        designResultAttachments: payload.attachments,
+        designResultAttachments: [],
         historyEvent: 'edited',
       });
       await notifyRequest(existingRequest.id, {
@@ -2156,6 +2376,7 @@ const RequestForm: React.FC = () => {
         comment: t.request.editNotifyCommentDesign,
       });
       setDesignResultDirty(false);
+      setDesignResultLineErrors([]);
       setMyActionsEditMode((prev) => ({ ...prev, design: false }));
       markMyActionEdited(existingRequest.status);
       toast({
@@ -2271,7 +2492,19 @@ const RequestForm: React.FC = () => {
     }
   };
 
-  const handleSalesStatusUpdate = async (status: RequestStatus, comment?: string) => {
+  const extractErrorDetail = (error: unknown) => {
+    if (!(error instanceof Error) || !error.message) return '';
+    const marker = ': ';
+    const markerIndex = error.message.indexOf(marker);
+    if (markerIndex === -1) return error.message.trim();
+    return error.message.slice(markerIndex + marker.length).trim();
+  };
+
+  const handleSalesStatusUpdate = async (
+    status: RequestStatus,
+    comment?: string,
+    options?: { throwOnError?: boolean }
+  ) => {
     if (!existingRequest) return false;
 
     setIsUpdating(true);
@@ -2287,11 +2520,23 @@ const RequestForm: React.FC = () => {
       });
       return true;
     } catch (error) {
+      const detail = extractErrorDetail(error);
+      const isOwnerRestriction =
+        detail.includes('You can only process your own requests in Sales Follow-up') ||
+        detail.includes('You can only edit your own requests');
+      const errorDescription = isOwnerRestriction
+        ? t.request.salesProcessOwnOnlyError
+        : (detail
+            ? t.request.salesSubmitFailedDetailed.replace('{reason}', detail)
+            : t.request.failedSubmit);
       toast({
         title: t.request.error,
-        description: t.request.failedSubmit,
+        description: errorDescription,
         variant: 'destructive',
       });
+      if (options?.throwOnError) {
+        throw new Error(errorDescription);
+      }
       return false;
     } finally {
       setIsUpdating(false);
@@ -2861,11 +3106,10 @@ const RequestForm: React.FC = () => {
                     <DesignResultSection
                       bomFolderLink={canEditDesignResult ? designResultBomFolderLink : (existingRequest.designResultBomFolderLink ?? '')}
                       comments={canEditDesignResult ? designResultComments : (existingRequest.designResultComments ?? '')}
-                      attachments={canEditDesignResult
-                        ? designResultAttachments
-                        : Array.isArray(existingRequest.designResultAttachments)
-                          ? existingRequest.designResultAttachments
-                          : []}
+                      productLineFields={canEditDesignResult
+                        ? designResultLineInputs
+                        : toDesignOfferLineInputs(normalizeProducts(existingRequest))}
+                      productLineErrors={canEditDesignResult ? designResultLineErrors : []}
                       onBomFolderLinkChange={canEditDesignResult ? (value) => {
                         setDesignResultBomFolderLink(value);
                         setDesignResultDirty(true);
@@ -2874,10 +3118,8 @@ const RequestForm: React.FC = () => {
                         setDesignResultComments(value);
                         setDesignResultDirty(true);
                       } : undefined}
-                      onAttachmentsChange={canEditDesignResult ? (files) => {
-                        setDesignResultAttachments(files);
-                        setDesignResultDirty(true);
-                      } : undefined}
+                      onProductLineFieldChange={canEditDesignResult ? handleDesignResultLineInputChange : undefined}
+                      onProductLineAttachmentsChange={canEditDesignResult ? handleDesignResultLineAttachmentsChange : undefined}
                       isReadOnly={!canEditDesignResult}
                       showEmptyState={true}
                       showRequiredMarker={canEditDesignResult}
@@ -2887,7 +3129,7 @@ const RequestForm: React.FC = () => {
                         onClick={() => handleDesignResultSave({
                           bomFolderLink: designResultBomFolderLink,
                           comments: designResultComments,
-                          attachments: designResultAttachments,
+                          lineInputs: designResultLineInputs,
                         })}
                         disabled={isUpdating}
                         className={
@@ -2930,9 +3172,7 @@ const RequestForm: React.FC = () => {
                 <DesignResultSection
                   bomFolderLink={existingRequest.designResultBomFolderLink ?? ''}
                   comments={existingRequest.designResultComments ?? ''}
-                  attachments={Array.isArray(existingRequest.designResultAttachments)
-                    ? existingRequest.designResultAttachments
-                    : []}
+                  productLineFields={toDesignOfferLineInputs(normalizeProducts(existingRequest))}
                   isReadOnly={true}
                   showEmptyState={true}
                 />
@@ -2956,7 +3196,9 @@ const RequestForm: React.FC = () => {
           {existingRequest && showSalesPanel && (
             <SalesFollowupPanel
               request={existingRequest}
-              onUpdateStatus={handleSalesStatusUpdate}
+              onUpdateStatus={async (status, comment) =>
+                handleSalesStatusUpdate(status, comment, { throwOnError: true })
+              }
               onUpdateSalesData={async (data) => {
                 await updateRequest(existingRequest.id, data);
               }}

@@ -219,6 +219,22 @@ const StepTile: React.FC<{
 
 const RequestProcessSummary: React.FC<Props> = ({ request }) => {
   const { t, translateOption } = useLanguage();
+  const products = Array.isArray(request.products) ? request.products : [];
+  const perProductDesignAttachmentGroups = products
+    .map((product, index) => ({
+      index,
+      attachments: Array.isArray((product as any)?.designResultAttachments)
+        ? (product as any).designResultAttachments
+        : [],
+    }))
+    .filter((group) => group.attachments.length > 0);
+  const legacyDesignAttachments = Array.isArray(request.designResultAttachments) ? request.designResultAttachments : [];
+  const designAttachmentGroups =
+    perProductDesignAttachmentGroups.length > 0
+      ? perProductDesignAttachmentGroups
+      : legacyDesignAttachments.length > 0
+        ? [{ index: 0, attachments: legacyDesignAttachments }]
+        : [];
 
   // Step-based, cumulative visibility rules:
   // - Once a step is reached/completed, it stays visible for all later steps.
@@ -232,7 +248,7 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
       (request.acceptanceMessage ?? "").trim() ||
       (request.designResultBomFolderLink ?? "").trim() ||
       (request.designResultComments ?? "").trim() ||
-      (Array.isArray(request.designResultAttachments) && request.designResultAttachments.length > 0)
+      designAttachmentGroups.length > 0
   );
   const hasCostingData = Boolean(
     (request.costingNotes ?? "").trim() ||
@@ -300,7 +316,6 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
   const showSales = reachedSales;
   const showGm = reachedGm;
 
-  const designAttachments = Array.isArray(request.designResultAttachments) ? request.designResultAttachments : [];
   const costingAttachments = Array.isArray(request.costingAttachments) ? request.costingAttachments : [];
   const salesAttachments = Array.isArray(request.salesAttachments) ? request.salesAttachments : [];
 
@@ -382,7 +397,19 @@ const RequestProcessSummary: React.FC<Props> = ({ request }) => {
             />
           </StepTile>
           <div className="mt-4">
-            <AttachmentList title={t.panels.designResultUploads} attachments={designAttachments} />
+            <div className="space-y-3">
+              {designAttachmentGroups.length === 0 ? (
+                <AttachmentList title={t.panels.designResultUploads} attachments={[]} />
+              ) : (
+                designAttachmentGroups.map((group) => (
+                  <AttachmentList
+                    key={`design-process-group-${group.index}`}
+                    title={`${t.panels.designResultUploads} - ${t.clientOffer.item} #${group.index + 1}`}
+                    attachments={group.attachments}
+                  />
+                ))
+              )}
+            </div>
           </div>
         </Card>
       )}

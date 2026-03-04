@@ -108,6 +108,11 @@ const normalizeProducts = (r: CustomerRequest): RequestProduct[] => {
       cupLogo: r.cupLogo ?? "",
       suspension: r.suspension ?? "",
       productComments: typeof r.otherRequirements === "string" ? r.otherRequirements : "",
+      offerProductName: typeof (r as any).offerProductName === "string" ? (r as any).offerProductName : "",
+      offerProductPartNumber: typeof (r as any).offerProductPartNumber === "string" ? (r as any).offerProductPartNumber : "",
+      designResultAttachments: Array.isArray((r as any).designResultAttachments)
+        ? (r as any).designResultAttachments
+        : [],
       attachments: Array.isArray(r.attachments) ? r.attachments : [],
     } as RequestProduct,
   ];

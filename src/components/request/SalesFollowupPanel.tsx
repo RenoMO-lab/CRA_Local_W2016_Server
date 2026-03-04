@@ -57,6 +57,100 @@ const PAYMENT_NAME_BY_PRESET: Record<Exclude<PaymentNamePreset, '' | 'other'>, s
   after_delivery: 'Payment After Delivery',
 };
 
+const parseFiniteNumber = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+};
+
+const isBlankValue = (value: unknown) =>
+  value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+
+const isIsoDate = (value: unknown) => {
+  const raw = String(value ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+  const [yearStr, monthStr, dayStr] = raw.split('-');
+  const year = Number.parseInt(yearStr, 10);
+  const month = Number.parseInt(monthStr, 10);
+  const day = Number.parseInt(dayStr, 10);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+  const dt = new Date(Date.UTC(year, month - 1, day));
+  return dt.getUTCFullYear() === year && dt.getUTCMonth() === month - 1 && dt.getUTCDate() === day;
+};
+
+const normalizeCurrency = (value: unknown): 'USD' | 'EUR' | 'RMB' => {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  return normalized === 'USD' || normalized === 'EUR' || normalized === 'RMB' ? normalized : 'EUR';
+};
+
+const resolveInitialSalesValues = (request: CustomerRequest) => {
+  const DEFAULT_SALES_WARRANTY_PERIOD = '12';
+  const DEFAULT_SALES_OFFER_VALIDITY = '30 days';
+  const hasSalesCommercialData =
+    parseFiniteNumber(request.salesFinalPrice) !== null ||
+    parseFiniteNumber(request.salesMargin) !== null ||
+    String(request.salesIncoterm ?? '').trim() !== '' ||
+    parseFiniteNumber(request.salesVatRate) !== null ||
+    String(request.salesExpectedDeliveryDate ?? '').trim() !== '';
+
+  const resolvedSalesFinalPrice = !isBlankValue(request.salesFinalPrice)
+    ? parseFiniteNumber(request.salesFinalPrice)
+    : parseFiniteNumber(request.sellingPrice);
+  const salesCurrencyBlankForFallback =
+    isBlankValue(request.salesCurrency) || (!hasSalesCommercialData && normalizeCurrency(request.salesCurrency) === 'EUR');
+  const resolvedSalesCurrency = salesCurrencyBlankForFallback
+    ? normalizeCurrency(request.sellingCurrency)
+    : normalizeCurrency(request.salesCurrency);
+  const resolvedSalesIncoterm = String(
+    isBlankValue(request.salesIncoterm) ? (request.incoterm || '') : request.salesIncoterm
+  );
+  const resolvedSalesIncotermOther =
+    resolvedSalesIncoterm.toLowerCase() === 'other'
+      ? String(isBlankValue(request.salesIncotermOther) ? (request.incotermOther || '') : request.salesIncotermOther)
+      : String(request.salesIncotermOther ?? '');
+  const sourceVatMode = String(request.vatMode ?? '').trim().toLowerCase();
+  const salesVatModeBlankForFallback =
+    isBlankValue(request.salesVatMode) ||
+    (!hasSalesCommercialData &&
+      String(request.salesVatMode ?? '').trim().toLowerCase() === 'without' &&
+      sourceVatMode === 'with');
+  const resolvedSalesVatMode = String(
+    salesVatModeBlankForFallback
+      ? (sourceVatMode === 'with' ? 'with' : sourceVatMode === 'without' ? 'without' : 'without')
+      : request.salesVatMode
+  ) as 'with' | 'without';
+  const resolvedSalesVatRate = resolvedSalesVatMode === 'with'
+    ? (!isBlankValue(request.salesVatRate)
+        ? parseFiniteNumber(request.salesVatRate)
+        : parseFiniteNumber(request.vatRate))
+    : null;
+  const resolvedSalesMargin = !isBlankValue(request.salesMargin)
+    ? parseFiniteNumber(request.salesMargin)
+    : parseFiniteNumber(request.calculatedMargin);
+  const resolvedSalesExpectedDeliveryDate = !isBlankValue(request.salesExpectedDeliveryDate)
+    ? String(request.salesExpectedDeliveryDate ?? '')
+    : (isIsoDate(request.deliveryLeadtime) ? String(request.deliveryLeadtime ?? '') : '');
+  const resolvedSalesWarrantyPeriod = String(request.salesWarrantyPeriod ?? '').trim() || DEFAULT_SALES_WARRANTY_PERIOD;
+  const resolvedSalesOfferValidityPeriod =
+    String(request.salesOfferValidityPeriod ?? '').trim() || DEFAULT_SALES_OFFER_VALIDITY;
+
+  return {
+    salesFinalPrice: resolvedSalesFinalPrice !== null ? resolvedSalesFinalPrice.toString() : '',
+    salesCurrency: resolvedSalesCurrency,
+    salesIncoterm: resolvedSalesIncoterm,
+    salesIncotermOther: resolvedSalesIncotermOther,
+    salesVatMode: resolvedSalesVatMode,
+    salesVatRate: resolvedSalesVatRate !== null ? resolvedSalesVatRate.toString() : '',
+    salesMargin: resolvedSalesMargin !== null ? resolvedSalesMargin.toString() : '',
+    salesWarrantyPeriod: resolvedSalesWarrantyPeriod,
+    salesOfferValidityPeriod: resolvedSalesOfferValidityPeriod,
+    salesExpectedDeliveryDate: resolvedSalesExpectedDeliveryDate,
+  };
+};
+
 const inferPaymentNamePreset = (
   value: string | undefined
 ): Pick<SalesPaymentTermEditor, 'paymentNamePreset' | 'paymentNameOther'> => {
@@ -140,33 +234,34 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   editMode = false,
 }) => {
   const { t } = useLanguage();
+  const initialSalesValues = resolveInitialSalesValues(request);
   const initialPaymentTermState = normalizePaymentTermsForEditor(
     Array.isArray(request.salesPaymentTerms) ? request.salesPaymentTerms : [],
     request.salesPaymentTermCount
   );
   const [salesFinalPrice, setSalesFinalPrice] = useState<string>(
-    request.salesFinalPrice?.toString() || ''
+    initialSalesValues.salesFinalPrice
   );
   const [salesCurrency, setSalesCurrency] = useState<'USD' | 'EUR' | 'RMB'>(
-    request.salesCurrency || 'EUR'
+    initialSalesValues.salesCurrency
   );
-  const [salesIncoterm, setSalesIncoterm] = useState<string>(request.salesIncoterm || '');
-  const [salesIncotermOther, setSalesIncotermOther] = useState<string>(request.salesIncotermOther || '');
-  const [salesVatMode, setSalesVatMode] = useState<'with' | 'without'>(request.salesVatMode || 'without');
+  const [salesIncoterm, setSalesIncoterm] = useState<string>(initialSalesValues.salesIncoterm);
+  const [salesIncotermOther, setSalesIncotermOther] = useState<string>(initialSalesValues.salesIncotermOther);
+  const [salesVatMode, setSalesVatMode] = useState<'with' | 'without'>(initialSalesValues.salesVatMode);
   const [salesVatRate, setSalesVatRate] = useState<string>(
-    typeof request.salesVatRate === 'number' ? request.salesVatRate.toString() : ''
+    initialSalesValues.salesVatRate
   );
   const [salesMargin, setSalesMargin] = useState<string>(
-    typeof request.salesMargin === 'number' ? request.salesMargin.toString() : ''
+    initialSalesValues.salesMargin
   );
   const [salesWarrantyPeriod, setSalesWarrantyPeriod] = useState<string>(
-    request.salesWarrantyPeriod || ''
+    initialSalesValues.salesWarrantyPeriod
   );
   const [salesOfferValidityPeriod, setSalesOfferValidityPeriod] = useState<string>(
-    request.salesOfferValidityPeriod || ''
+    initialSalesValues.salesOfferValidityPeriod
   );
   const [salesExpectedDeliveryDate, setSalesExpectedDeliveryDate] = useState<string>(
-    request.salesExpectedDeliveryDate || ''
+    initialSalesValues.salesExpectedDeliveryDate
   );
   const [salesPaymentTermCount, setSalesPaymentTermCount] = useState<number>(initialPaymentTermState.count);
   const [salesPaymentTerms, setSalesPaymentTerms] = useState<SalesPaymentTermEditor[]>(
@@ -176,6 +271,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
     request.salesFeedbackComment || ''
   );
   const [resubmitCommentError, setResubmitCommentError] = useState<string | null>(null);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [salesAttachments, setSalesAttachments] = useState<Attachment[]>(
     Array.isArray(request.salesAttachments) ? request.salesAttachments : []
   );
@@ -493,8 +589,46 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
   };
 
   const handleSubmitForApproval = async () => {
+    setSubmissionError(null);
     const payload = buildSalesPayload(true);
-    if (!payload) return;
+    if (!payload) {
+      setSubmissionError(`${t.panels.salesFinalPrice} ${t.common.required}`);
+      return;
+    }
+
+    const localVatRate = parseOptionalNumber(salesVatRate);
+    if (salesVatMode === 'with' && localVatRate === null) {
+      setSubmissionError(t.panels.enterVatRate);
+      return;
+    }
+
+    const localMargin = parseOptionalNumber(salesMargin);
+    if (localMargin === null) {
+      setSubmissionError(t.panels.enterSalesMargin);
+      return;
+    }
+
+    if (salesExpectedDeliveryDate.trim().length === 0) {
+      setSubmissionError(`${t.panels.salesExpectedDeliveryDate} ${t.common.required}`);
+      return;
+    }
+
+    const localTerms = getActivePaymentTerms();
+    const localTermsComplete = localTerms.every(
+      (term) =>
+        term.paymentName.trim().length > 0 &&
+        term.paymentPercent !== null &&
+        (term.paymentNamePreset !== 'other' || term.paymentNameOther.trim().length > 0)
+    );
+    if (!localTermsComplete) {
+      setSubmissionError(t.panels.paymentTermsRequired);
+      return;
+    }
+    const localPaymentTotal = localTerms.reduce((sum, term) => sum + (term.paymentPercent ?? 0), 0);
+    if (Math.abs(localPaymentTotal - 100) >= 0.01) {
+      setSubmissionError(t.panels.paymentTermsTotalInvalid);
+      return;
+    }
 
     const wasRejectedByGm = (request.history ?? []).some((entry) => entry.status === 'gm_rejected');
     if (wasRejectedByGm && salesFeedbackComment.trim().length === 0) {
@@ -503,11 +637,19 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
     }
     setResubmitCommentError(null);
 
-    await onUpdateSalesData(payload);
-    await onUpdateStatus(
-      'gm_approval_pending',
-      salesFeedbackComment?.trim() ? salesFeedbackComment.trim() : undefined
-    );
+    try {
+      await onUpdateSalesData(payload);
+      await onUpdateStatus(
+        'gm_approval_pending',
+        salesFeedbackComment?.trim() ? salesFeedbackComment.trim() : undefined
+      );
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : '';
+      const detail = rawMessage.includes(': ')
+        ? rawMessage.slice(rawMessage.indexOf(': ') + 2).trim()
+        : rawMessage.trim();
+      setSubmissionError(detail || t.request.failedSubmit);
+    }
   };
 
   const handleApproveDeal = () => {
@@ -980,9 +1122,10 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
                 size="sm"
               >
                 {isUpdating && <Loader2 size={14} className="mr-2 animate-spin" />}
-                {t.panels.saveNotes}
+              {t.panels.saveNotes}
               </Button>
             )}
+            {submissionError && <p className="text-xs text-destructive">{submissionError}</p>}
           </div>
 
           {editMode ? (
@@ -998,7 +1141,7 @@ const SalesFollowupPanel: React.FC<SalesFollowupPanelProps> = ({
           ) : (
             <Button
               onClick={handleSubmitForApproval}
-              disabled={!isValidSubmission || isUpdating || !canSubmitForApproval}
+              disabled={isUpdating || !canSubmitForApproval}
               className="w-full bg-info hover:bg-info/90 text-info-foreground"
             >
               {isUpdating && <Loader2 size={16} className="mr-2 animate-spin" />}

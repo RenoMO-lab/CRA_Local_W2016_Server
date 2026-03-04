@@ -189,6 +189,9 @@ const formatStudsPcdSelection = (selection: string): string => {
   cupLogo: request.cupLogo ?? '',
   suspension: request.suspension ?? '',
   productComments: request.otherRequirements ?? '',
+  offerProductName: '',
+  offerProductPartNumber: '',
+  designResultAttachments: Array.isArray(request.designResultAttachments) ? request.designResultAttachments : [],
   attachments: Array.isArray(request.attachments) ? request.attachments : [],
 });
 
@@ -1346,7 +1349,12 @@ export const generateRequestPDF = async (request: CustomerRequest, languageOverr
   }
 
   // Design notes + result card(s).
-  const designAttachments = Array.isArray(request.designResultAttachments) ? request.designResultAttachments : [];
+  const perProductDesignAttachments = products.flatMap((product) =>
+    Array.isArray((product as any)?.designResultAttachments) ? (product as any).designResultAttachments : []
+  );
+  const designAttachments = perProductDesignAttachments.length
+    ? perProductDesignAttachments
+    : (Array.isArray(request.designResultAttachments) ? request.designResultAttachments : []);
   const hasDesignNotes = (request.designNotes ?? "").trim().length > 0;
   const hasDesignResultBomFolderLink = (request.designResultBomFolderLink ?? "").trim().length > 0;
   const hasDesignResultComments = (request.designResultComments ?? "").trim().length > 0;

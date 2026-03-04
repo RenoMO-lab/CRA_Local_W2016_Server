@@ -60,6 +60,7 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
   forceEnableActions = false,
   editMode = false,
 }) => {
+  const DEFAULT_VAT_RATE = '13';
   const [costingNotes, setCostingNotes] = useState(request.costingNotes || '');
   const [sellingPrice, setSellingPrice] = useState<string>(
     request.sellingPrice?.toString() || ''
@@ -74,7 +75,9 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
   const [incotermOther, setIncotermOther] = useState<string>(request.incotermOther || '');
   const [vatMode, setVatMode] = useState<'with' | 'without'>(request.vatMode || 'without');
   const [vatRate, setVatRate] = useState<string>(
-    typeof request.vatRate === 'number' ? request.vatRate.toString() : ''
+    typeof request.vatRate === 'number'
+      ? request.vatRate.toString()
+      : (request.vatMode === 'with' ? DEFAULT_VAT_RATE : '')
   );
   const [deliveryLeadtime, setDeliveryLeadtime] = useState<string>(request.deliveryLeadtime || '');
   const [clientAddressDelivery, setClientAddressDelivery] = useState<string>(request.clientAddressDelivery || '');
@@ -139,6 +142,12 @@ const CostingPanel: React.FC<CostingPanelProps> = ({
 
     return url;
   };
+
+  useEffect(() => {
+    if (vatMode === 'with' && vatRate.trim() === '') {
+      setVatRate(DEFAULT_VAT_RATE);
+    }
+  }, [vatMode, vatRate]);
 
   useEffect(() => {
     let objectUrl: string | null = null;

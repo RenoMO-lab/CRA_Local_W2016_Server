@@ -4,7 +4,8 @@ import { Download, FileText, Loader2, Save } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { useToast } from '@/hooks/use-toast';
-import { Language } from '@/i18n/translations';
+import { Language, translations } from '@/i18n/translations';
+import { generateClientOfferPDF } from '@/utils/clientOfferPdf';
 import {
   Attachment,
   AXLE_LOCATIONS,
@@ -123,13 +124,17 @@ const toCanonicalLines = (
 
   return seedLinesFromProducts(request, translateOption).map((line, index) => {
     const saved = existingByKey.get(getLineKey(line, index)) ?? existingByKey.get(`i:${index}`);
+    const defaultOfferDescription = normalizeOfferText(line.offerDescription);
+    const defaultOfferSpecification = normalizeOfferText(line.offerSpecification);
+    const savedOfferDescription = normalizeOfferText(saved?.offerDescription);
+    const savedOfferSpecification = normalizeOfferText(saved?.offerSpecification);
     return {
       ...line,
       include: true,
       quantity: normalizeLineQuantity(line.quantity),
       unitPrice: gmApprovedUnitPrice,
-      offerDescription: normalizeOfferText(saved?.offerDescription),
-      offerSpecification: normalizeOfferText(saved?.offerSpecification),
+      offerDescription: savedOfferDescription.trim() ? savedOfferDescription : defaultOfferDescription,
+      offerSpecification: savedOfferSpecification.trim() ? savedOfferSpecification : defaultOfferSpecification,
       remark: typeof saved?.remark === 'string' ? saved.remark : '',
     };
   });
@@ -219,6 +224,9 @@ const buildLegacyProduct = (request: CustomerRequest): RequestProduct => ({
   cupLogo: request.cupLogo ?? '',
   suspension: request.suspension ?? '',
   productComments: request.otherRequirements ?? '',
+  offerProductName: '',
+  offerProductPartNumber: '',
+  designResultAttachments: Array.isArray(request.designResultAttachments) ? request.designResultAttachments : [],
   attachments: Array.isArray(request.attachments) ? request.attachments : [],
 });
 
@@ -252,8 +260,8 @@ const seedLinesFromProducts = (
       sourceProductIndex: index,
       description: getProductTypeLabel(product, translateOption) || request.applicationVehicle || `Item ${index + 1}`,
       specification: details.join(' | '),
-      offerDescription: '',
-      offerSpecification: '',
+      offerDescription: String((product as any)?.offerProductName ?? '').trim(),
+      offerSpecification: String((product as any)?.offerProductPartNumber ?? '').trim(),
       quantity: typeof product.quantity === 'number' ? product.quantity : null,
       unitPrice: null,
       remark: '',
@@ -276,12 +284,22 @@ const collectRequestAttachments = (request: CustomerRequest): OfferAttachmentOpt
   };
 
   push(request.attachments, 'general');
+  let hasPerProductDesignAttachments = false;
   if (Array.isArray(request.products)) {
     for (const product of request.products) {
       push(product?.attachments, 'technical');
+      const productDesignAttachments = Array.isArray((product as any)?.designResultAttachments)
+        ? (product as any).designResultAttachments
+        : [];
+      if (productDesignAttachments.length > 0) {
+        hasPerProductDesignAttachments = true;
+      }
+      push(productDesignAttachments, 'design');
     }
   }
-  push(request.designResultAttachments, 'design');
+  if (!hasPerProductDesignAttachments) {
+    push(request.designResultAttachments, 'design');
+  }
   push(request.costingAttachments, 'costing');
   push(request.salesAttachments, 'sales');
 
@@ -334,6 +352,17 @@ const resolveOfferIntroTemplate = (
   return candidates.find((entry) => entry.length > 0) ?? '';
 };
 
+const normalizeIntroForCompare = (value: unknown) =>
+  String(value ?? '')
+    .replace(/\r\n/g, '\n')
+    .trim();
+
+const SYSTEM_DEFAULT_INTROS = new Set(
+  (['en', 'fr', 'zh'] as Language[])
+    .map((lang) => normalizeIntroForCompare(translations[lang]?.clientOffer?.defaultIntro ?? ''))
+    .filter(Boolean)
+);
+
 const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
   open,
   onOpenChange,
@@ -364,8 +393,9 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
 
   useEffect(() => {
     if (!open) return;
-    const hasSavedIntro = String(request.clientOfferConfig?.introText ?? '').trim().length > 0;
-    setIsIntroAutoPrefilled(!hasSavedIntro);
+    const savedIntro = normalizeIntroForCompare(request.clientOfferConfig?.introText ?? '');
+    const hasCustomSavedIntro = savedIntro.length > 0 && !SYSTEM_DEFAULT_INTROS.has(savedIntro);
+    setIsIntroAutoPrefilled(!hasCustomSavedIntro);
     setConfig(
       normalizeConfig(
         request,
@@ -389,7 +419,7 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
           throw new Error(data?.error || `Failed to load profile: ${response.status}`);
         }
         if (cancelled) return;
-        setProfile({
+        const nextProfile: ClientOfferProfile = {
           companyNameLocal: String(data?.companyNameLocal ?? ''),
           companyNameEn: String(data?.companyNameEn ?? ''),
           address: String(data?.address ?? ''),
@@ -401,6 +431,15 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
           contactName: String(data?.contactName ?? ''),
           contactComplete: data?.contactComplete === true,
           sourceUserId: String(data?.sourceUserId ?? ''),
+        };
+        setProfile(nextProfile);
+        setConfig((prev) => {
+          if (!prev) return prev;
+          if (!isIntroAutoPrefilled) return prev;
+          const nextIntro = resolveOfferIntroTemplate(nextProfile, pdfLanguage, String(t.clientOffer.defaultIntro));
+          if (!nextIntro) return prev;
+          if (normalizeIntroForCompare(prev.introText) === normalizeIntroForCompare(nextIntro)) return prev;
+          return { ...prev, introText: nextIntro };
         });
       } catch {
         if (cancelled) return;
@@ -420,7 +459,7 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, request.id, t.clientOffer.profileLoadFailed, t.request.error, toast]);
+  }, [open, request.id, pdfLanguage, isIntroAutoPrefilled, t.clientOffer.defaultIntro, t.clientOffer.profileLoadFailed, t.request.error, toast]);
 
   useEffect(() => {
     if (!open || !config || !isIntroAutoPrefilled) return;
@@ -428,7 +467,7 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
     if (!nextIntro) return;
     setConfig((prev) => {
       if (!prev) return prev;
-      if (String(prev.introText ?? '') === nextIntro) return prev;
+      if (normalizeIntroForCompare(prev.introText) === normalizeIntroForCompare(nextIntro)) return prev;
       return { ...prev, introText: nextIntro };
     });
   }, [open, config, isIntroAutoPrefilled, profile, pdfLanguage, t.clientOffer.defaultIntro]);
@@ -515,7 +554,6 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
 
     setIsGenerating(true);
     try {
-      const { generateClientOfferPDF } = await import('@/utils/clientOfferPdf');
       await generateClientOfferPDF(
         request,
         {
@@ -527,9 +565,22 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
       );
       toast({ title: t.common.download, description: `${t.common.pdfDownloaded} ${config.offerNumber || request.id}` });
     } catch (error) {
+      const rawMessage = String((error as any)?.message ?? '').trim();
+      const isChunkLoadIssue =
+        /Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk|ChunkLoadError/i.test(
+          rawMessage
+        );
+      if (isChunkLoadIssue) {
+        toast({
+          title: t.request.error,
+          description: 'App was updated. Please refresh the page (Ctrl+F5) and try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
       toast({
         title: t.request.error,
-        description: t.common.pdfDownloadFailed,
+        description: rawMessage || t.common.pdfDownloadFailed,
         variant: 'destructive',
       });
     } finally {
@@ -650,11 +701,11 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                               <p className="text-base font-medium text-foreground">#{index + 1}</p>
                             </div>
                             <div className="col-span-6 min-h-14 rounded-md border border-border/70 bg-background/40 px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.offerDescription}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.productName || t.clientOffer.offerDescription}</p>
                               <Input
                                 value={line.offerDescription ?? ''}
                                 onChange={(e) => updateLineField(index, { offerDescription: e.target.value })}
-                                placeholder={t.clientOffer.offerDescriptionPlaceholder}
+                                placeholder={t.clientOffer.productNamePlaceholder || t.clientOffer.offerDescriptionPlaceholder}
                                 className="mt-1 h-9"
                               />
                             </div>
@@ -669,11 +720,11 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                               <p className="text-base font-medium text-foreground tabular-nums text-right">{formatLineUnitPrice(line.unitPrice)}</p>
                             </div>
                             <div className="col-span-8 min-h-[4rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.offerSpecification}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.productNumber || t.clientOffer.offerSpecification}</p>
                               <Textarea
                                 value={line.offerSpecification ?? ''}
                                 onChange={(e) => updateLineField(index, { offerSpecification: e.target.value })}
-                                placeholder={t.clientOffer.offerSpecificationPlaceholder}
+                                placeholder={t.clientOffer.productNumberPlaceholder || t.clientOffer.offerSpecificationPlaceholder}
                                 rows={2}
                                 className="mt-1 min-h-[4rem]"
                               />
@@ -691,11 +742,11 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                             </div>
 
                             <div className="min-h-12 rounded-md border border-border/70 bg-background/40 px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.offerDescription}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.productName || t.clientOffer.offerDescription}</p>
                               <Input
                                 value={line.offerDescription ?? ''}
                                 onChange={(e) => updateLineField(index, { offerDescription: e.target.value })}
-                                placeholder={t.clientOffer.offerDescriptionPlaceholder}
+                                placeholder={t.clientOffer.productNamePlaceholder || t.clientOffer.offerDescriptionPlaceholder}
                                 className="mt-1 h-9"
                               />
                             </div>
@@ -714,11 +765,11 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                             </div>
 
                             <div className="min-h-[3.75rem] rounded-md border border-border/70 bg-background/40 px-3 py-2">
-                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.offerSpecification}</p>
+                              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{t.clientOffer.productNumber || t.clientOffer.offerSpecification}</p>
                               <Textarea
                                 value={line.offerSpecification ?? ''}
                                 onChange={(e) => updateLineField(index, { offerSpecification: e.target.value })}
-                                placeholder={t.clientOffer.offerSpecificationPlaceholder}
+                                placeholder={t.clientOffer.productNumberPlaceholder || t.clientOffer.offerSpecificationPlaceholder}
                                 rows={2}
                                 className="mt-1 min-h-[3.75rem]"
                               />

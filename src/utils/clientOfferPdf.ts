@@ -263,6 +263,9 @@ const buildLegacyProduct = (request: CustomerRequest): RequestProduct => ({
   cupLogo: request.cupLogo ?? '',
   suspension: request.suspension ?? '',
   productComments: request.otherRequirements ?? '',
+  offerProductName: '',
+  offerProductPartNumber: '',
+  designResultAttachments: Array.isArray(request.designResultAttachments) ? request.designResultAttachments : [],
   attachments: Array.isArray(request.attachments) ? request.attachments : [],
 });
 
@@ -293,8 +296,8 @@ const seedLinesFromProducts = (request: CustomerRequest, translateOption: (value
       sourceProductIndex: index,
       description: getProductTypeLabel(product, translateOption) || request.applicationVehicle || `Item ${index + 1}`,
       specification: details.join(' | '),
-      offerDescription: '',
-      offerSpecification: '',
+      offerDescription: String((product as any)?.offerProductName ?? '').trim(),
+      offerSpecification: String((product as any)?.offerProductPartNumber ?? '').trim(),
       quantity: typeof product.quantity === 'number' ? product.quantity : null,
       unitPrice: null,
       remark: '',
@@ -348,12 +351,22 @@ const collectRequestAttachments = (request: CustomerRequest): OfferAttachment[] 
   };
 
   push(request.attachments, 'general');
+  let hasPerProductDesignAttachments = false;
   if (Array.isArray(request.products)) {
     for (const product of request.products) {
       push(product?.attachments, 'technical');
+      const productDesignAttachments = Array.isArray((product as any)?.designResultAttachments)
+        ? (product as any).designResultAttachments
+        : [];
+      if (productDesignAttachments.length > 0) {
+        hasPerProductDesignAttachments = true;
+      }
+      push(productDesignAttachments, 'design');
     }
   }
-  push(request.designResultAttachments, 'design');
+  if (!hasPerProductDesignAttachments) {
+    push(request.designResultAttachments, 'design');
+  }
   push(request.costingAttachments, 'costing');
   push(request.salesAttachments, 'sales');
 
@@ -540,6 +553,28 @@ const normalizeNumberUnitSpacing = (value: string) =>
 const normalizePaymentTermText = (value: string) =>
   normalizeNumberUnitSpacing(value).replace(/\bblance\b/gi, 'Balance');
 
+const normalizePaymentNameKey = (value: string) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[_-]+/g, ' ');
+
+const translatePaymentName = (value: string, t: any) => {
+  const key = normalizePaymentNameKey(value);
+  if (!key) return value;
+  if (key === 'down payment' || key === 'downpayment' || key === 'advance payment' || key === 'advance') {
+    return String(t?.panels?.paymentNameDownPayment ?? value);
+  }
+  if (key === 'payment before delivery' || key === 'before delivery' || key === 'balance') {
+    return String(t?.panels?.paymentNameBeforeDelivery ?? value);
+  }
+  if (key === 'payment after delivery' || key === 'after delivery') {
+    return String(t?.panels?.paymentNameAfterDelivery ?? value);
+  }
+  return value;
+};
+
 const normalizeWarrantyValue = (value: unknown, language: Language) => {
   const raw = normalizeTermValue(value);
   if (raw === '-') return raw;
@@ -549,16 +584,17 @@ const normalizeWarrantyValue = (value: unknown, language: Language) => {
   return `${normalized.replace(',', '.')} ${unit}`;
 };
 
-const buildPaymentTermsValue = (request: CustomerRequest) => {
+const buildPaymentTermsValue = (request: CustomerRequest, t: any) => {
   if (!Array.isArray(request.salesPaymentTerms) || !request.salesPaymentTerms.length) return '-';
   const parts = request.salesPaymentTerms
     .filter((term) => (term.paymentName ?? '').trim() || term.paymentPercent !== null)
     .map((term) => {
-      const name = normalizePaymentTermText(normalizeTermValue(term.paymentName));
+      const rawName = normalizePaymentTermText(normalizeTermValue(term.paymentName));
+      const name = normalizePaymentTermText(translatePaymentName(rawName, t));
       const percent = typeof term.paymentPercent === 'number' ? `${term.paymentPercent}%` : '-';
       return `${name} (${percent})`;
     });
-  return parts.length ? normalizePaymentTermText(parts.join('; ')) : '-';
+  return parts.length ? parts.join('\n') : '-';
 };
 
 const normalizeTermsForPdf = (request: CustomerRequest, t: any, language: Language): NormalizedTerms => {
@@ -571,7 +607,7 @@ const normalizeTermsForPdf = (request: CustomerRequest, t: any, language: Langua
     {
       key: 'payment',
       label: String(t.panels.paymentTerms),
-      value: buildPaymentTermsValue(request),
+      value: buildPaymentTermsValue(request, t),
     },
   ];
 
@@ -722,7 +758,7 @@ export const generateClientOfferPDF = async (
 
   const drawWatermark = () => {
     const line1 = String(profile.companyNameEn || profile.companyNameLocal || 'MONROC');
-    const line2 = String(t.clientOffer.pdfTitle || 'Client Offer');
+    const line2 = String(t.clientOffer.pdfTitle || 'Commercial Offer');
     const centerX = pageWidth / 2;
     const centerY = pageHeight / 2;
     const angle = -35;
@@ -796,7 +832,9 @@ export const generateClientOfferPDF = async (
     pdf.text(headerAddress, headerLeftX, 13.8);
 
     setFont('bold');
-    pdf.text(String(t.clientOffer.contactName || 'Contact').toUpperCase(), headerRightX, 9, { align: 'right' });
+    const contactLabel = String(t.clientOffer.contactName || 'Contact');
+    const contactValue = String(profile.contactName || '-').trim() || '-';
+    pdf.text(`${contactLabel} : ${contactValue}`, headerRightX, 9, { align: 'right' });
     setFont('normal');
     pdf.text(`${String(t.clientOffer.mobile || 'Mobile')}: ${profile.mobile || '-'}`, headerRightX, 13.8, { align: 'right' });
     pdf.text(`${String(t.clientOffer.email || 'Email')}: ${profile.contactEmail || '-'}`, headerRightX, 18, { align: 'right' });
@@ -1143,8 +1181,9 @@ export const generateClientOfferPDF = async (
   ]);
 
   if (config.sectionVisibility.general) {
-    drawSectionTitle(String(t.clientOffer.generalInformation));
-    y += PDF_SPACE.base;
+    const introTopGap = lineHeightMm(PDF_TYPE.body) * 2;
+    ensureSpace(lineHeightMm(PDF_TYPE.body) + PDF_SPACE.block + introTopGap);
+    y += introTopGap;
     drawParagraph(resolvedIntroText);
   }
 
@@ -1154,8 +1193,8 @@ export const generateClientOfferPDF = async (
 
     const headers = [
       String(t.clientOffer.item),
-      String(t.clientOffer.description),
-      String(t.clientOffer.specification),
+      String(t.clientOffer.productName || t.clientOffer.description),
+      String(t.clientOffer.productNumber || t.clientOffer.specification),
       String(t.clientOffer.quantity),
       `${String(t.clientOffer.unitPrice)} (${currencyCode})`,
       `${String(t.clientOffer.lineTotal || t.clientOffer.total)} (${currencyCode})`,
@@ -1269,16 +1308,40 @@ export const generateClientOfferPDF = async (
       return `${trimmed}${ellipsis}`;
     };
 
+    const splitPaymentValueLines = (value: string) => {
+      const logicalLines = String(value || '-')
+        .split(/\r?\n/g)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (!logicalLines.length) return ['-'];
+      const wrappedLines: string[] = [];
+      for (const line of logicalLines) {
+        const wrapped = (pdf.splitTextToSize(line, valueW) as string[]).filter((part) => part.trim());
+        if (wrapped.length) {
+          wrappedLines.push(...wrapped);
+        } else {
+          wrappedLines.push('-');
+        }
+      }
+      return wrappedLines;
+    };
+
     const buildTermRows = (rows: NormalizedTerm[]) =>
       rows.map((row) => {
         const rawValue = String(row.value || '-');
-        let lines = (pdf.splitTextToSize(rawValue, valueW) as string[]).filter((line) => line.trim());
+        let lines =
+          row.key === 'payment'
+            ? splitPaymentValueLines(rawValue)
+            : (pdf.splitTextToSize(rawValue, valueW) as string[]).filter((line) => line.trim());
         if (row.key === 'warranty') {
           lines = [fitSingleLineValue(rawValue, valueW)];
-        } else if (lines.length > 2) {
-          const head = lines[0];
-          const tail = fitSingleLineValue(lines.slice(1).join(' '), valueW);
-          lines = [head, tail];
+        } else if (row.key !== 'payment') {
+          const maxLines = 2;
+          if (lines.length > maxLines) {
+            const kept = lines.slice(0, maxLines - 1);
+            const tail = fitSingleLineValue(lines.slice(maxLines - 1).join(' '), valueW);
+            lines = [...kept, tail];
+          }
         }
         if (!lines.length) lines = ['-'];
         const contentH = Math.max(labelLineH, lines.length * valueLineH);
