@@ -224,7 +224,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
         ) : null}
       </nav>
 
-      <div className={cn('border-t border-border/90', sectionPadding, isCollapsed && 'flex justify-center')}>
+      <div className={cn(sectionPadding, isCollapsed && 'flex justify-center')}>
         {isCollapsed ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

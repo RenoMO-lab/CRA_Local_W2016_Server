@@ -2376,8 +2376,8 @@ const RequestForm: React.FC = () => {
     index,
   }));
 
-  const desktopActionBarCompensation =
-    density === 'compact' ? 'md:-mx-3 md:px-3' : 'md:-mx-6 md:px-6';
+  const desktopActionBarInnerSpacing =
+    density === 'compact' ? 'md:px-3 md:py-3' : 'md:px-6 md:py-4';
 
   return (
     <div className="space-y-4 md:space-y-8">
@@ -2981,9 +2981,9 @@ const RequestForm: React.FC = () => {
 
       {/* Action Bar */}
       <div
-        className={`fixed md:sticky bottom-0 md:bottom-[var(--cra-desktop-bottombar-height)] left-0 right-0 md:left-auto md:right-auto bg-background/95 backdrop-blur border-t border-border py-3 md:py-4 px-3 z-40 md:mt-8 ${desktopActionBarCompensation}`}
+        className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t border-border/90 py-3 px-3 z-40 md:left-[var(--cra-sidebar-width)] md:right-0 md:bottom-[var(--cra-desktop-bottombar-height)] md:px-0 md:py-0"
       >
-        <div className="flex items-center justify-between max-w-7xl mx-auto gap-2 flex-wrap">
+        <div className={`flex items-center justify-between w-full max-w-7xl mx-auto gap-2 flex-wrap ${desktopActionBarInnerSpacing}`}>
           <Button
             type="button"
             variant="outline"
