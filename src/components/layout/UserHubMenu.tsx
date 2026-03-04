@@ -6,10 +6,12 @@ import {
   KeyRound,
   Laptop,
   Languages,
+  LayoutGrid,
   LifeBuoy,
   LogOut,
   MessageCircle,
   Moon,
+  Rows3,
   Sun,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -27,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/context/AuthContext';
+import { useAppShell } from '@/context/AppShellContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { cn } from '@/lib/utils';
 import { ROLE_CONFIG } from '@/types';
@@ -48,6 +51,7 @@ const UserHubMenu: React.FC<UserHubMenuProps> = ({
 }) => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { density, setDensity } = useAppShell();
   const { theme, setTheme } = useTheme();
   const { t, language, setLanguage } = useLanguage();
   const [isAccountOpen, setIsAccountOpen] = useState(false);
@@ -104,6 +108,21 @@ const UserHubMenu: React.FC<UserHubMenuProps> = ({
                 const active = (theme || 'system') === option.key;
                 return (
                   <DropdownMenuItem key={option.key} onSelect={() => setTheme(option.key as 'system' | 'light' | 'dark')}>
+                    <Icon size={14} className="mr-2" />
+                    <span className="flex-1">{option.label}</span>
+                    {active ? <Check size={13} className="text-primary" /> : null}
+                  </DropdownMenuItem>
+                );
+              })}
+              <DropdownMenuSeparator />
+              {[
+                { key: 'compact', label: t.appChrome.densityCompact, icon: Rows3 },
+                { key: 'comfortable', label: t.appChrome.densityComfortable, icon: LayoutGrid },
+              ].map((option) => {
+                const Icon = option.icon;
+                const active = density === option.key;
+                return (
+                  <DropdownMenuItem key={option.key} onSelect={() => setDensity(option.key as 'compact' | 'comfortable')}>
                     <Icon size={14} className="mr-2" />
                     <span className="flex-1">{option.label}</span>
                     {active ? <Check size={13} className="text-primary" /> : null}
