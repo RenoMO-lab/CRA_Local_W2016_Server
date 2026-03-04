@@ -2240,11 +2240,17 @@ const normalizeClientOfferConfig = (raw, nowIso) => {
         )
       )
     : [];
+  const parsedDiscountPercent = parseOptionalFiniteNumber(raw?.discountPercent);
+  const discountPercent =
+    parsedDiscountPercent !== null && parsedDiscountPercent > 0 && parsedDiscountPercent <= 100
+      ? Math.round((parsedDiscountPercent + Number.EPSILON) * 100) / 100
+      : null;
 
   return {
     offerNumber: typeof raw?.offerNumber === "string" ? raw.offerNumber : "",
     recipientName: typeof raw?.recipientName === "string" ? raw.recipientName : "",
     introText: typeof raw?.introText === "string" ? raw.introText : "",
+    discountPercent,
     sectionVisibility: {
       general: raw?.sectionVisibility?.general !== false,
       lineItems: raw?.sectionVisibility?.lineItems !== false,

@@ -119,6 +119,7 @@ export interface ClientOfferConfig {
   offerNumber: string;
   recipientName: string;
   introText: string;
+  discountPercent?: number | null;
   sectionVisibility: {
     general: boolean;
     lineItems: boolean;

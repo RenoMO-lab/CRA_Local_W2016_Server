@@ -405,6 +405,7 @@ type DbBackupConfig = {
 
 const LEGACY_DB_BACKUP_DIR = 'C:\\CRA_Local_W2016_Main\\db-backups';
 const CANONICAL_DB_BACKUP_DIR = 'C:\\CRA_Local_W2016_Main\\backups\\postgres';
+const FIXED_DB_BACKUP_SLOTS = ['07:00', '12:00'] as const;
 const LEGACY_USERS_STORAGE_KEYS = ['monroc_admin_settings_v5', 'monroc_admin_settings_v4'] as const;
 
 const normalizeDbBackupDirectory = (value: unknown): string => {
@@ -605,7 +606,7 @@ const Settings: React.FC = () => {
     backupUser: 'cra_backup',
     backupPassword: '',
     enabled: true,
-    scheduleHour: 1,
+    scheduleHour: 7,
     scheduleMinute: 0,
   });
   const [dbBackupError, setDbBackupError] = useState<string | null>(null);
@@ -1387,8 +1388,8 @@ const Settings: React.FC = () => {
         backupDatabase: String(data?.databaseName ?? prev.backupDatabase),
         backupUser: String(data?.backupUser ?? prev.backupUser),
         enabled: data?.enabled !== false,
-        scheduleHour: Number.isFinite(Number(data?.scheduleHour)) ? Number(data?.scheduleHour) : prev.scheduleHour,
-        scheduleMinute: Number.isFinite(Number(data?.scheduleMinute)) ? Number(data?.scheduleMinute) : prev.scheduleMinute,
+        scheduleHour: 7,
+        scheduleMinute: 0,
       }));
     } catch (error) {
       console.error('Failed to load backup config:', error);
@@ -1438,8 +1439,8 @@ const Settings: React.FC = () => {
         ...dbBackupSetupForm,
         adminPort: Number(dbBackupSetupForm.adminPort),
         backupPort: Number(dbBackupSetupForm.backupPort),
-        scheduleHour: Number(dbBackupSetupForm.scheduleHour),
-        scheduleMinute: Number(dbBackupSetupForm.scheduleMinute),
+        scheduleHour: 7,
+        scheduleMinute: 0,
       };
       const res = await fetch('/api/admin/db-backup-config/setup', {
         method: 'POST',
@@ -4010,13 +4011,12 @@ const Settings: React.FC = () => {
                       <Label>{t.settings.backupUserPassword}</Label>
                       <Input type="password" value={dbBackupSetupForm.backupPassword} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, backupPassword: e.target.value }))} />
                     </div>
-                    <div className="space-y-1">
-                      <Label>{t.settings.backupScheduleHour}</Label>
-                      <Input type="number" min={0} max={23} value={dbBackupSetupForm.scheduleHour} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, scheduleHour: Number(e.target.value || 1) }))} />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>{t.settings.backupScheduleMinute}</Label>
-                      <Input type="number" min={0} max={59} value={dbBackupSetupForm.scheduleMinute} onChange={(e) => setDbBackupSetupForm((p) => ({ ...p, scheduleMinute: Number(e.target.value || 0) }))} />
+                    <div className="space-y-1 md:col-span-2">
+                      <Label>{t.settings.backupFixedSlotsLabel}</Label>
+                      <div className="h-10 rounded-md border border-border bg-muted/40 px-3 flex items-center text-sm text-foreground">
+                        {String(t.settings.backupFixedSlotsValue || FIXED_DB_BACKUP_SLOTS.join(', '))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{t.settings.backupFixedSlotsHint}</p>
                     </div>
                     <div className="md:col-span-2 flex items-center justify-between rounded-md border border-border px-3 py-2">
                       <span className="text-sm text-muted-foreground">{t.settings.backupEnableDaily}</span>

@@ -153,10 +153,16 @@ const reviveClientOfferConfig = (raw: any): ClientOfferConfig | undefined => {
   const selectedAttachmentIds = Array.isArray(raw?.selectedAttachmentIds)
     ? raw.selectedAttachmentIds.map((id: any) => String(id ?? '').trim()).filter(Boolean)
     : [];
+  const parsedDiscount = parseOptionalNumber(raw?.discountPercent);
+  const discountPercent =
+    parsedDiscount !== null && parsedDiscount > 0 && parsedDiscount <= 100
+      ? Math.round((parsedDiscount + Number.EPSILON) * 100) / 100
+      : null;
   return {
     offerNumber: typeof raw?.offerNumber === 'string' ? raw.offerNumber : '',
     recipientName: typeof raw?.recipientName === 'string' ? raw.recipientName : '',
     introText: typeof raw?.introText === 'string' ? raw.introText : '',
+    discountPercent,
     sectionVisibility: {
       general: raw?.sectionVisibility?.general !== false,
       lineItems: raw?.sectionVisibility?.lineItems !== false,

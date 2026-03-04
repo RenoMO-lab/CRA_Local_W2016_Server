@@ -18,10 +18,16 @@ const HOST_ROOT = path.basename(APP_ROOT).toLowerCase() === "app" ? path.dirname
 
 const BACKUP_GLOBALS_SUFFIX = "_globals.sql";
 const BACKUP_MANIFEST_SUFFIX = "_manifest.json";
-const DEFAULT_DB_BACKUP_DIR = path.resolve(process.env.DB_BACKUP_DIR || "C:\\CRA_Local_W2016_Main\\backups\\postgres");
+const DEFAULT_DB_BACKUP_DIR = path.resolve(
+  process.env.DB_BACKUP_DIR || path.join(HOST_ROOT, "backups", "postgres")
+);
 const MAX_DB_BACKUP_LIST = 100;
 
-const DEFAULT_SCHEDULE_HOUR = 1;
+const FIXED_SCHEDULE_SLOTS = Object.freeze([
+  { hour: 7, minute: 0, label: "07:00" },
+  { hour: 12, minute: 0, label: "12:00" },
+]);
+const DEFAULT_SCHEDULE_HOUR = FIXED_SCHEDULE_SLOTS[0].hour;
 const DEFAULT_SCHEDULE_MINUTE = 0;
 const DEFAULT_TASK_NAME = "CRA_Local_DailyDbBackup";
 const DEFAULT_RETENTION_POLICY = "Keep latest day, day-1, and week-1 backup";
@@ -73,11 +79,19 @@ const normalizeScheduleMinute = (value) => {
   return Math.min(Math.max(parsed, 0), 59);
 };
 
-const computeNextRunAt = (hour, minute, now = new Date()) => {
-  const next = new Date(now);
-  next.setHours(hour, minute, 0, 0);
-  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
-  return next;
+const computeNextRunAtForSlots = (slots, now = new Date()) => {
+  const sorted = Array.isArray(slots) ? [...slots] : [];
+  sorted.sort((a, b) => (a.hour - b.hour) || (a.minute - b.minute));
+  for (const slot of sorted) {
+    const candidate = new Date(now);
+    candidate.setHours(slot.hour, slot.minute, 0, 0);
+    if (candidate.getTime() > now.getTime()) return candidate;
+  }
+  const fallback = sorted[0] || { hour: DEFAULT_SCHEDULE_HOUR, minute: DEFAULT_SCHEDULE_MINUTE };
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(fallback.hour, fallback.minute, 0, 0);
+  return tomorrow;
 };
 
 const getBackupPrefixFromFileName = (fileName) => {
@@ -295,6 +309,13 @@ const getBackupRetentionWindows = (now = new Date()) => {
   const week1End = new Date(week1Start);
   week1End.setDate(week1End.getDate() + 1);
   return { todayStart, tomorrowStart, yesterdayStart, week1Start, week1End };
+};
+
+const formatLocalDayKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
 const getBackupRetentionBucket = (mtimeMs, now = new Date()) => {
@@ -602,6 +623,24 @@ const applyDbBackupRetentionPolicy = async (backupDir) => {
     if (entry.prefix) keepPrefixes.add(entry.prefix);
   }
 
+  let bootstrapActive = false;
+  if (!keepByBucket.has("week-1")) {
+    const { todayStart, tomorrowStart } = getBackupRetentionWindows(now);
+    const bootstrapStart = new Date(todayStart);
+    bootstrapStart.setDate(bootstrapStart.getDate() - 7);
+    const keepByDay = new Map();
+    for (const entry of entries) {
+      const ts = new Date(entry.mtimeMs);
+      if (Number.isNaN(ts.getTime())) continue;
+      if (ts < bootstrapStart || ts >= tomorrowStart) continue;
+      const dayKey = formatLocalDayKey(ts);
+      if (keepByDay.has(dayKey)) continue;
+      keepByDay.set(dayKey, entry);
+      if (entry.prefix) keepPrefixes.add(entry.prefix);
+    }
+    bootstrapActive = keepByDay.size > 0;
+  }
+
   const deletedFiles = [];
   const allEntries = await fs.readdir(backupDir, { withFileTypes: true });
   for (const entry of allEntries) {
@@ -625,6 +664,7 @@ const applyDbBackupRetentionPolicy = async (backupDir) => {
       "day-1": keepByBucket.get("day-1")?.fileName ?? null,
       "week-1": keepByBucket.get("week-1")?.fileName ?? null,
     },
+    bootstrapActive,
     deletedCount: deletedFiles.length,
   };
 };
@@ -764,22 +804,25 @@ const getLatestRun = async (action, mode = null) => {
   return rows?.[0] ?? null;
 };
 
-const hasSuccessfulAutoBackupToday = async (now = new Date()) => {
+const hasSuccessfulAutoBackupForSlotToday = async (now = new Date(), slotLabel = "") => {
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
+  const normalizedSlot = String(slotLabel || "").trim();
+  if (!normalizedSlot) return false;
   const pool = await getPool();
   const { rows } = await pool.query(
     `SELECT 1
        FROM db_backup_runs
       WHERE action = 'backup'
         AND mode = 'automatic'
+        AND COALESCE(details_json->>'scheduleSlot', '') = $3
         AND status = 'success'
         AND started_at >= $1
         AND started_at < $2
       LIMIT 1`,
-    [start, end]
+    [start, end, normalizedSlot]
   );
   return rows.length > 0;
 };
@@ -827,10 +870,10 @@ const saveBackupSettings = async ({
   databaseName,
   backupUser,
   backupPassword,
-  scheduleHour,
-  scheduleMinute,
   updatedBy,
 }) => {
+  const fixedHour = FIXED_SCHEDULE_SLOTS[0].hour;
+  const fixedMinute = FIXED_SCHEDULE_SLOTS[0].minute;
   const encrypted = encryptSecret(backupPassword);
   const pool = await getPool();
   await pool.query(
@@ -862,8 +905,8 @@ const saveBackupSettings = async ({
       encrypted.cipher,
       encrypted.iv,
       encrypted.tag,
-      normalizeScheduleHour(scheduleHour),
-      normalizeScheduleMinute(scheduleMinute),
+      normalizeScheduleHour(fixedHour),
+      normalizeScheduleMinute(fixedMinute),
       DEFAULT_TASK_NAME,
       DEFAULT_RETENTION_POLICY,
       updatedBy || null,
@@ -922,14 +965,15 @@ export const getDbBackupStatus = async () => {
     automatic: {
       enabled: settings.enabled,
       configured: settings.configured,
-      frequency: `Daily at ${String(settings.scheduleHour).padStart(2, "0")}:${String(settings.scheduleMinute).padStart(2, "0")}`,
+      frequency: "Daily at 07:00 and 12:00",
       schedule: {
         hour: settings.scheduleHour,
         minute: settings.scheduleMinute,
+        slots: FIXED_SCHEDULE_SLOTS.map((slot) => ({ ...slot })),
       },
       taskName: settings.taskName,
       policy: settings.retentionPolicy,
-      nextRunAt: computeNextRunAt(settings.scheduleHour, settings.scheduleMinute).toISOString(),
+      nextRunAt: computeNextRunAtForSlots(FIXED_SCHEDULE_SLOTS).toISOString(),
       latestManual,
       latestAuto,
       latestRestore,
@@ -946,8 +990,8 @@ export const getDbBackupConfig = async () => {
     port: settings.port,
     databaseName: settings.databaseName,
     backupUser: settings.backupUser || "",
-    scheduleHour: settings.scheduleHour,
-    scheduleMinute: settings.scheduleMinute,
+    scheduleHour: FIXED_SCHEDULE_SLOTS[0].hour,
+    scheduleMinute: FIXED_SCHEDULE_SLOTS[0].minute,
     taskName: settings.taskName,
     retentionPolicy: settings.retentionPolicy,
     updatedAt: settings.updatedAt,
@@ -956,7 +1000,7 @@ export const getDbBackupConfig = async () => {
   };
 };
 
-export const updateDbBackupConfig = async ({ enabled, scheduleHour, scheduleMinute, actor }) => {
+export const updateDbBackupConfig = async ({ enabled, actor }) => {
   const settings = await getRuntimeSettings();
   if (!settings.configured) {
     throw new Error("Backup credentials are not configured yet.");
@@ -968,8 +1012,8 @@ export const updateDbBackupConfig = async ({ enabled, scheduleHour, scheduleMinu
     databaseName: settings.databaseName,
     backupUser: settings.backupUser,
     backupPassword: settings.backupPassword,
-    scheduleHour: scheduleHour ?? settings.scheduleHour,
-    scheduleMinute: scheduleMinute ?? settings.scheduleMinute,
+    scheduleHour: FIXED_SCHEDULE_SLOTS[0].hour,
+    scheduleMinute: FIXED_SCHEDULE_SLOTS[0].minute,
     updatedBy: actor?.email || actor?.id || null,
   });
   return getDbBackupConfig();
@@ -1124,13 +1168,17 @@ export const listDbBackupsWithStatus = async () => {
   };
 };
 
-export const createDbBackup = async ({ mode = "manual", actor = null } = {}) => {
+export const createDbBackup = async ({ mode = "manual", actor = null, scheduleSlot = null } = {}) => {
+  const normalizedScheduleSlot = String(scheduleSlot || "").trim();
   return runWithLock("backup", async () => {
     const runId = await startRun({
       action: "backup",
       mode,
       actor,
-      details: { requestedAt: new Date().toISOString() },
+      details: {
+        requestedAt: new Date().toISOString(),
+        ...(normalizedScheduleSlot && mode === "automatic" ? { scheduleSlot: normalizedScheduleSlot } : {}),
+      },
     });
 
     try {
@@ -1208,6 +1256,7 @@ export const createDbBackup = async ({ mode = "manual", actor = null } = {}) => 
         manifestFileName,
         sizeBytes: dumpStat.size,
         createdAt: new Date().toISOString(),
+        ...(normalizedScheduleSlot && mode === "automatic" ? { scheduleSlot: normalizedScheduleSlot } : {}),
         retention,
       };
 
@@ -1400,14 +1449,14 @@ const schedulerTick = async () => {
     if (!settings.enabled || !settings.configured) return;
 
     const now = new Date();
-    const scheduledAt = new Date(now);
-    scheduledAt.setHours(settings.scheduleHour, settings.scheduleMinute, 0, 0);
-    if (now.getTime() < scheduledAt.getTime()) return;
-
-    const alreadyDoneToday = await hasSuccessfulAutoBackupToday(now);
-    if (alreadyDoneToday) return;
-
-    await createDbBackup({ mode: "automatic", actor: null });
+    for (const slot of FIXED_SCHEDULE_SLOTS) {
+      const scheduledAt = new Date(now);
+      scheduledAt.setHours(slot.hour, slot.minute, 0, 0);
+      if (now.getTime() < scheduledAt.getTime()) continue;
+      const alreadyDoneForSlot = await hasSuccessfulAutoBackupForSlotToday(now, slot.label);
+      if (alreadyDoneForSlot) continue;
+      await createDbBackup({ mode: "automatic", actor: null, scheduleSlot: slot.label });
+    }
   } catch (error) {
     console.error("Automatic backup tick failed:", error?.message ?? error);
   } finally {

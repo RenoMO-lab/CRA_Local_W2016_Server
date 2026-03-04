@@ -2623,9 +2623,13 @@ const RequestForm: React.FC = () => {
 
   const desktopActionBarInnerSpacing =
     density === 'compact' ? 'md:px-3 md:py-3' : 'md:px-6 md:py-4';
+  const actionBarScrollReserveClass =
+    density === 'compact'
+      ? 'pb-24 md:pb-[calc(var(--cra-desktop-bottombar-height)+76px)]'
+      : 'pb-28 md:pb-[calc(var(--cra-desktop-bottombar-height)+88px)]';
 
   return (
-    <div className="space-y-4 md:space-y-8">
+    <div className={`space-y-4 md:space-y-8 ${actionBarScrollReserveClass}`}>
       {/* Header */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
         <div className="flex items-center gap-3 md:gap-4">

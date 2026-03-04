@@ -41,6 +41,7 @@ type NormalizedPdfLine = {
 
 type FinancialSummary = {
   subtotal: number;
+  discountPercent: number | null;
   discount: number;
   tax: number;
   total: number;
@@ -320,6 +321,7 @@ const normalizeOfferConfigForPdf = (
     offerNumber: String(source?.offerNumber ?? request.id ?? '').trim() || request.id,
     recipientName: String(source?.recipientName ?? request.clientName ?? '').trim(),
     introText: String(source?.introText ?? '').trim() || defaultIntro,
+    discountPercent: normalizeDiscountPercent((source as any)?.discountPercent),
     sectionVisibility: {
       general: source?.sectionVisibility?.general !== false,
       lineItems: source?.sectionVisibility?.lineItems !== false,
@@ -530,6 +532,13 @@ const normalizeNumber = (value: unknown): number | null => {
   return Math.round((parsed + Number.EPSILON) * 100) / 100;
 };
 
+const normalizeDiscountPercent = (value: unknown): number | null => {
+  const parsed = parseOptionalNumber(value);
+  if (parsed === null || !Number.isFinite(parsed)) return null;
+  if (parsed <= 0 || parsed > 100) return null;
+  return Math.round((parsed + Number.EPSILON) * 100) / 100;
+};
+
 const toSpecLines = (specification: string) => {
   const chunks = String(specification ?? '')
     .split('|')
@@ -635,7 +644,8 @@ const normalizeTermsForPdf = (request: CustomerRequest, t: any, language: Langua
 
 const validateAndNormalizeOfferPdfData = (
   lines: ClientOfferLine[],
-  request: CustomerRequest
+  request: CustomerRequest,
+  discountPercentRaw: number | null | undefined
 ): {
   lines: NormalizedPdfLine[];
   summary: FinancialSummary;
@@ -669,12 +679,16 @@ const validateAndNormalizeOfferPdfData = (
   const subtotal = Math.round(
     (normalizedLines.reduce((sum, line) => sum + (line.lineTotal ?? 0), 0) + Number.EPSILON) * 100
   ) / 100;
-  const discount = 0;
+  const discountPercent = normalizeDiscountPercent(discountPercentRaw);
+  const discount =
+    discountPercent === null
+      ? 0
+      : Math.round(((subtotal * discountPercent) / 100 + Number.EPSILON) * 100) / 100;
   const vatRate = request.salesVatMode === 'with' ? normalizeNumber(request.salesVatRate) : 0;
   const tax = Math.round((((subtotal - discount) * (vatRate ?? 0)) / 100 + Number.EPSILON) * 100) / 100;
   const total = Math.round((subtotal - discount + tax + Number.EPSILON) * 100) / 100;
 
-  const summary: FinancialSummary = { subtotal, discount, tax, total };
+  const summary: FinancialSummary = { subtotal, discountPercent, discount, tax, total };
   return { lines: normalizedLines, summary, warnings };
 };
 
@@ -1159,8 +1173,9 @@ export const generateClientOfferPDF = async (
           quantity: null,
           unitPrice: null,
           remark: '-',
-        }],
-    request
+      }],
+    request,
+    config.discountPercent
   );
   const normalizedRows = normalizedPayload.lines;
   const summary = normalizedPayload.summary;
@@ -1242,10 +1257,17 @@ export const generateClientOfferPDF = async (
     const rowH = 5.6;
     const summaryRows: Array<{ label: string; value: string; bold?: boolean }> = [
       { label: String(t.clientOffer.subtotal || 'Subtotal'), value: formatMoney(summary.subtotal, request.salesCurrency || 'EUR') },
-      { label: String(t.clientOffer.discount || 'Discount'), value: formatMoney(summary.discount, request.salesCurrency || 'EUR') },
-      { label: String(t.clientOffer.taxes || 'Taxes'), value: formatMoney(summary.tax, request.salesCurrency || 'EUR') },
-      { label: String(t.common.total), value: formatMoney(summary.total, request.salesCurrency || 'EUR'), bold: true },
     ];
+    if (summary.discountPercent !== null) {
+      summaryRows.push({
+        label: `${String(t.clientOffer.discount || 'Discount')} (${summary.discountPercent.toFixed(1)}%)`,
+        value: formatMoney(summary.discount, request.salesCurrency || 'EUR'),
+      });
+    }
+    summaryRows.push(
+      { label: String(t.clientOffer.taxes || 'Taxes'), value: formatMoney(summary.tax, request.salesCurrency || 'EUR') },
+      { label: String(t.common.total), value: formatMoney(summary.total, request.salesCurrency || 'EUR'), bold: true }
+    );
     const summaryHeight = rowH * summaryRows.length + 3.2;
     ensureSpace(summaryHeight + PDF_SPACE.block);
     const x = pageWidth - margin - summaryWidth;

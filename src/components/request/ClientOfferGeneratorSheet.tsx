@@ -87,6 +87,13 @@ const normalizeLineUnitPrice = (value: unknown): number | null => {
 };
 
 const normalizeOfferText = (value: unknown) => (typeof value === 'string' ? value : '');
+const normalizeDiscountPercent = (value: unknown): number | null => {
+  const parsed = parseOptionalNumber(value);
+  if (parsed === null) return null;
+  if (parsed <= 0 || parsed > 100) return null;
+  return Math.round((parsed + Number.EPSILON) * 100) / 100;
+};
+const isDiscountPercentValid = (value: unknown) => normalizeDiscountPercent(value) !== null;
 
 const getLineKey = (
   line: Pick<ClientOfferLine, 'id' | 'sourceProductIndex'>,
@@ -321,6 +328,7 @@ const normalizeConfig = (
       String(source?.recipientName ?? request.clientName ?? '').trim() ||
       String(request.clientName ?? '').trim(),
     introText: String(source?.introText ?? '').trim() || defaultIntro,
+    discountPercent: normalizeDiscountPercent((source as any)?.discountPercent),
     sectionVisibility: {
       general: source?.sectionVisibility?.general !== false,
       lineItems: source?.sectionVisibility?.lineItems !== false,
@@ -502,6 +510,7 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
       const canonicalLines = toCanonicalLines(request, translateOption, config.lines);
       const payload: ClientOfferConfig = {
         ...config,
+        discountPercent: normalizeDiscountPercent(config.discountPercent),
         lines: canonicalLines,
         updatedAt: new Date().toISOString(),
         updatedByUserId: String(user?.id ?? ''),
@@ -540,6 +549,14 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
     }
 
     const canonicalLines = toCanonicalLines(request, translateOption, config.lines);
+    if (config.discountPercent !== null && !isDiscountPercentValid(config.discountPercent)) {
+      toast({
+        title: t.request.error,
+        description: t.clientOffer.discountInvalid,
+        variant: 'destructive',
+      });
+      return;
+    }
     const hasMissingLineText = canonicalLines.some((line) =>
       !String(line.offerDescription ?? '').trim() || !String(line.offerSpecification ?? '').trim()
     );
@@ -558,6 +575,7 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
         request,
         {
           ...config,
+          discountPercent: normalizeDiscountPercent(config.discountPercent),
           lines: canonicalLines,
         },
         profile,
@@ -839,6 +857,57 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                           <SelectItem value="zh">{t.common.languageChinese}</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <Label htmlFor="offer-discount-toggle">{t.clientOffer.applyDiscount}</Label>
+                        <Switch
+                          id="offer-discount-toggle"
+                          checked={config.discountPercent !== null}
+                          onCheckedChange={(checked) => {
+                            setConfig((prev) => {
+                              if (!prev) return prev;
+                              if (!checked) return { ...prev, discountPercent: null };
+                              return {
+                                ...prev,
+                                discountPercent:
+                                  normalizeDiscountPercent(prev.discountPercent) ?? 5,
+                              };
+                            });
+                          }}
+                        />
+                      </div>
+                      {config.discountPercent !== null ? (
+                        <div className="max-w-[12rem]">
+                          <Label htmlFor="offer-discount-percent" className="text-xs text-muted-foreground">
+                            {t.clientOffer.discountPercent}
+                          </Label>
+                          <Input
+                            id="offer-discount-percent"
+                            type="number"
+                            min={0.1}
+                            max={100}
+                            step={0.1}
+                            value={String(config.discountPercent ?? '')}
+                            onChange={(e) =>
+                              setConfig((prev) => {
+                                if (!prev) return prev;
+                                const raw = e.target.value;
+                                const parsedValue = raw.trim() === '' ? null : Number.parseFloat(raw);
+                                return {
+                                  ...prev,
+                                  discountPercent:
+                                    parsedValue !== null && Number.isFinite(parsedValue)
+                                      ? parsedValue
+                                      : null,
+                                };
+                              })
+                            }
+                            className="mt-1 h-9"
+                          />
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
