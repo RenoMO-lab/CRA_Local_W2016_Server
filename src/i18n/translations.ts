@@ -259,6 +259,10 @@ export const translations = {
       desktopUpdateRestartFailed: 'Could not restart CRA Client automatically.',
       desktopUpdateInstallFailedTitle: 'Desktop update failed',
       desktopUpdateInstallFailedBody: 'Install failed: {reason}',
+      desktopUpdatePillUpdate: 'Update',
+      desktopUpdatePillUpdating: 'Updating...',
+      desktopUpdatePillRestart: 'Restart',
+      desktopUpdatePillTitle: 'Update CRA Client to {version}',
     },
 
     contractApproval: {
@@ -1924,6 +1928,10 @@ export const translations = {
       desktopUpdateRestartFailed: 'Impossible de redémarrer CRA Client automatiquement.',
       desktopUpdateInstallFailedTitle: 'Échec de la mise à jour desktop',
       desktopUpdateInstallFailedBody: 'Échec de l’installation : {reason}',
+      desktopUpdatePillUpdate: 'Mettre à jour',
+      desktopUpdatePillUpdating: 'Mise à jour...',
+      desktopUpdatePillRestart: 'Redémarrer',
+      desktopUpdatePillTitle: 'Mettre à jour CRA Client vers {version}',
     },
 
     contractApproval: {
@@ -3589,6 +3597,10 @@ export const translations = {
       desktopUpdateRestartFailed: '无法自动重启 CRA Client。',
       desktopUpdateInstallFailedTitle: '桌面端更新失败',
       desktopUpdateInstallFailedBody: '安装失败：{reason}',
+      desktopUpdatePillUpdate: '更新',
+      desktopUpdatePillUpdating: '更新中...',
+      desktopUpdatePillRestart: '重启',
+      desktopUpdatePillTitle: '将 CRA Client 更新到 {version}',
     },
 
     contractApproval: {
