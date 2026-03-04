@@ -26,6 +26,7 @@ Use this skill whenever the user asks to commit/push/deploy to:
    - repo hash
    - runtime HTTP health (`200`)
 4. Local test runtime authority is `:3000`.
+5. For backend file/attachment changes, always run post-deploy attachment smoke tests (ASCII + non-ASCII filenames).
 
 ## Local Deployment Workflow (`:3000`)
 
@@ -36,7 +37,7 @@ Use this skill whenever the user asks to commit/push/deploy to:
    - `git commit -m "..."`
    - `git push origin main`
 3. Build locally:
-   - `npm run build`
+   - `npm.cmd run build`
 4. Restart local API runtime:
    - stop listener on port 3000
    - start `node server/index.js` from workspace root
@@ -69,6 +70,21 @@ Use this skill whenever the user asks to commit/push/deploy to:
    - `type C:\CRA_Local_Main\app\dist\build-info.json`
    - `sc query CRA_Local_App` is `RUNNING`
    - `Invoke-WebRequest http://localhost:3000/` returns `200` (executed on remote host)
+
+## Post-Deploy Attachment Smoke Tests (Mandatory For File Handling Changes)
+
+Run these immediately after production restart when changes touch attachment serving, preview, or download headers.
+
+1. Login and keep a session cookie:
+   - `POST /api/auth/login`
+2. Pick one known attachment with ASCII filename and one with non-ASCII filename.
+3. Verify both endpoints return `200`:
+   - `GET /api/attachments/:id`
+4. Confirm response headers are valid and no 500 occurs.
+5. Check server error log for header exceptions:
+   - `TypeError [ERR_INVALID_CHAR]: Invalid character in header content ["Content-Disposition"]`
+6. UI check:
+   - open attachment preview modal for both files and ensure image/PDF renders.
 
 ## Fallback Ladder (Mandatory When Remote Shell Is Fragile)
 
@@ -108,8 +124,19 @@ Use these patterns to avoid Windows quoting/parser issues:
   - Run migration from app folder with `cd /d C:\CRA_Local_Main\app && ...node.exe server\migrate.js` (loads local `.env`)
 - Error: PowerShell parse error for `&` or `&&`
   - Switch to separate commands, or use `cmd /c` with escaped `^&`
+- Error: `TypeError [ERR_INVALID_CHAR]: Invalid character in header content ["Content-Disposition"]`
+  - Root cause is filename/header encoding (often non-ASCII or very long names).
+  - Use RFC5987-safe header construction (`filename*`) with ASCII fallback.
+  - Add safe fallback behavior so response still serves bytes even if filename encoding fails.
 - Service restarted but UI unchanged
   - Re-check `dist/build-info.json` hash and `rev-parse HEAD`
+
+## Production Log Commands (Known-Good)
+
+- Tail server stderr (PowerShell over SSH):
+  - `ssh Administrator@192.168.50.55 'powershell -NoProfile -Command "Get-Content -Path ''C:\CRA_Local_Main\logs\app.stderr.log'' -Tail 200"'`
+- Tail server stdout:
+  - `ssh Administrator@192.168.50.55 'powershell -NoProfile -Command "Get-Content -Path ''C:\CRA_Local_Main\logs\app.stdout.log'' -Tail 200"'`
 
 ## Final Delivery Checklist (must report)
 
@@ -119,3 +146,4 @@ Use these patterns to avoid Windows quoting/parser issues:
 4. Production pinned hash
 5. Production service status
 6. Production `:3000` health status
+7. (When relevant) attachment smoke-test result for ASCII + non-ASCII filenames

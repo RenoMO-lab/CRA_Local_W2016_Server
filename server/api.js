@@ -2948,6 +2948,61 @@ const normalizeFilenameForHeader = (filename) =>
     .replaceAll("\n", "")
     .replaceAll('"', "'");
 
+const sanitizeAsciiFilenameFallback = (filename) => {
+  const raw = normalizeFilenameForHeader(filename).trim() || "file";
+  const extMatch = raw.match(/(\.[A-Za-z0-9]{1,12})$/);
+  const ext = extMatch ? extMatch[1] : "";
+  const baseRaw = ext ? raw.slice(0, -ext.length) : raw;
+  const baseAscii = baseRaw
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]+/g, "")
+    .replace(/[^A-Za-z0-9._ -]+/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/_+/g, "_")
+    .trim();
+  const fallbackBase = (baseAscii || "file").slice(0, 120).trim() || "file";
+  return `${fallbackBase}${ext}`.slice(0, 140);
+};
+
+const encodeRFC5987Value = (value) =>
+  encodeURIComponent(String(value ?? ""))
+    .replace(/[!'()*]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`)
+    .replace(/%(7C|60|5E)/g, (match) => match.toLowerCase());
+
+const buildContentDisposition = (dispositionType, rawFilename) => {
+  const type = dispositionType === "attachment" ? "attachment" : "inline";
+  const normalized = normalizeFilenameForHeader(rawFilename).trim() || "file";
+  const extMatch = normalized.match(/(\.[^.\s]{1,12})$/u);
+  const ext = extMatch ? extMatch[1] : "";
+  let base = ext ? normalized.slice(0, -ext.length) : normalized;
+  if (!base) base = "file";
+
+  let encoded = encodeRFC5987Value(`${base}${ext}`);
+  const maxEncodedLength = 700;
+  while (encoded.length > maxEncodedLength && base.length > 1) {
+    base = base.slice(0, -1);
+    encoded = encodeRFC5987Value(`${base}${ext}`);
+  }
+  if (encoded.length > maxEncodedLength) {
+    encoded = encodeRFC5987Value(`file${ext}`);
+  }
+
+  const asciiFallback = sanitizeAsciiFilenameFallback(`${base}${ext}`);
+  return `${type}; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`;
+};
+
+const setContentDispositionSafe = (res, dispositionType, rawFilename) => {
+  try {
+    res.setHeader("Content-Disposition", buildContentDisposition(dispositionType, rawFilename));
+  } catch (error) {
+    // Never block file delivery due to filename header encoding issues.
+    console.error("Failed to set Content-Disposition header safely:", error?.message ?? error);
+    try {
+      res.setHeader("Content-Disposition", dispositionType === "attachment" ? "attachment" : "inline");
+    } catch {}
+  }
+};
+
 const collectAttachmentIds = (request) => {
   const ids = new Set();
   const visitArray = (arr) => {
@@ -4906,7 +4961,7 @@ export const apiRouter = (() => {
       if (contentLength) {
         res.setHeader("Content-Length", contentLength);
       }
-      res.setHeader("Content-Disposition", `attachment; filename=\"${installer.installerName}\"`);
+      setContentDispositionSafe(res, "attachment", installer.installerName);
       Readable.fromWeb(assetResponse.body).pipe(res);
     })
   );
@@ -5712,7 +5767,7 @@ export const apiRouter = (() => {
 
       res.status(200);
       res.setHeader("Content-Type", contentType);
-      res.setHeader("Content-Disposition", `inline; filename="${filename}"`);
+      setContentDispositionSafe(res, "inline", filename);
       res.setHeader("Cache-Control", "private, max-age=3600");
       res.send(bytes);
     })

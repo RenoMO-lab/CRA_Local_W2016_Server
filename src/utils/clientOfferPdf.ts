@@ -750,7 +750,7 @@ export const generateClientOfferPDF = async (
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const margin = 14;
-  const bottomMargin = 14 + FOOTER_RESERVED_HEIGHT + PDF_SPACE.footerGuard;
+  const bottomMargin = FOOTER_RESERVED_HEIGHT + PDF_SPACE.footerGuard + 0.8;
   const contentBottomY = pageHeight - bottomMargin;
   const contentWidth = pageWidth - margin * 2;
   const pageHeaderHeight = 28;
@@ -870,12 +870,19 @@ export const generateClientOfferPDF = async (
     addPage();
   };
 
-  const drawSectionTitle = (title: string, reserveAfter = 0) => {
-    const sectionBlockHeight = PDF_SPACE.section + PDF_SPACE.sectionBandH + PDF_SPACE.block + reserveAfter;
+  const drawSectionTitle = (
+    title: string,
+    reserveAfter = 0,
+    options?: { preGap?: number; postGap?: number; bandHeight?: number }
+  ) => {
+    const preGap = options?.preGap ?? PDF_SPACE.section;
+    const postGap = options?.postGap ?? PDF_SPACE.block;
+    const bandHeight = options?.bandHeight ?? PDF_SPACE.sectionBandH;
+    const sectionBlockHeight = preGap + bandHeight + postGap + reserveAfter;
     ensureSpace(sectionBlockHeight);
-    y += PDF_SPACE.section;
+    y += preGap;
     pdf.setFillColor(...rgb(PDF_COLOR.card));
-    pdf.rect(margin, y, contentWidth, PDF_SPACE.sectionBandH, 'F');
+    pdf.rect(margin, y, contentWidth, bandHeight, 'F');
     pdf.setFontSize(PDF_TYPE.section);
     setFont('bold');
     const [ir, ig, ib] = rgb(PDF_COLOR.ink);
@@ -884,8 +891,8 @@ export const generateClientOfferPDF = async (
     pdf.text(title, margin + 0.8, y + 4.2);
     pdf.setDrawColor(lr, lg, lb);
     pdf.setLineWidth(0.3);
-    pdf.line(margin, y + PDF_SPACE.sectionBandH, pageWidth - margin, y + PDF_SPACE.sectionBandH);
-    y += PDF_SPACE.sectionBandH + PDF_SPACE.block;
+    pdf.line(margin, y + bandHeight, pageWidth - margin, y + bandHeight);
+    y += bandHeight + postGap;
     pdf.setTextColor(0, 0, 0);
     setFont('normal');
   };
@@ -1294,21 +1301,25 @@ export const generateClientOfferPDF = async (
     const dualCards = showCommercial && showDelivery;
     const gap = 4;
     const cardW = dualCards ? (contentWidth - gap) / 2 : contentWidth;
-    const cardTitleH = 5.8;
-    const cardTopPad = 1.8;
-    const cardBottomPad = 1.8;
-    const rowGap = 1.4;
+    const cardTitleH = 5.2;
+    const cardTopPad = 1.1;
+    const cardBottomPad = 1.2;
+    const rowGap = 0.8;
     const labelColW = dualCards ? 46 : 56;
+    const paymentLabelColW = dualCards ? 34 : 44;
     const valueColGap = 2.2;
-    const valueW = Math.max(18, cardW - 4.4 - labelColW - valueColGap);
     const labelLineH = lineHeightMm(PDF_TYPE.micro);
-    const valueLineH = lineHeightMm(PDF_TYPE.table);
-    const rowTopPad = 0.7;
-    const rowBottomPad = 0.9;
-    const fitSingleLineValue = (text: string, maxWidth: number) => {
-      const clean = String(text || '-').trim() || '-';
-      pdf.setFontSize(PDF_TYPE.table);
-      setFont('normal');
+    const rowTopPad = 0.5;
+    const rowBottomPad = 0.7;
+    const fitSingleLineToWidthAtFont = (
+      text: string,
+      maxWidth: number,
+      fontSize: number,
+      weight: 'normal' | 'bold' = 'normal'
+    ) => {
+      const clean = String(text || '-').replace(/\s+/g, ' ').trim() || '-';
+      pdf.setFontSize(fontSize);
+      setFont(weight);
       if (pdf.getTextWidth(clean) <= maxWidth) return clean;
       const ellipsis = '...';
       let trimmed = clean;
@@ -1318,16 +1329,7 @@ export const generateClientOfferPDF = async (
       return `${trimmed}${ellipsis}`;
     };
     const fitSingleLineLabel = (text: string, maxWidth: number) => {
-      const clean = String(text || '-').trim() || '-';
-      pdf.setFontSize(PDF_TYPE.micro);
-      setFont('bold');
-      if (pdf.getTextWidth(clean) <= maxWidth) return clean;
-      const ellipsis = '...';
-      let trimmed = clean;
-      while (trimmed.length > 0 && pdf.getTextWidth(`${trimmed}${ellipsis}`) > maxWidth) {
-        trimmed = trimmed.slice(0, -1);
-      }
-      return `${trimmed}${ellipsis}`;
+      return fitSingleLineToWidthAtFont(text, maxWidth, PDF_TYPE.micro, 'bold');
     };
 
     const splitPaymentValueLines = (value: string) => {
@@ -1336,42 +1338,66 @@ export const generateClientOfferPDF = async (
         .map((line) => line.trim())
         .filter(Boolean);
       if (!logicalLines.length) return ['-'];
-      const wrappedLines: string[] = [];
-      for (const line of logicalLines) {
-        const wrapped = (pdf.splitTextToSize(line, valueW) as string[]).filter((part) => part.trim());
-        if (wrapped.length) {
-          wrappedLines.push(...wrapped);
-        } else {
-          wrappedLines.push('-');
-        }
+      return logicalLines;
+    };
+
+    const fitPaymentLines = (rawLines: string[], maxWidth: number) => {
+      const minFont = 8.1;
+      const step = 0.2;
+      let fontSize = PDF_TYPE.table;
+      const canFit = (size: number) => {
+        pdf.setFontSize(size);
+        setFont('normal');
+        return rawLines.every((line) => {
+          const clean = normalizePaymentTermText(line);
+          return pdf.getTextWidth(clean || '-') <= maxWidth;
+        });
+      };
+      while (fontSize > minFont && !canFit(fontSize)) {
+        fontSize = Math.max(minFont, Number((fontSize - step).toFixed(2)));
       }
-      return wrappedLines;
+      const fitted = rawLines.map((line) =>
+        fitSingleLineToWidthAtFont(normalizePaymentTermText(line), maxWidth, fontSize, 'normal')
+      );
+      return { lines: fitted, fontSize };
     };
 
     const buildTermRows = (rows: NormalizedTerm[]) =>
       rows.map((row) => {
         const rawValue = String(row.value || '-');
+        const isPayment = row.key === 'payment';
+        const rowLabelColW = isPayment ? paymentLabelColW : labelColW;
+        const rowValueW = Math.max(18, cardW - 4.4 - rowLabelColW - valueColGap);
         let lines =
-          row.key === 'payment'
+          isPayment
             ? splitPaymentValueLines(rawValue)
-            : (pdf.splitTextToSize(rawValue, valueW) as string[]).filter((line) => line.trim());
-        if (row.key === 'warranty') {
-          lines = [fitSingleLineValue(rawValue, valueW)];
-        } else if (row.key !== 'payment') {
+            : (pdf.splitTextToSize(rawValue, rowValueW) as string[]).filter((line) => line.trim());
+        let valueFontSize = PDF_TYPE.table;
+        if (isPayment) {
+          const fitted = fitPaymentLines(lines.length ? lines : ['-'], rowValueW);
+          lines = fitted.lines;
+          valueFontSize = fitted.fontSize;
+        } else if (row.key === 'warranty') {
+          lines = [fitSingleLineToWidthAtFont(rawValue, rowValueW, valueFontSize)];
+        } else {
           const maxLines = 2;
           if (lines.length > maxLines) {
             const kept = lines.slice(0, maxLines - 1);
-            const tail = fitSingleLineValue(lines.slice(maxLines - 1).join(' '), valueW);
+            const tail = fitSingleLineToWidthAtFont(lines.slice(maxLines - 1).join(' '), rowValueW, valueFontSize);
             lines = [...kept, tail];
           }
         }
         if (!lines.length) lines = ['-'];
+        const valueLineH = lineHeightMm(valueFontSize);
         const contentH = Math.max(labelLineH, lines.length * valueLineH);
         const rowH = rowTopPad + contentH + rowBottomPad;
         return {
-          label: fitSingleLineLabel(`${row.label}:`, labelColW),
+          label: fitSingleLineLabel(`${row.label}:`, rowLabelColW),
           valueLines: lines,
           rowH,
+          valueFontSize,
+          valueLineH,
+          labelColW: rowLabelColW,
         };
       });
 
@@ -1396,7 +1422,7 @@ export const generateClientOfferPDF = async (
       : showCommercial
         ? String(t.clientOffer.commercialTermsTitle)
         : String(t.clientOffer.deliveryTermsTitle);
-    drawSectionTitle(termsTitle, cardH + PDF_SPACE.block);
+    drawSectionTitle(termsTitle, cardH + PDF_SPACE.block, { preGap: 4.2, postGap: 2.8 });
 
     const drawTermCard = (x: number, title: string, rows: ReturnType<typeof buildTermRows>) => {
       pdf.setFillColor(...rgb(PDF_COLOR.card));
@@ -1411,13 +1437,13 @@ export const generateClientOfferPDF = async (
         pdf.setFontSize(PDF_TYPE.micro);
         setFont('bold');
         pdf.setTextColor(...rgb(PDF_COLOR.muted));
-        const baselineY = ry + rowTopPad + Math.max(labelLineH, valueLineH);
+        const baselineY = ry + rowTopPad + Math.max(labelLineH, row.valueLineH) * 0.76;
         pdf.text(row.label, x + 2.2, baselineY);
-        pdf.setFontSize(PDF_TYPE.table);
+        pdf.setFontSize(row.valueFontSize);
         setFont('normal');
         pdf.setTextColor(...rgb(PDF_COLOR.ink));
         for (let i = 0; i < row.valueLines.length; i += 1) {
-          pdf.text(row.valueLines[i], x + 2.2 + labelColW + valueColGap, baselineY + i * valueLineH);
+          pdf.text(row.valueLines[i], x + 2.2 + row.labelColW + valueColGap, baselineY + i * row.valueLineH);
         }
         ry += row.rowH + rowGap;
       }
