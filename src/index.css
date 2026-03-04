@@ -60,6 +60,9 @@
     --shell-surface: 220 16% 93%;
     --shell-border: 220 14% 79%;
     --gradient-card: linear-gradient(135deg, hsl(0 0% 99%) 0%, hsl(220 16% 97%) 100%);
+    --login-hero-bg: linear-gradient(180deg, hsl(218 30% 29%) 0%, hsl(221 33% 20%) 100%);
+    --login-hero-fg: 0 0% 98%;
+    --login-hero-fg-muted: 216 22% 86%;
 
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.08);
     --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.14), 0 2px 4px -2px rgb(0 0 0 / 0.1);
@@ -126,6 +129,9 @@
 
     --gradient-sidebar: linear-gradient(180deg, hsl(222 47% 11%) 0%, hsl(222 47% 8%) 100%);
     --gradient-card: linear-gradient(135deg, hsl(222 47% 9%) 0%, hsl(222 47% 7%) 100%);
+    --login-hero-bg: linear-gradient(180deg, hsl(222 45% 14%) 0%, hsl(222 45% 9%) 100%);
+    --login-hero-fg: 210 40% 98%;
+    --login-hero-fg-muted: 215 20% 76%;
 
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.25);
     --shadow-md: 0 6px 10px -4px rgb(0 0 0 / 0.35), 0 2px 6px -2px rgb(0 0 0 / 0.25);
@@ -181,6 +187,24 @@
 
   .kpi-card {
     @apply bg-card rounded-xl border border-border p-6 h-full min-h-[140px] transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5;
+  }
+
+  .login-hero {
+    background: var(--login-hero-bg);
+  }
+
+  .login-hero-title {
+    color: hsl(var(--login-hero-fg));
+  }
+
+  .login-hero-text {
+    color: hsl(var(--login-hero-fg-muted));
+  }
+
+  .login-hero-card {
+    background-color: hsl(var(--login-hero-fg) / 0.09);
+    border: 1px solid hsl(var(--login-hero-fg) / 0.2);
+    box-shadow: inset 0 1px 0 hsl(var(--login-hero-fg) / 0.08);
   }
 
   :root[data-density='compact'] .kpi-card {

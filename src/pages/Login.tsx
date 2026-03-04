@@ -45,9 +45,7 @@ const Login: React.FC = () => {
   };
   return <div className="min-h-screen flex">
       {/* Left side - Branding */}
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12" style={{
-      background: "var(--gradient-sidebar)"
-    }}>
+      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 login-hero">
         <div>
           <div className="flex items-center gap-3">
             <img 
@@ -62,26 +60,26 @@ const Login: React.FC = () => {
         </div>
 
         <div className="space-y-6">
-          <h1 className="text-4xl font-bold text-white leading-tight">
+          <h1 className="text-4xl font-bold login-hero-title leading-tight">
             {t.branding.customerRequest}
             <br />
             {t.branding.analysisPlatform}
           </h1>
-          <p className="text-lg text-white/70 max-w-md">{t.branding.tagline}</p>
+          <p className="text-lg login-hero-text max-w-md">{t.branding.tagline}</p>
 
           <div className="grid grid-cols-2 gap-4 pt-8">
-            <div className="p-4 rounded-lg bg-white/10 backdrop-blur">
-              <h3 className="text-2xl text-white font-normal">{t.branding.performanceAxles}</h3>
+            <div className="p-4 rounded-lg login-hero-card backdrop-blur">
+              <h3 className="text-2xl login-hero-title font-normal">{t.branding.performanceAxles}</h3>
               <p className="text-sm text-primary font-bold text-justify">{t.branding.requestsProcessed}</p>
             </div>
-            <div className="p-4 rounded-lg bg-white/10 backdrop-blur">
-              <h3 className="text-2xl font-bold text-white">{t.branding.axlesForAllMarkets}</h3>
+            <div className="p-4 rounded-lg login-hero-card backdrop-blur">
+              <h3 className="text-2xl font-bold login-hero-title">{t.branding.axlesForAllMarkets}</h3>
               
             </div>
           </div>
         </div>
 
-        <p className="text-white/50 text-sm">{t.branding.copyright}</p>
+        <p className="text-sm login-hero-text">{t.branding.copyright}</p>
       </div>
 
       {/* Right side - Login form */}
