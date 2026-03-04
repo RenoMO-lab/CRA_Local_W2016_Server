@@ -112,8 +112,12 @@ const Sidebar: React.FC<SidebarProps> = ({ isCollapsed, onToggle: _onToggle, wid
 
   return (
     <aside
-      className="fixed left-0 top-[var(--cra-desktop-topbar-height)] bottom-[var(--cra-desktop-bottombar-height)] z-40 bg-sidebar transition-[width] duration-200 flex-col hidden md:flex border-r border-border/90"
-      style={{ width: sidebarWidth, background: 'var(--gradient-sidebar)' }}
+      className="fixed left-0 top-[var(--cra-desktop-topbar-height)] bottom-[var(--cra-desktop-bottombar-height)] z-40 bg-sidebar transition-[width] duration-200 flex-col hidden md:flex border-r"
+      style={{
+        width: sidebarWidth,
+        background: 'var(--gradient-sidebar)',
+        borderColor: 'hsl(var(--shell-border))',
+      }}
     >
       <nav className={cn('flex-1 overflow-y-auto scrollbar-thin', sidebarPadding)}>
         <div className="space-y-1">
