@@ -84,6 +84,16 @@ const getDesktopUpdaterBridge = (): DesktopUpdaterBridge | null => {
   return bridge as DesktopUpdaterBridge;
 };
 
+const isDesktopShellRuntime = () => {
+  if (typeof window === 'undefined') return false;
+  const anyWindow = window as any;
+  if (anyWindow?.__CRA_DESKTOP_UPDATER__ || anyWindow?.__TAURI__ || anyWindow?.__TAURI_INTERNALS__) {
+    return true;
+  }
+  const ua = String(window.navigator?.userAgent ?? '');
+  return /tauri/i.test(ua);
+};
+
 const formatTimeShort = (value?: Date | string | null) => {
   if (!value) return '--';
   const date = value instanceof Date ? value : new Date(value);
@@ -520,7 +530,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     async (prepare: ClientUpdatePrepareResponse) => {
       const bridge = getDesktopUpdaterBridge();
       if (!bridge) {
-        setDesktopUpdatePillState('hidden');
         navigate('/downloads');
         return;
       }
@@ -585,11 +594,14 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const checkDesktopInAppUpdate = useCallback(
     async (opts?: { forcePrompt?: boolean }) => {
       const bridge = getDesktopUpdaterBridge();
-      if (!bridge || !user) {
+      if (!user) {
         if (desktopUpdatePillState !== 'restart_ready') {
           setDesktopUpdatePillState('hidden');
         }
         return false;
+      }
+      if (!bridge) {
+        return desktopUpdatePillState === 'available' && Boolean(desktopUpdateTargetVersion);
       }
 
       const currentVersion = String(await bridge.getCurrentVersion().catch(() => '')).trim();
@@ -661,13 +673,12 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       );
       return true;
     },
-    [desktopUpdatePillState, installDesktopUpdate, t.appChrome, user]
+    [desktopUpdatePillState, desktopUpdateTargetVersion, installDesktopUpdate, t.appChrome, user]
   );
 
   const handleDesktopUpdatePillClick = useCallback(async () => {
     const bridge = getDesktopUpdaterBridge();
     if (!bridge) {
-      setDesktopUpdatePillState('hidden');
       navigate('/downloads');
       return;
     }
@@ -721,6 +732,14 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       const res = await fetch('/api/notifications/client-update/sync', { method: 'POST' });
       if (!res.ok) return;
       const data = await res.json().catch(() => null);
+      const syncedVersion = String(data?.version ?? '').trim();
+      if (syncedVersion && isDesktopShellRuntime() && !getDesktopUpdaterBridge()) {
+        setDesktopUpdateTargetVersion(syncedVersion);
+        setDesktopUpdatePrepare(null);
+        setDesktopUpdatePillState((prev) =>
+          prev === 'installing' || prev === 'restart_ready' ? prev : 'available'
+        );
+      }
       if (data?.createdForCurrentUser === true) {
         const prompted = await checkDesktopInAppUpdate({ forcePrompt: true });
         if (!prompted) {
