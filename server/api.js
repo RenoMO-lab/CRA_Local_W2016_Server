@@ -1,7 +1,7 @@
 import express from "express";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { execFile } from "node:child_process";
-import { createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { promises as fs } from "node:fs";
 import { Readable } from "node:stream";
 import path from "node:path";
@@ -3268,19 +3268,27 @@ const BUILD_INFO_PATH = path.join(REPO_ROOT, "dist", "build-info.json");
 const DEFAULT_CRA_CLIENT_INSTALLER_NAME = "CRA-Setup.exe";
 const DEFAULT_CRA_CLIENT_INSTALLER_PATH = path.join(REPO_ROOT, "artifacts", DEFAULT_CRA_CLIENT_INSTALLER_NAME);
 const DEFAULT_CRA_CLIENT_RELEASE_SOURCE = "github";
+const DEFAULT_CRA_CLIENT_UPDATE_SOURCE = "github";
 const DEFAULT_CRA_CLIENT_GITHUB_OWNER = "RenoMO-lab";
 const DEFAULT_CRA_CLIENT_GITHUB_REPO = "CRA_client";
 const DEFAULT_CRA_CLIENT_GITHUB_ASSET_PATTERN = "windows-x64.exe";
+const DEFAULT_CRA_CLIENT_GITHUB_UPDATE_ASSET_PATTERN = "windows-x86_64";
+const DEFAULT_CRA_CLIENT_GITHUB_UPDATE_SIG_PATTERN = ".sig";
 const DEFAULT_CRA_CLIENT_RELEASE_CACHE_SECONDS = 300;
 const DEFAULT_CRA_CLIENT_NEGATIVE_CACHE_SECONDS = 30;
 const DEFAULT_CLIENT_UPDATE_SYNC_THROTTLE_SECONDS = 300;
+const DEFAULT_CLIENT_UPDATE_TOKEN_TTL_SECONDS = 600;
+const DEFAULT_CLIENT_UPDATE_CHANNEL = "stable";
+const DEFAULT_CLIENT_UPDATE_PLATFORM = "windows-x86_64";
 const GITHUB_API_BASE = "https://api.github.com";
 const DB_BACKUP_DIR = path.resolve(process.env.DB_BACKUP_DIR || "C:\\CRA_Local_W2016_Main\\backups\\postgres");
 const MAX_DB_BACKUP_LIST = 100;
 let dbBackupInProgress = false;
 const craClientReleaseCache = new Map();
+const craClientUpdateReleaseCache = new Map();
 const clientUpdateSyncCache = new Map();
 const clientUpdateErrorLogCache = new Map();
+const runtimeClientUpdateTokenSecret = randomBytes(32).toString("hex");
 
 const clampLineCount = (value) => {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -3476,6 +3484,134 @@ const getClientUpdateSyncThrottleMs = () =>
   parsePositiveInt(process.env.CRA_CLIENT_UPDATE_SYNC_THROTTLE_SECONDS, DEFAULT_CLIENT_UPDATE_SYNC_THROTTLE_SECONDS) *
   1000;
 
+const getClientUpdateChannel = () => {
+  const raw = sanitizeDownloadText(process.env.CRA_CLIENT_UPDATE_CHANNEL).toLowerCase();
+  return raw || DEFAULT_CLIENT_UPDATE_CHANNEL;
+};
+
+const getClientUpdateTokenTtlSeconds = () =>
+  parsePositiveInt(process.env.CRA_CLIENT_UPDATE_TOKEN_TTL_SECONDS, DEFAULT_CLIENT_UPDATE_TOKEN_TTL_SECONDS);
+
+const getClientUpdateTokenSecret = () =>
+  sanitizeDownloadText(process.env.CRA_CLIENT_UPDATE_TOKEN_SECRET) ||
+  sanitizeDownloadText(process.env.BACKUP_CREDENTIALS_SECRET) ||
+  runtimeClientUpdateTokenSecret;
+
+const getCraClientUpdateSource = () => {
+  const raw = sanitizeDownloadText(process.env.CRA_CLIENT_UPDATE_SOURCE).toLowerCase();
+  if (raw === "local") return "local";
+  return DEFAULT_CRA_CLIENT_UPDATE_SOURCE;
+};
+
+const getCraClientUpdateConfig = () => {
+  const assetPattern =
+    sanitizeDownloadText(process.env.CRA_CLIENT_GITHUB_UPDATE_ASSET_PATTERN) ||
+    DEFAULT_CRA_CLIENT_GITHUB_UPDATE_ASSET_PATTERN;
+  const signaturePattern =
+    sanitizeDownloadText(process.env.CRA_CLIENT_GITHUB_UPDATE_SIG_PATTERN) || DEFAULT_CRA_CLIENT_GITHUB_UPDATE_SIG_PATTERN;
+  const localArtifactPath = sanitizeDownloadText(process.env.CRA_CLIENT_LOCAL_UPDATE_ARTIFACT_PATH);
+  const localSignaturePath = sanitizeDownloadText(process.env.CRA_CLIENT_LOCAL_UPDATE_SIG_PATH);
+  const localVersion = sanitizeDownloadText(process.env.CRA_CLIENT_LOCAL_UPDATE_VERSION);
+  const localNotes = sanitizeDownloadText(process.env.CRA_CLIENT_LOCAL_UPDATE_NOTES);
+  return {
+    assetPattern,
+    signaturePattern,
+    localArtifactPath,
+    localSignaturePath,
+    localVersion,
+    localNotes,
+  };
+};
+
+const base64UrlEncode = (value) =>
+  Buffer.from(value)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+
+const base64UrlDecode = (value) => {
+  const normalized = String(value ?? "").replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4;
+  const padded = padding ? normalized + "=".repeat(4 - padding) : normalized;
+  return Buffer.from(padded, "base64");
+};
+
+const signClientUpdatePayload = (payloadBase64) =>
+  base64UrlEncode(createHmac("sha256", getClientUpdateTokenSecret()).update(payloadBase64).digest());
+
+const createClientUpdateToken = (payloadObject) => {
+  const payload = base64UrlEncode(JSON.stringify(payloadObject));
+  const signature = signClientUpdatePayload(payload);
+  return `${payload}.${signature}`;
+};
+
+const verifyClientUpdateToken = (token) => {
+  const [payloadPart, signaturePart] = String(token ?? "").trim().split(".");
+  if (!payloadPart || !signaturePart) {
+    throw createHttpError(400, "Invalid update token");
+  }
+  const expected = signClientUpdatePayload(payloadPart);
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(signaturePart);
+  if (expectedBuffer.length !== providedBuffer.length || !timingSafeEqual(expectedBuffer, providedBuffer)) {
+    throw createHttpError(401, "Invalid update token signature");
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlDecode(payloadPart).toString("utf8"));
+  } catch {
+    throw createHttpError(400, "Invalid update token payload");
+  }
+  const exp = Number(payload?.exp ?? 0);
+  if (!Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) {
+    throw createHttpError(401, "Update token expired");
+  }
+  return payload;
+};
+
+const normalizeVersionForCompare = (rawValue) => {
+  const cleaned = String(rawValue ?? "").trim().replace(/^v/i, "");
+  if (!cleaned) return null;
+  const match = cleaned.match(/^(\d+)(?:\.(\d+))?(?:\.(\d+))?/);
+  if (!match) return null;
+  return [Number(match[1] ?? 0), Number(match[2] ?? 0), Number(match[3] ?? 0)];
+};
+
+const compareVersionsLoose = (left, right) => {
+  const a = normalizeVersionForCompare(left);
+  const b = normalizeVersionForCompare(right);
+  if (!a || !b) return 0;
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] > b[i]) return 1;
+    if (a[i] < b[i]) return -1;
+  }
+  return 0;
+};
+
+const getRequestOrigin = (req) => {
+  const protoHeader = String(req.headers["x-forwarded-proto"] ?? "").trim();
+  const proto = protoHeader ? protoHeader.split(",")[0].trim() : req.protocol || "http";
+  const host = String(req.headers["x-forwarded-host"] ?? req.get("host") ?? "").trim();
+  if (!host) return "";
+  return `${proto}://${host}`;
+};
+
+const parseContentDispositionFileName = (headerValue) => {
+  const value = String(headerValue ?? "");
+  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].trim());
+    } catch {
+      // fall through
+    }
+  }
+  const fallbackMatch = value.match(/filename="?([^";]+)"?/i);
+  return fallbackMatch?.[1] ? fallbackMatch[1].trim() : "";
+};
+
 const selectGitHubReleaseAsset = (assets, pattern) => {
   const list = Array.isArray(assets) ? assets : [];
   const needle = String(pattern ?? "").trim().toLowerCase();
@@ -3551,6 +3687,178 @@ const fetchCraClientGitHubRelease = async () => {
   return release;
 };
 
+const fetchGitHubAssetText = async (downloadUrl, cfg) => {
+  const headers = {
+    Accept: "application/octet-stream",
+    "User-Agent": "CRA-Local-Server",
+  };
+  if (cfg.token) {
+    headers.Authorization = `Bearer ${cfg.token}`;
+  }
+  const response = await fetch(downloadUrl, { headers, redirect: "follow" });
+  if (!response.ok) {
+    throw createHttpError(502, `Failed to fetch update signature asset (status ${response.status})`);
+  }
+  const raw = await response.text();
+  return String(raw ?? "").trim();
+};
+
+const selectGitHubSignatureAsset = (assets, signaturePattern, artifactName) => {
+  const list = Array.isArray(assets) ? assets : [];
+  const signatureNeedle = String(signaturePattern ?? "").trim().toLowerCase();
+  const artifactNeedle = String(artifactName ?? "").trim().toLowerCase();
+  return (
+    (signatureNeedle
+      ? list.find((asset) => String(asset?.name ?? "").toLowerCase().includes(signatureNeedle))
+      : null) ||
+    (artifactNeedle
+      ? list.find((asset) => String(asset?.name ?? "").toLowerCase() === `${artifactNeedle}.sig`)
+      : null) ||
+    list.find((asset) => String(asset?.name ?? "").toLowerCase().endsWith(".sig")) ||
+    null
+  );
+};
+
+const fetchCraClientGitHubUpdateRelease = async () => {
+  const ghCfg = getCraClientGitHubConfig();
+  const updateCfg = getCraClientUpdateConfig();
+  const cacheKey = `${ghCfg.owner}/${ghCfg.repo}|${updateCfg.assetPattern}|${updateCfg.signaturePattern}`;
+  const now = Date.now();
+  const cached = craClientUpdateReleaseCache.get(cacheKey);
+  if (cached) {
+    if (cached.value && cached.expiresAt > now) return cached.value;
+    if (cached.error && cached.errorExpiresAt > now) throw cached.error;
+  }
+
+  const headers = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "CRA-Local-Server",
+  };
+  if (ghCfg.token) {
+    headers.Authorization = `Bearer ${ghCfg.token}`;
+  }
+
+  const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(ghCfg.owner)}/${encodeURIComponent(ghCfg.repo)}/releases/latest`;
+  const response = await fetch(url, { headers });
+  if (!response.ok) {
+    const error = createHttpError(502, `GitHub release API failed with status ${response.status}`);
+    craClientUpdateReleaseCache.set(cacheKey, {
+      error,
+      errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+    });
+    throw error;
+  }
+
+  const payload = await response.json();
+  const asset = selectGitHubReleaseAsset(payload?.assets, updateCfg.assetPattern);
+  if (!asset?.browser_download_url) {
+    const error = createHttpError(502, "No matching CRA client update artifact found");
+    craClientUpdateReleaseCache.set(cacheKey, {
+      error,
+      errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+    });
+    throw error;
+  }
+
+  const sigAsset = selectGitHubSignatureAsset(payload?.assets, updateCfg.signaturePattern, asset?.name);
+  if (!sigAsset?.browser_download_url) {
+    const error = createHttpError(502, "No matching CRA client update signature asset found");
+    craClientUpdateReleaseCache.set(cacheKey, {
+      error,
+      errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+    });
+    throw error;
+  }
+
+  const signature = await fetchGitHubAssetText(sigAsset.browser_download_url, ghCfg);
+  if (!signature) {
+    const error = createHttpError(502, "CRA client update signature asset is empty");
+    craClientUpdateReleaseCache.set(cacheKey, {
+      error,
+      errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+    });
+    throw error;
+  }
+
+  const release = {
+    exists: true,
+    source: "github",
+    channel: getClientUpdateChannel(),
+    artifactName: sanitizeDownloadFileName(asset.name, DEFAULT_CRA_CLIENT_INSTALLER_NAME),
+    artifactDownloadUrl: String(asset.browser_download_url),
+    artifactSizeBytes: Number.parseInt(String(asset?.size ?? "0"), 10) || 0,
+    version: sanitizeDownloadText(payload?.tag_name),
+    notes: String(payload?.body ?? "").trim().slice(0, 4000),
+    publishedAt: sanitizeDownloadText(asset?.updated_at || payload?.published_at || payload?.created_at),
+    signature,
+  };
+
+  craClientUpdateReleaseCache.set(cacheKey, {
+    value: release,
+    expiresAt: now + getCraClientReleaseCacheTtlMs(),
+  });
+  return release;
+};
+
+const resolveCraClientLocalUpdateRelease = async () => {
+  const cfg = getCraClientUpdateConfig();
+  const configuredArtifact = cfg.localArtifactPath;
+  if (!configuredArtifact) {
+    throw createHttpError(404, "CRA client local update artifact path is not configured");
+  }
+  const artifactPath = path.isAbsolute(configuredArtifact)
+    ? configuredArtifact
+    : path.resolve(REPO_ROOT, configuredArtifact);
+  const configuredSig = cfg.localSignaturePath;
+  const signaturePath = configuredSig
+    ? path.isAbsolute(configuredSig)
+      ? configuredSig
+      : path.resolve(REPO_ROOT, configuredSig)
+    : `${artifactPath}.sig`;
+
+  const [artifactStat, signatureRaw] = await Promise.all([
+    fs.stat(artifactPath).catch(() => null),
+    fs.readFile(signaturePath, "utf8").catch(() => ""),
+  ]);
+  if (!artifactStat?.isFile()) {
+    throw createHttpError(404, "CRA client local update artifact not found");
+  }
+  const signature = String(signatureRaw ?? "").trim();
+  if (!signature) {
+    throw createHttpError(404, "CRA client local update signature not found");
+  }
+  const artifactName = sanitizeDownloadFileName(path.basename(artifactPath), DEFAULT_CRA_CLIENT_INSTALLER_NAME);
+  const version = sanitizeDownloadText(cfg.localVersion) || inferInstallerVersion(artifactName);
+  return {
+    exists: true,
+    source: "local",
+    channel: getClientUpdateChannel(),
+    artifactName,
+    artifactPath,
+    artifactSizeBytes: artifactStat.size,
+    version,
+    notes: sanitizeDownloadText(cfg.localNotes),
+    publishedAt: artifactStat.mtime.toISOString(),
+    signature,
+  };
+};
+
+const resolveCraClientUpdateTarget = async () => {
+  const source = getCraClientUpdateSource();
+  const allowFallback = shouldAllowCraClientFallback();
+
+  if (source === "local") {
+    return resolveCraClientLocalUpdateRelease();
+  }
+
+  try {
+    return await fetchCraClientGitHubUpdateRelease();
+  } catch (error) {
+    if (!allowFallback) throw error;
+    return resolveCraClientLocalUpdateRelease();
+  }
+};
+
 const resolveCraClientDownloadTarget = async () => {
   const source = getCraClientReleaseSource();
   const allowFallback = shouldAllowCraClientFallback();
@@ -3580,6 +3888,7 @@ const buildClientUpdateNotificationPayload = (installerMeta) => {
     updatedAt: sanitizeDownloadText(installerMeta?.updatedAt) || null,
     actionPath: "/downloads",
     source: sanitizeDownloadText(installerMeta?.source) || "github",
+    updateMode: "in_app",
   };
 };
 
@@ -4891,6 +5200,207 @@ export const apiRouter = (() => {
         },
         serverTime: new Date().toISOString(),
       });
+    })
+  );
+
+  router.post(
+    "/client/update/prepare",
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const channel = sanitizeDownloadText(req.body?.channel || getClientUpdateChannel()).toLowerCase() || getClientUpdateChannel();
+      const platform = sanitizeDownloadText(req.body?.platform || "").toLowerCase();
+      const currentVersion = sanitizeDownloadText(req.body?.currentVersion || "");
+      if (channel !== getClientUpdateChannel()) {
+        res.status(400).json({ error: `Unsupported update channel '${channel}'` });
+        return;
+      }
+      if (platform !== DEFAULT_CLIENT_UPDATE_PLATFORM) {
+        res.status(400).json({ error: `Unsupported update platform '${platform || "unknown"}'` });
+        return;
+      }
+
+      const emptyResponse = {
+        updateAvailable: false,
+        currentVersion: currentVersion || null,
+        targetVersion: null,
+        notes: null,
+        publishedAt: null,
+        manifestUrl: null,
+        expiresAt: null,
+      };
+
+      let target;
+      try {
+        target = await resolveCraClientUpdateTarget();
+      } catch (error) {
+        await writeAuditLogBestEffort(await getPool(), req, {
+          action: "client.update.prepare",
+          targetType: "client_update",
+          targetId: currentVersion || "unknown",
+          result: "error",
+          errorMessage: String(error?.message ?? error),
+          metadata: { channel, platform, currentVersion },
+        });
+        res.json(emptyResponse);
+        return;
+      }
+
+      const targetVersion = sanitizeDownloadText(target?.version);
+      if (!targetVersion || compareVersionsLoose(targetVersion, currentVersion) <= 0) {
+        await writeAuditLogBestEffort(await getPool(), req, {
+          action: "client.update.prepare",
+          targetType: "client_update",
+          targetId: targetVersion || "none",
+          metadata: { channel, platform, currentVersion, updateAvailable: false },
+        });
+        res.json({
+          ...emptyResponse,
+          currentVersion: currentVersion || null,
+          targetVersion: targetVersion || null,
+          notes: sanitizeDownloadText(target?.notes) || null,
+          publishedAt: sanitizeDownloadText(target?.publishedAt) || null,
+        });
+        return;
+      }
+
+      const exp = Math.floor(Date.now() / 1000) + getClientUpdateTokenTtlSeconds();
+      const tokenPayload = {
+        src: target.source === "local" ? "local" : "github",
+        channel,
+        platform,
+        ver: targetVersion,
+        notes: sanitizeDownloadText(target?.notes).slice(0, 4000),
+        pub: sanitizeDownloadText(target?.publishedAt) || new Date().toISOString(),
+        sig: String(target?.signature ?? "").trim(),
+        an: sanitizeDownloadFileName(target?.artifactName, DEFAULT_CRA_CLIENT_INSTALLER_NAME),
+        az: Number.isFinite(Number(target?.artifactSizeBytes)) ? Number(target.artifactSizeBytes) : 0,
+        ap: target?.artifactPath ? String(target.artifactPath) : null,
+        au: target?.artifactDownloadUrl ? String(target.artifactDownloadUrl) : null,
+        exp,
+      };
+
+      const token = createClientUpdateToken(tokenPayload);
+      const base = getRequestOrigin(req);
+      const manifestPath = `/api/client/update/manifest?token=${encodeURIComponent(token)}`;
+      const manifestUrl = base ? `${base}${manifestPath}` : manifestPath;
+      const expiresAt = new Date(exp * 1000).toISOString();
+
+      await writeAuditLogBestEffort(await getPool(), req, {
+        action: "client.update.prepare",
+        targetType: "client_update",
+        targetId: targetVersion,
+        metadata: { channel, platform, currentVersion, updateAvailable: true, source: tokenPayload.src },
+      });
+
+      res.json({
+        updateAvailable: true,
+        currentVersion: currentVersion || null,
+        targetVersion,
+        notes: tokenPayload.notes || null,
+        publishedAt: tokenPayload.pub || null,
+        manifestUrl,
+        expiresAt,
+      });
+    })
+  );
+
+  router.get(
+    "/client/update/manifest",
+    asyncHandler(async (req, res) => {
+      const token = String(req.query.token ?? "").trim();
+      const payload = verifyClientUpdateToken(token);
+      const base = getRequestOrigin(req);
+      const artifactPath = `/api/client/update/artifact?token=${encodeURIComponent(token)}`;
+      const signaturePath = `/api/client/update/signature?token=${encodeURIComponent(token)}`;
+      const artifactUrl = base ? `${base}${artifactPath}` : artifactPath;
+      const signatureUrl = base ? `${base}${signaturePath}` : signaturePath;
+
+      res.json({
+        version: payload.ver,
+        notes: payload.notes || "",
+        pub_date: payload.pub || null,
+        platforms: {
+          [payload.platform || DEFAULT_CLIENT_UPDATE_PLATFORM]: {
+            url: artifactUrl,
+            signature: payload.sig || "",
+            signature_url: signatureUrl,
+          },
+        },
+      });
+    })
+  );
+
+  router.get(
+    "/client/update/signature",
+    asyncHandler(async (req, res) => {
+      const token = String(req.query.token ?? "").trim();
+      const payload = verifyClientUpdateToken(token);
+      const signature = String(payload?.sig ?? "").trim();
+      if (!signature) {
+        res.status(404).json({ error: "Update signature not available" });
+        return;
+      }
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.send(signature);
+    })
+  );
+
+  router.get(
+    "/client/update/artifact",
+    asyncHandler(async (req, res) => {
+      const token = String(req.query.token ?? "").trim();
+      const payload = verifyClientUpdateToken(token);
+      const fileName = sanitizeDownloadFileName(payload?.an, DEFAULT_CRA_CLIENT_INSTALLER_NAME);
+
+      if (payload?.src === "local") {
+        const artifactPath = String(payload?.ap ?? "").trim();
+        if (!artifactPath) {
+          res.status(404).json({ error: "Update artifact not found" });
+          return;
+        }
+        const st = await fs.stat(artifactPath).catch(() => null);
+        if (!st?.isFile()) {
+          res.status(404).json({ error: "Update artifact not found" });
+          return;
+        }
+        res.setHeader("Content-Type", "application/octet-stream");
+        res.setHeader("Content-Length", String(st.size));
+        setContentDispositionSafe(res, "attachment", fileName);
+        createReadStream(artifactPath).pipe(res);
+        return;
+      }
+
+      const downloadUrl = String(payload?.au ?? "").trim();
+      if (!downloadUrl) {
+        res.status(404).json({ error: "Update artifact URL is missing" });
+        return;
+      }
+
+      const cfg = getCraClientGitHubConfig();
+      const headers = {
+        Accept: "application/octet-stream",
+        "User-Agent": "CRA-Local-Server",
+      };
+      if (cfg.token) {
+        headers.Authorization = `Bearer ${cfg.token}`;
+      }
+
+      const assetResponse = await fetch(downloadUrl, {
+        headers,
+        redirect: "follow",
+      });
+      if (!assetResponse.ok || !assetResponse.body) {
+        res.status(502).json({ error: `Failed to fetch update artifact (status ${assetResponse.status})` });
+        return;
+      }
+      const contentType = assetResponse.headers.get("content-type") || "application/octet-stream";
+      const contentLength = assetResponse.headers.get("content-length");
+      res.setHeader("Content-Type", contentType);
+      if (contentLength) {
+        res.setHeader("Content-Length", contentLength);
+      }
+      setContentDispositionSafe(res, "attachment", fileName);
+      Readable.fromWeb(assetResponse.body).pipe(res);
     })
   );
 

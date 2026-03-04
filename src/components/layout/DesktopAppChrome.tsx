@@ -54,6 +54,34 @@ interface AppNotification {
   readAt: string | null;
 }
 
+type DesktopUpdaterBridge = {
+  getCurrentVersion: () => Promise<string>;
+  checkForUpdate?: (payload?: Record<string, any>) => Promise<{ available: boolean; current: string; target?: string }>;
+  installUpdate: (payload?: Record<string, any>) => Promise<{ started: boolean } | boolean | void>;
+  restartApp: () => Promise<void>;
+};
+
+type ClientUpdatePrepareResponse = {
+  updateAvailable: boolean;
+  currentVersion: string | null;
+  targetVersion: string | null;
+  notes: string | null;
+  publishedAt: string | null;
+  manifestUrl: string | null;
+  expiresAt: string | null;
+};
+
+const DESKTOP_UPDATE_PLATFORM = 'windows-x86_64';
+
+const getDesktopUpdaterBridge = (): DesktopUpdaterBridge | null => {
+  const bridge = (window as any)?.__CRA_DESKTOP_UPDATER__;
+  if (!bridge) return null;
+  if (typeof bridge.getCurrentVersion !== 'function') return null;
+  if (typeof bridge.installUpdate !== 'function') return null;
+  if (typeof bridge.restartApp !== 'function') return null;
+  return bridge as DesktopUpdaterBridge;
+};
+
 const formatTimeShort = (value?: Date | string | null) => {
   if (!value) return '--';
   const date = value instanceof Date ? value : new Date(value);
@@ -353,6 +381,9 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   } = useAppShell();
   const { refreshRequests, lastSyncAt, syncState, syncError } = useRequests();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const desktopUpdatePromptedVersionRef = useRef<string>('');
+  const desktopUpdateManifestUrlRef = useRef<string>('');
+  const desktopUpdateInstallBusyRef = useRef(false);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -480,6 +511,122 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     [user]
   );
 
+  const installDesktopUpdate = useCallback(
+    async (prepare: ClientUpdatePrepareResponse) => {
+      const bridge = getDesktopUpdaterBridge();
+      if (!bridge) {
+        navigate('/downloads');
+        return;
+      }
+      const manifestUrl = String(prepare?.manifestUrl ?? desktopUpdateManifestUrlRef.current ?? '').trim();
+      if (!manifestUrl) {
+        toast.error(t.appChrome.desktopUpdateManifestMissing);
+        navigate('/downloads');
+        return;
+      }
+      if (desktopUpdateInstallBusyRef.current) return;
+      desktopUpdateInstallBusyRef.current = true;
+      try {
+        const manifestRes = await fetch(manifestUrl, { cache: 'no-store' });
+        if (!manifestRes.ok) {
+          throw new Error(`Failed to load update manifest (${manifestRes.status})`);
+        }
+        const manifestPayload = await manifestRes.json().catch(() => null);
+        const platformNode =
+          manifestPayload?.platforms?.[DESKTOP_UPDATE_PLATFORM] ??
+          manifestPayload?.platforms?.['windows-x86_64'] ??
+          null;
+        const artifactUrl = String(platformNode?.url ?? '').trim();
+        if (!artifactUrl) {
+          throw new Error(t.appChrome.desktopUpdateArtifactMissing);
+        }
+        await bridge.installUpdate({
+          manifestUrl,
+          artifactUrl,
+          targetVersion: prepare?.targetVersion || null,
+        });
+        toast.success(t.appChrome.desktopUpdateInstallReadyTitle, {
+          description: t.appChrome.desktopUpdateInstallReadyBody,
+          action: {
+            label: t.appChrome.desktopUpdateRestartNow,
+            onClick: () => {
+              void bridge.restartApp().catch(() => {
+                toast.error(t.appChrome.desktopUpdateRestartFailed);
+              });
+            },
+          },
+        });
+      } catch (error) {
+        const reason = String((error as any)?.message ?? error).trim();
+        toast.error(t.appChrome.desktopUpdateInstallFailedTitle, {
+          description: interpolate(t.appChrome.desktopUpdateInstallFailedBody, { reason: reason || '-' }),
+          action: {
+            label: t.downloads.openDownloads,
+            onClick: () => navigate('/downloads'),
+          },
+        });
+      } finally {
+        desktopUpdateInstallBusyRef.current = false;
+      }
+    },
+    [navigate, t.appChrome, t.downloads.openDownloads]
+  );
+
+  const checkDesktopInAppUpdate = useCallback(
+    async (opts?: { forcePrompt?: boolean }) => {
+      const bridge = getDesktopUpdaterBridge();
+      if (!bridge || !user) return false;
+
+      const currentVersion = String(await bridge.getCurrentVersion().catch(() => '')).trim();
+      if (!currentVersion) return false;
+
+      const prepareRes = await fetch('/api/client/update/prepare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentVersion,
+          platform: DESKTOP_UPDATE_PLATFORM,
+          channel: 'stable',
+        }),
+      });
+      if (!prepareRes.ok) return false;
+
+      const prepare = (await prepareRes.json().catch(() => null)) as ClientUpdatePrepareResponse | null;
+      if (!prepare?.updateAvailable || !prepare.targetVersion || !prepare.manifestUrl) return false;
+
+      desktopUpdateManifestUrlRef.current = String(prepare.manifestUrl ?? '').trim();
+      if (
+        !opts?.forcePrompt &&
+        desktopUpdatePromptedVersionRef.current &&
+        desktopUpdatePromptedVersionRef.current === prepare.targetVersion
+      ) {
+        return true;
+      }
+      desktopUpdatePromptedVersionRef.current = prepare.targetVersion;
+
+      toast.message(
+        interpolate(t.appChrome.desktopUpdateAvailableTitle, {
+          version: prepare.targetVersion,
+        }),
+        {
+          description: prepare.notes || t.appChrome.desktopUpdateAvailableBody,
+          action: {
+            label: t.appChrome.desktopUpdateNow,
+            onClick: () => {
+              void installDesktopUpdate(prepare);
+            },
+          },
+          cancel: {
+            label: t.appChrome.desktopUpdateLater,
+            onClick: () => {},
+          },
+        }
+      );
+      return true;
+    },
+    [installDesktopUpdate, t.appChrome, user]
+  );
+
   useEffect(() => {
     if (!notificationsOpen) return;
     fetchNotifications(notificationsFilter);
@@ -511,13 +658,16 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       if (!res.ok) return;
       const data = await res.json().catch(() => null);
       if (data?.createdForCurrentUser === true) {
-        toast.success(t.downloads.updateToastTitle, {
-          description: t.downloads.updateToastDesc,
-          action: {
-            label: t.downloads.openDownloads,
-            onClick: () => navigate('/downloads'),
-          },
-        });
+        const prompted = await checkDesktopInAppUpdate({ forcePrompt: true });
+        if (!prompted) {
+          toast.success(t.downloads.updateToastTitle, {
+            description: t.downloads.updateToastDesc,
+            action: {
+              label: t.downloads.openDownloads,
+              onClick: () => navigate('/downloads'),
+            },
+          });
+        }
       }
       await fetchUnreadCount();
       if (notificationsOpen) {
@@ -526,7 +676,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     } catch {
       // ignore transient sync errors
     }
-  }, [fetchNotifications, fetchUnreadCount, navigate, notificationsFilter, notificationsOpen, t.downloads, user]);
+  }, [checkDesktopInAppUpdate, fetchNotifications, fetchUnreadCount, navigate, notificationsFilter, notificationsOpen, t.downloads, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -544,6 +694,28 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       if (timerId) window.clearInterval(timerId);
     };
   }, [syncClientUpdateNotification, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    if (!getDesktopUpdaterBridge()) return;
+
+    let timerId: number | undefined;
+    const tick = async () => {
+      if (document.visibilityState !== 'visible') return;
+      try {
+        await checkDesktopInAppUpdate();
+      } catch {
+        // Best effort only; do not interrupt user flow.
+      }
+    };
+
+    void tick();
+    timerId = window.setInterval(tick, 6 * 60 * 60 * 1000);
+
+    return () => {
+      if (timerId) window.clearInterval(timerId);
+    };
+  }, [checkDesktopInAppUpdate, user]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -587,6 +759,14 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       await handleMarkRead(item.id);
     }
     const actionPath = typeof item.payload?.actionPath === 'string' ? item.payload.actionPath : '';
+    if (item.type === 'client_update_available') {
+      const prompted = await checkDesktopInAppUpdate({ forcePrompt: true });
+      if (!prompted) {
+        navigate('/downloads');
+      }
+      setNotificationsOpen(false);
+      return;
+    }
     if (actionPath.startsWith('/contract-approvals')) {
       navigate(actionPath);
       setNotificationsOpen(false);

@@ -81,6 +81,18 @@ CRA_CLIENT_INSTALLER_NAME=CRA-Client-latest.exe
 CRA_CLIENT_INSTALLER_VERSION=v0.1.19
 CRA_CLIENT_INSTALLER_SHA256=
 
+# CRA desktop in-app update feed (tokenized, auth-protected)
+CRA_CLIENT_UPDATE_SOURCE=github
+CRA_CLIENT_UPDATE_CHANNEL=stable
+CRA_CLIENT_UPDATE_TOKEN_TTL_SECONDS=600
+CRA_CLIENT_UPDATE_TOKEN_SECRET=
+CRA_CLIENT_GITHUB_UPDATE_ASSET_PATTERN=windows-x86_64
+CRA_CLIENT_GITHUB_UPDATE_SIG_PATTERN=.sig
+CRA_CLIENT_LOCAL_UPDATE_ARTIFACT_PATH=C:\CRA_Local_Main\artifacts\CRA-Client-updater.exe
+CRA_CLIENT_LOCAL_UPDATE_SIG_PATH=C:\CRA_Local_Main\artifacts\CRA-Client-updater.exe.sig
+CRA_CLIENT_LOCAL_UPDATE_VERSION=v0.1.20
+CRA_CLIENT_LOCAL_UPDATE_NOTES=
+
 # Bootstrap admin (used only when app_users is empty)
 BOOTSTRAP_ADMIN_NAME=Admin
 BOOTSTRAP_ADMIN_EMAIL=r.molinier@sonasia.monroc.com
@@ -103,6 +115,11 @@ CRA Client download notes:
 - The file is served by authenticated API endpoints:
   - `GET /api/client/download-info`
   - `GET /api/client/download`
+- In-app desktop update flow endpoints:
+  - `POST /api/client/update/prepare` (authenticated)
+  - `GET /api/client/update/manifest?token=...`
+  - `GET /api/client/update/artifact?token=...`
+  - `GET /api/client/update/signature?token=...`
 - Default mode (`CRA_CLIENT_RELEASE_SOURCE=github`) auto-tracks latest GitHub release from `RenoMO-lab/CRA_client`.
 - Users still download from your server endpoint (`/api/client/download`), but bytes are streamed from latest GitHub asset.
 - Local fallback mode stays available:
