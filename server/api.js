@@ -365,6 +365,9 @@ const CLIENT_OFFER_PROFILE_DEFAULT = Object.freeze({
   phone: "+86 132 5688 9718",
   email: "kevin@sonasia.monroc.com",
   contactName: "Kevin Zhu",
+  offerMessageEn:
+    "Thank you for the opportunity to support your project.\nPlease find below our customized quotation, developed to ensure reliability, performance, and cost efficiency in line with your expectations. We are ready to proceed at your convenience.",
+  offerMessageZh: "感谢您的关注，请查收以下报价内容。",
 });
 
 const sanitizeClientOfferProfileInput = (input) => ({
@@ -375,6 +378,8 @@ const sanitizeClientOfferProfileInput = (input) => ({
   phone: typeof input?.phone === "string" ? input.phone.trim() : "",
   email: typeof input?.email === "string" ? input.email.trim() : "",
   contactName: typeof input?.contactName === "string" ? input.contactName.trim() : "",
+  offerMessageEn: typeof input?.offerMessageEn === "string" ? input.offerMessageEn.trim() : "",
+  offerMessageZh: typeof input?.offerMessageZh === "string" ? input.offerMessageZh.trim() : "",
 });
 
 const mapClientOfferProfileRow = (row) => {
@@ -387,6 +392,8 @@ const mapClientOfferProfileRow = (row) => {
     phone: String(row?.phone ?? fallback.phone),
     email: String(row?.email ?? fallback.email),
     contactName: String(row?.contact_name ?? fallback.contactName),
+    offerMessageEn: String(row?.offer_message_en ?? fallback.offerMessageEn),
+    offerMessageZh: String(row?.offer_message_zh ?? fallback.offerMessageZh),
     updatedAt: row?.updated_at ?? null,
     updatedByUserId: row?.updated_by_user_id ?? null,
   };
@@ -397,9 +404,9 @@ const ensureClientOfferProfileRow = async (pool) => {
   await pool.query(
     `
     INSERT INTO client_offer_profile_settings
-      (id, company_name_local, company_name_en, address, address_zh, phone, email, contact_name)
+      (id, company_name_local, company_name_en, address, address_zh, phone, email, contact_name, offer_message_en, offer_message_zh)
     VALUES
-      (1,$1,$2,$3,$4,$5,$6,$7)
+      (1,$1,$2,$3,$4,$5,$6,$7,$8,$9)
     ON CONFLICT (id) DO NOTHING
     `,
     [
@@ -410,6 +417,8 @@ const ensureClientOfferProfileRow = async (pool) => {
       fallback.phone,
       fallback.email,
       fallback.contactName,
+      fallback.offerMessageEn,
+      fallback.offerMessageZh,
     ]
   );
 };
@@ -426,6 +435,8 @@ const getClientOfferProfile = async (pool) => {
       phone,
       email,
       contact_name,
+      offer_message_en,
+      offer_message_zh,
       updated_at,
       updated_by_user_id
     FROM client_offer_profile_settings
@@ -450,8 +461,10 @@ const updateClientOfferProfile = async (pool, input, actorUserId) => {
         phone = $5,
         email = $6,
         contact_name = $7,
+        offer_message_en = $8,
+        offer_message_zh = $9,
         updated_at = now(),
-        updated_by_user_id = $8
+        updated_by_user_id = $10
     WHERE id = 1
     RETURNING
       company_name_local,
@@ -461,6 +474,8 @@ const updateClientOfferProfile = async (pool, input, actorUserId) => {
       phone,
       email,
       contact_name,
+      offer_message_en,
+      offer_message_zh,
       updated_at,
       updated_by_user_id
     `,
@@ -472,6 +487,8 @@ const updateClientOfferProfile = async (pool, input, actorUserId) => {
       next.phone,
       next.email,
       next.contactName,
+      next.offerMessageEn,
+      next.offerMessageZh,
       String(actorUserId ?? "").trim() || null,
     ]
   );
@@ -592,6 +609,8 @@ const getRequestOwnerOfferProfileForPdf = async (pool, requestId) => {
     companyNameEn: String(globalProfile?.companyNameEn ?? ""),
     address: String(globalProfile?.address ?? ""),
     addressZh: String(globalProfile?.addressZh ?? ""),
+    offerMessageEn: String(globalProfile?.offerMessageEn ?? ""),
+    offerMessageZh: String(globalProfile?.offerMessageZh ?? ""),
     contactName: String(ownerProfile?.contactName ?? ""),
     contactEmail: String(ownerProfile?.contactEmail ?? ""),
     mobile: String(ownerProfile?.mobile ?? ""),

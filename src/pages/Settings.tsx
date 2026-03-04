@@ -199,6 +199,8 @@ interface ClientOfferProfile {
   companyNameEn: string;
   address: string;
   addressZh: string;
+  offerMessageEn: string;
+  offerMessageZh: string;
   phone: string;
   email: string;
   contactName: string;
@@ -554,6 +556,8 @@ const Settings: React.FC = () => {
     companyNameEn: '',
     address: '',
     addressZh: '',
+    offerMessageEn: '',
+    offerMessageZh: '',
     phone: '',
     email: '',
     contactName: '',
@@ -996,6 +1000,8 @@ const Settings: React.FC = () => {
         companyNameEn: String(data?.companyNameEn ?? ''),
         address: String(data?.address ?? ''),
         addressZh: String(data?.addressZh ?? ''),
+        offerMessageEn: String(data?.offerMessageEn ?? ''),
+        offerMessageZh: String(data?.offerMessageZh ?? ''),
         phone: String(data?.phone ?? ''),
         email: String(data?.email ?? ''),
         contactName: String(data?.contactName ?? ''),
@@ -1026,6 +1032,8 @@ const Settings: React.FC = () => {
           companyNameEn: clientOfferProfile.companyNameEn,
           address: clientOfferProfile.address,
           addressZh: clientOfferProfile.addressZh,
+          offerMessageEn: clientOfferProfile.offerMessageEn,
+          offerMessageZh: clientOfferProfile.offerMessageZh,
           phone: clientOfferProfile.phone,
           email: clientOfferProfile.email,
           contactName: clientOfferProfile.contactName,
@@ -1040,6 +1048,8 @@ const Settings: React.FC = () => {
         companyNameEn: String(data?.companyNameEn ?? ''),
         address: String(data?.address ?? ''),
         addressZh: String(data?.addressZh ?? ''),
+        offerMessageEn: String(data?.offerMessageEn ?? ''),
+        offerMessageZh: String(data?.offerMessageZh ?? ''),
         phone: String(data?.phone ?? ''),
         email: String(data?.email ?? ''),
         contactName: String(data?.contactName ?? ''),
@@ -3100,6 +3110,26 @@ const Settings: React.FC = () => {
                     value={clientOfferProfile.addressZh}
                     onChange={(e) =>
                       setClientOfferProfile((prev) => ({ ...prev, addressZh: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.clientOffer.offerMessageEn}</Label>
+                  <Textarea
+                    value={clientOfferProfile.offerMessageEn}
+                    rows={4}
+                    onChange={(e) =>
+                      setClientOfferProfile((prev) => ({ ...prev, offerMessageEn: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.clientOffer.offerMessageZh}</Label>
+                  <Textarea
+                    value={clientOfferProfile.offerMessageZh}
+                    rows={4}
+                    onChange={(e) =>
+                      setClientOfferProfile((prev) => ({ ...prev, offerMessageZh: e.target.value }))
                     }
                   />
                 </div>

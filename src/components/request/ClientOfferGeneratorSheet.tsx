@@ -42,6 +42,8 @@ type ClientOfferProfile = {
   companyNameEn: string;
   address: string;
   addressZh: string;
+  offerMessageEn: string;
+  offerMessageZh: string;
   mobile: string;
   contactEmail: string;
   contactName: string;
@@ -317,6 +319,21 @@ const normalizeConfig = (
   };
 };
 
+const resolveOfferIntroTemplate = (
+  profile: Pick<ClientOfferProfile, 'offerMessageEn' | 'offerMessageZh'> | null,
+  selectedLanguage: Language,
+  fallbackDefault: string
+) => {
+  const english = String(profile?.offerMessageEn ?? '').trim();
+  const chinese = String(profile?.offerMessageZh ?? '').trim();
+  const fallback = String(fallbackDefault ?? '').trim();
+  const candidates =
+    selectedLanguage === 'zh'
+      ? [chinese, english, fallback]
+      : [english, chinese, fallback];
+  return candidates.find((entry) => entry.length > 0) ?? '';
+};
+
 const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
   open,
   onOpenChange,
@@ -333,6 +350,7 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [pdfLanguage, setPdfLanguage] = useState<Language>(language);
+  const [isIntroAutoPrefilled, setIsIntroAutoPrefilled] = useState(true);
 
   const attachments = useMemo(() => collectRequestAttachments(request), [request]);
   const selectedAttachmentCount = useMemo(() => {
@@ -346,6 +364,8 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
 
   useEffect(() => {
     if (!open) return;
+    const hasSavedIntro = String(request.clientOfferConfig?.introText ?? '').trim().length > 0;
+    setIsIntroAutoPrefilled(!hasSavedIntro);
     setConfig(
       normalizeConfig(
         request,
@@ -374,6 +394,8 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
           companyNameEn: String(data?.companyNameEn ?? ''),
           address: String(data?.address ?? ''),
           addressZh: String(data?.addressZh ?? ''),
+          offerMessageEn: String(data?.offerMessageEn ?? ''),
+          offerMessageZh: String(data?.offerMessageZh ?? ''),
           mobile: String(data?.mobile ?? ''),
           contactEmail: String(data?.contactEmail ?? ''),
           contactName: String(data?.contactName ?? ''),
@@ -399,6 +421,17 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
       cancelled = true;
     };
   }, [open, request.id, t.clientOffer.profileLoadFailed, t.request.error, toast]);
+
+  useEffect(() => {
+    if (!open || !config || !isIntroAutoPrefilled) return;
+    const nextIntro = resolveOfferIntroTemplate(profile, pdfLanguage, String(t.clientOffer.defaultIntro));
+    if (!nextIntro) return;
+    setConfig((prev) => {
+      if (!prev) return prev;
+      if (String(prev.introText ?? '') === nextIntro) return prev;
+      return { ...prev, introText: nextIntro };
+    });
+  }, [open, config, isIntroAutoPrefilled, profile, pdfLanguage, t.clientOffer.defaultIntro]);
 
   const toggleAttachment = (attachmentId: string, checked: boolean) => {
     setConfig((prev) => {
@@ -551,7 +584,10 @@ const ClientOfferGeneratorSheet: React.FC<ClientOfferGeneratorSheetProps> = ({
                       <Label>{t.clientOffer.introText}</Label>
                       <Textarea
                         value={config.introText}
-                        onChange={(e) => setConfig((prev) => prev ? { ...prev, introText: e.target.value } : prev)}
+                        onChange={(e) => {
+                          setIsIntroAutoPrefilled(false);
+                          setConfig((prev) => prev ? { ...prev, introText: e.target.value } : prev);
+                        }}
                         rows={3}
                       />
                     </div>
