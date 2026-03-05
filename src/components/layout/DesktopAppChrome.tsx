@@ -195,11 +195,26 @@ const resolveDesktopUpdaterBridge = (): {
       const resilientBridge: DesktopUpdaterBridge = {
         ...scripted,
         getCurrentVersion: async () => {
+          let scriptedError = '';
           try {
-            return await scripted.getCurrentVersion();
-          } catch {
-            return await invokeFallback('desktop_get_current_version');
+            const scriptedVersion = extractDesktopVersion(await scripted.getCurrentVersion());
+            if (scriptedVersion) return scriptedVersion;
+          } catch (error) {
+            scriptedError = String((error as any)?.message ?? error).trim();
           }
+
+          let invokeError = '';
+          try {
+            const invokeVersion = extractDesktopVersion(await invokeFallback('desktop_get_current_version'));
+            if (invokeVersion) return invokeVersion;
+          } catch (error) {
+            invokeError = String((error as any)?.message ?? error).trim();
+          }
+
+          const detailParts: string[] = [];
+          detailParts.push(scriptedError ? `scripted error: ${scriptedError}` : 'scripted returned empty');
+          detailParts.push(invokeError ? `invoke error: ${invokeError}` : 'invoke returned empty');
+          throw new Error(`desktop_get_current_version unresolved (${detailParts.join('; ')})`);
         },
         pingUpdater: async () => {
           if (typeof scripted.pingUpdater === 'function') {
@@ -851,18 +866,47 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     let currentVersion = '';
     let currentVersionError = '';
     let usedUnknownVersionFallback = false;
+    const versionResolutionChain: string[] = [];
     try {
       const currentVersionRaw = await bridge.getCurrentVersion();
       currentVersion = extractDesktopVersion(currentVersionRaw);
+      if (currentVersion) {
+        versionResolutionChain.push(`bridge.getCurrentVersion resolved (${currentVersion})`);
+      } else {
+        versionResolutionChain.push('bridge.getCurrentVersion returned empty');
+      }
     } catch (error) {
       currentVersionError = String((error as any)?.message ?? error).trim();
+      versionResolutionChain.push(`bridge.getCurrentVersion error: ${currentVersionError || 'unknown error'}`);
     }
     if (!currentVersion) {
       const invokeResolution = resolveDesktopInvoke();
+      let directVersionError = '';
+      if (invokeResolution.invoke) {
+        try {
+          const directVersionRaw = await invokeResolution.invoke('desktop_get_current_version');
+          const directVersion = extractDesktopVersion(directVersionRaw);
+          if (directVersion) {
+            currentVersion = directVersion;
+            versionResolutionChain.push(`direct desktop_get_current_version resolved (${directVersion})`);
+          } else {
+            versionResolutionChain.push('direct desktop_get_current_version returned empty');
+          }
+        } catch (error) {
+          directVersionError = String((error as any)?.message ?? error).trim();
+          versionResolutionChain.push(`direct desktop_get_current_version error: ${directVersionError || 'unknown error'}`);
+        }
+      } else {
+        versionResolutionChain.push('direct desktop_get_current_version unavailable (no invoke bridge)');
+      }
+
+      const combinedVersionError = [currentVersionError, directVersionError].filter(Boolean).join(' | ').trim();
+
       if (invokeResolution.invoke) {
         const aboutPayload = (await invokeResolution.invoke('get_about_info').catch(() => null)) as DesktopAboutInfoResponse | null;
         const legacyVersion = extractDesktopVersion(aboutPayload);
         if (legacyVersion) {
+          versionResolutionChain.push(`get_about_info resolved (${legacyVersion})`);
           setDesktopUpdateLegacyVersion(legacyVersion);
           setDesktopClientVersion(legacyVersion);
           updateDesktopUpdaterDiagnostics(
@@ -870,23 +914,28 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
             `legacy desktop client detected (version ${legacyVersion}); bootstrap update required`
           );
           return null;
+        } else {
+          versionResolutionChain.push('get_about_info returned empty');
         }
       }
       const hostVersion = extractDesktopVersion((window as any)?.__CRA_DESKTOP_HOST__);
       if (hostVersion) {
         currentVersion = hostVersion;
+        versionResolutionChain.push(`__CRA_DESKTOP_HOST__ resolved (${hostVersion})`);
+      } else {
+        versionResolutionChain.push('__CRA_DESKTOP_HOST__ returned empty');
       }
-      const normalizedVersionError = currentVersionError.toLowerCase();
+      const normalizedVersionError = combinedVersionError.toLowerCase();
       const ipcAccessDenied =
         normalizedVersionError.includes('tauri api') ||
         normalizedVersionError.includes('not allowed') ||
         normalizedVersionError.includes('forbidden') ||
         normalizedVersionError.includes('ipc') ||
         normalizedVersionError.includes('remote domain');
-      if (!currentVersion && currentVersionError && ipcAccessDenied) {
+      if (!currentVersion && combinedVersionError && ipcAccessDenied) {
         updateDesktopUpdaterDiagnostics(
           'invoke_unavailable',
-          `tauri remote IPC blocked for current domain: ${currentVersionError}`
+          `tauri remote IPC blocked for current domain: ${combinedVersionError}`
         );
         return null;
       }
@@ -899,14 +948,14 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       ) {
         updateDesktopUpdaterDiagnostics(
           'legacy_updater_missing_commands',
-          `legacy desktop updater commands unavailable: ${currentVersionError}`
+          `legacy desktop updater commands unavailable: ${combinedVersionError || 'desktop_get_current_version missing'}`
         );
         return null;
       }
       if (!currentVersion) {
-        const detail = currentVersionError
-          ? `desktop_get_current_version failed: ${currentVersionError}`
-          : 'desktop bridge returned an empty version';
+        const detail = combinedVersionError
+          ? `desktop_get_current_version failed (${combinedVersionError}); probes=${versionResolutionChain.join(' -> ')}`
+          : `desktop bridge returned an empty version; probes=${versionResolutionChain.join(' -> ')}`;
         updateDesktopUpdaterDiagnostics('version_unavailable', detail);
         currentVersion = DESKTOP_UPDATE_UNKNOWN_VERSION_FALLBACK;
         usedUnknownVersionFallback = true;
