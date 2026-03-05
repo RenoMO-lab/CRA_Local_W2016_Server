@@ -8,9 +8,17 @@ declare global {
     | 'bridge_missing'
     | 'invoke_unavailable'
     | 'bridge_incomplete'
+    | 'legacy_updater_missing_commands'
+    | 'legacy_version_detected'
     | 'capability_disabled'
     | 'version_unavailable'
     | 'prepare_failed';
+
+  interface CraDesktopAboutInfo {
+    version?: string | null;
+    title?: string | null;
+    app_host?: string | null;
+  }
 
   interface Window {
     __CRA_DESKTOP_UPDATER__?: {

@@ -95,6 +95,8 @@ type DesktopUpdaterBridgeState =
   | 'bridge_missing'
   | 'invoke_unavailable'
   | 'bridge_incomplete'
+  | 'legacy_updater_missing_commands'
+  | 'legacy_version_detected'
   | 'capability_disabled'
   | 'version_unavailable'
   | 'prepare_failed';
@@ -121,6 +123,15 @@ type DesktopInvokeResolution = {
   invoke: ((command: string, payload?: Record<string, any>) => Promise<any>) | null;
   source: string | null;
 };
+
+type DesktopAboutInfoResponse = {
+  version?: string | null;
+  title?: string | null;
+  app_host?: string | null;
+};
+
+const isLegacyBootstrapState = (state: DesktopUpdaterBridgeState) =>
+  state === 'legacy_updater_missing_commands' || state === 'legacy_version_detected';
 
 const resolveDesktopInvoke = (): DesktopInvokeResolution => {
   const tauriObj = (window as any)?.__TAURI__;
@@ -177,9 +188,9 @@ const resolveDesktopUpdaterBridge = (): {
   if (!invokeResolution.invoke) {
     return {
       bridge: null,
-      state: hasScriptedBridge ? 'bridge_incomplete' : 'invoke_unavailable',
+      state: hasScriptedBridge ? 'legacy_updater_missing_commands' : 'invoke_unavailable',
       detail: hasScriptedBridge
-        ? 'bridge object is incomplete and invoke fallback is unavailable'
+        ? 'legacy desktop updater bridge is missing required methods and invoke fallback is unavailable'
         : 'window.__CRA_DESKTOP_UPDATER__ is missing and no tauri invoke bridge was found',
     };
   }
@@ -548,6 +559,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const [desktopUpdatePillState, setDesktopUpdatePillState] = useState<DesktopUpdatePillState>('hidden');
   const [desktopUpdateTargetVersion, setDesktopUpdateTargetVersion] = useState<string>('');
   const [desktopUpdateNotifiedVersion, setDesktopUpdateNotifiedVersion] = useState<string>('');
+  const [desktopUpdateLegacyVersion, setDesktopUpdateLegacyVersion] = useState<string>('');
   const [desktopUpdatePrepare, setDesktopUpdatePrepare] = useState<ClientUpdatePrepareResponse | null>(null);
   const [desktopUpdateConfirmOpen, setDesktopUpdateConfirmOpen] = useState(false);
   const [desktopUpdateProgressOpen, setDesktopUpdateProgressOpen] = useState(false);
@@ -752,11 +764,47 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       }
     }
 
-    const currentVersion = String(await bridge.getCurrentVersion().catch(() => '')).trim();
+    let currentVersion = '';
+    let currentVersionError = '';
+    try {
+      currentVersion = String(await bridge.getCurrentVersion()).trim();
+    } catch (error) {
+      currentVersionError = String((error as any)?.message ?? error).trim();
+    }
     if (!currentVersion) {
-      updateDesktopUpdaterDiagnostics('version_unavailable', 'desktop bridge returned an empty version');
+      const invokeResolution = resolveDesktopInvoke();
+      if (invokeResolution.invoke) {
+        const aboutPayload = (await invokeResolution.invoke('get_about_info').catch(() => null)) as DesktopAboutInfoResponse | null;
+        const legacyVersion = String(aboutPayload?.version ?? '').trim();
+        if (legacyVersion) {
+          setDesktopUpdateLegacyVersion(legacyVersion);
+          updateDesktopUpdaterDiagnostics(
+            'legacy_version_detected',
+            `legacy desktop client detected (version ${legacyVersion}); bootstrap update required`
+          );
+          return null;
+        }
+      }
+      const normalizedVersionError = currentVersionError.toLowerCase();
+      if (
+        normalizedVersionError.includes('desktop_get_current_version') &&
+        (normalizedVersionError.includes('unknown') ||
+          normalizedVersionError.includes('not found') ||
+          normalizedVersionError.includes('does not exist'))
+      ) {
+        updateDesktopUpdaterDiagnostics(
+          'legacy_updater_missing_commands',
+          `legacy desktop updater commands unavailable: ${currentVersionError}`
+        );
+        return null;
+      }
+      const detail = currentVersionError
+        ? `desktop_get_current_version failed: ${currentVersionError}`
+        : 'desktop bridge returned an empty version';
+      updateDesktopUpdaterDiagnostics('version_unavailable', detail);
       return null;
     }
+    setDesktopUpdateLegacyVersion('');
 
     const prepareRes = await fetch('/api/client/update/prepare', {
       method: 'POST',
@@ -1245,6 +1293,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     setDesktopUpdateBusy(false);
     setDesktopUpdateErrorMessage('');
     setDesktopUpdateNotifiedVersion('');
+    setDesktopUpdateLegacyVersion('');
     setDesktopUpdaterDiagnostics({ state: 'unknown', detail: '' });
   }, [clearDesktopUpdateRestartTimer, user]);
 
@@ -1295,6 +1344,11 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       if (available) {
         setDesktopUpdateConfirmOpen(true);
         setDesktopUpdatePillState((prev) => (prev === 'available' ? 'confirming' : prev));
+      } else if (desktopRuntimeDetected && isLegacyBootstrapState(desktopUpdaterDiagnostics.state)) {
+        toast.message(t.appChrome.desktopUpdateLegacyDetected, {
+          description: desktopUpdateBootstrapRequiredBody,
+        });
+        navigate('/downloads');
       }
       setNotificationsOpen(false);
       return;
@@ -1323,6 +1377,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         ? t.appChrome.desktopUpdateBridgeStateNotDesktop
         : desktopUpdaterDiagnostics.state === 'invoke_unavailable'
           ? t.appChrome.desktopUpdateBridgeStateInvokeUnavailable
+        : desktopUpdaterDiagnostics.state === 'legacy_updater_missing_commands'
+          ? t.appChrome.desktopUpdateBridgeStateLegacyMissingCommands
+        : desktopUpdaterDiagnostics.state === 'legacy_version_detected'
+          ? t.appChrome.desktopUpdateBridgeStateLegacyVersionDetected
         : desktopUpdaterDiagnostics.state === 'bridge_missing'
           ? t.appChrome.desktopUpdateBridgeStateMissing
           : desktopUpdaterDiagnostics.state === 'bridge_incomplete'
@@ -1334,14 +1392,26 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                 : desktopUpdaterDiagnostics.state === 'prepare_failed'
                   ? t.appChrome.desktopUpdateBridgeStatePrepareFailed
                   : t.appChrome.desktopUpdateBridgeStateUnknown;
+  const desktopUpdateBootstrapRequiredVisible =
+    desktopRuntimeDetected &&
+    !desktopUpdatePillVisible &&
+    Boolean(desktopUpdateNotifiedVersion) &&
+    isLegacyBootstrapState(desktopUpdaterDiagnostics.state);
   const desktopUpdateUnavailableVisible =
     desktopRuntimeDetected &&
     !desktopUpdatePillVisible &&
     Boolean(desktopUpdateNotifiedVersion) &&
-    desktopUpdaterDiagnostics.state !== 'ready';
+    desktopUpdaterDiagnostics.state !== 'ready' &&
+    !desktopUpdateBootstrapRequiredVisible;
   const desktopUpdateUnavailableTitle = interpolate(t.appChrome.desktopUpdateUnavailableTitle, {
     version: desktopUpdateNotifiedVersion || '-',
     state: desktopUpdaterStateLabel,
+  });
+  const desktopUpdateBootstrapRequiredTitle = interpolate(t.appChrome.desktopUpdateBootstrapRequiredTitle, {
+    version: desktopUpdateNotifiedVersion || '-',
+  });
+  const desktopUpdateBootstrapRequiredBody = interpolate(t.appChrome.desktopUpdateBootstrapRequiredBody, {
+    version: desktopUpdateLegacyVersion || '-',
   });
   const desktopUpdaterStateDetail = desktopUpdaterDiagnostics.detail || t.appChrome.desktopUpdateBridgeStateDetailFallback;
   const desktopUpdatePillLabel =
@@ -1427,6 +1497,20 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {desktopUpdateBootstrapRequiredVisible ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-full px-3 text-xs font-semibold border-amber-500/40 text-amber-600 bg-amber-500/10 hover:bg-amber-500/15"
+              onClick={handleDesktopUpdateOpenDownloads}
+              title={desktopUpdateBootstrapRequiredTitle}
+              aria-label={desktopUpdateBootstrapRequiredTitle}
+            >
+              <AlertCircle className="h-3.5 w-3.5" />
+              <span>{t.appChrome.desktopUpdateBootstrapRequiredIndicator}</span>
+            </Button>
+          ) : null}
           {desktopUpdateUnavailableVisible ? (
             <Button
               type="button"
@@ -1722,6 +1806,20 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                 <p className="mt-1 text-xs text-muted-foreground">
                   {desktopUpdaterStateDetail}
                 </p>
+                {desktopUpdateBootstrapRequiredVisible ? (
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-xs text-amber-600">{desktopUpdateBootstrapRequiredBody}</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs text-amber-700 hover:text-amber-800"
+                      onClick={handleDesktopUpdateOpenDownloads}
+                    >
+                      {t.appChrome.desktopUpdateLegacyOpenDownloads}
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
