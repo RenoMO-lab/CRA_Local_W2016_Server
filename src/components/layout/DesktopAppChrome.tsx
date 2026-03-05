@@ -1929,6 +1929,60 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                       <p className="text-xs text-muted-foreground mt-1">{item.display.body}</p>
                     </button>
                     <div className="mt-2 flex items-center gap-2">
+                      {(() => {
+                        const notificationType = String(item.payload?.eventType ?? item.type ?? '').trim().toLowerCase();
+                        const isClientUpdateNotification = notificationType === 'client_update_available';
+                        if (!isClientUpdateNotification) return null;
+
+                        if (desktopRuntimeDetected && desktopUpdatePillVisible) {
+                          return (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => {
+                                setNotificationsOpen(false);
+                                void handleDesktopUpdatePillClick();
+                              }}
+                            >
+                              {t.appChrome.desktopUpdatePillUpdate}
+                            </Button>
+                          );
+                        }
+
+                        if (desktopRuntimeDetected && desktopUpdateBootstrapRequiredVisible) {
+                          return (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => {
+                                handleDesktopUpdateOpenDownloads();
+                                setNotificationsOpen(false);
+                              }}
+                            >
+                              {t.appChrome.desktopUpdateLegacyOpenDownloads}
+                            </Button>
+                          );
+                        }
+
+                        return (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => {
+                              handleDesktopUpdateOpenDownloads();
+                              setNotificationsOpen(false);
+                            }}
+                          >
+                            {t.downloads.openDownloads}
+                          </Button>
+                        );
+                      })()}
                       {!item.isRead ? (
                         <Button
                           type="button"
@@ -1954,7 +2008,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                           {t.appChrome.openRequest}
                         </Button>
                       ) : null}
-                      {!item.requestId && typeof item.payload?.actionPath === 'string' && item.payload.actionPath ? (
+                      {!item.requestId &&
+                      String(item.payload?.eventType ?? item.type ?? '').trim().toLowerCase() !== 'client_update_available' &&
+                      typeof item.payload?.actionPath === 'string' &&
+                      item.payload.actionPath ? (
                         <Button
                           type="button"
                           variant="ghost"

@@ -4435,7 +4435,7 @@ const enqueueClientUpdateNotifications = async (pool, installerMeta) => {
   let inserted = 0;
   const insertedUserIds = new Set();
   const title = `CRA Client update available (${version})`;
-  const body = `A newer CRA desktop client is available. Open Downloads to install ${version}.`;
+  const body = `A newer CRA desktop client is available. Use Update to install ${version} (or open Downloads for one-time bootstrap).`;
 
   for (const user of users ?? []) {
     const userId = String(user?.id ?? "").trim();
