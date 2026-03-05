@@ -84,16 +84,6 @@ const getDesktopUpdaterBridge = (): DesktopUpdaterBridge | null => {
   return bridge as DesktopUpdaterBridge;
 };
 
-const isDesktopShellRuntime = () => {
-  if (typeof window === 'undefined') return false;
-  const anyWindow = window as any;
-  if (anyWindow?.__CRA_DESKTOP_UPDATER__ || anyWindow?.__TAURI__ || anyWindow?.__TAURI_INTERNALS__) {
-    return true;
-  }
-  const ua = String(window.navigator?.userAgent ?? '');
-  return /tauri/i.test(ua);
-};
-
 const formatTimeShort = (value?: Date | string | null) => {
   if (!value) return '--';
   const date = value instanceof Date ? value : new Date(value);
@@ -753,7 +743,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       if (!res.ok) return;
       const data = await res.json().catch(() => null);
       const syncedVersion = String(data?.version ?? '').trim();
-      if (syncedVersion && isDesktopShellRuntime() && !getDesktopUpdaterBridge()) {
+      if (syncedVersion) {
         setDesktopUpdateTargetVersion(syncedVersion);
         setDesktopUpdatePrepare(null);
         setDesktopUpdatePillState((prev) =>
@@ -829,7 +819,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   useEffect(() => {
     if (!user) return;
-    if (!isDesktopShellRuntime()) return;
     if (desktopUpdatePillState === 'installing' || desktopUpdatePillState === 'restart_ready') return;
 
     const latestUpdateNotification = notifications
