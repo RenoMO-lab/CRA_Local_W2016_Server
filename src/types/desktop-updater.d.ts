@@ -1,6 +1,17 @@
 export {};
 
 declare global {
+  type CraDesktopUpdaterDiagnosticsState =
+    | 'unknown'
+    | 'ready'
+    | 'not_desktop_runtime'
+    | 'bridge_missing'
+    | 'invoke_unavailable'
+    | 'bridge_incomplete'
+    | 'capability_disabled'
+    | 'version_unavailable'
+    | 'prepare_failed';
+
   interface Window {
     __CRA_DESKTOP_UPDATER__?: {
       getCurrentVersion: () => Promise<string>;
@@ -14,6 +25,23 @@ declare global {
       cancelInstall?: () => Promise<{ cancelled?: boolean } | boolean | void>;
       installUpdate: (payload?: Record<string, any>) => Promise<{ started: boolean } | boolean | void>;
       restartApp: () => Promise<void>;
+      pingUpdater?: () => Promise<{ ok?: boolean } | boolean | void>;
+    };
+    __CRA_DESKTOP_HOST__?: {
+      runtime?: string;
+      bridgeVersion?: number;
+    };
+    __TAURI__?: {
+      invoke?: (command: string, payload?: Record<string, any>) => Promise<any>;
+      core?: {
+        invoke?: (command: string, payload?: Record<string, any>) => Promise<any>;
+      };
+    };
+    __TAURI_INVOKE__?: (command: string, payload?: Record<string, any>) => Promise<any>;
+    __CRA_DESKTOP_UPDATER_DIAGNOSTICS__?: {
+      state: CraDesktopUpdaterDiagnosticsState;
+      detail: string;
+      updatedAt: string;
     };
   }
 }

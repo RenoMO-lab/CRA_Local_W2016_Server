@@ -65,6 +65,7 @@ type DesktopUpdaterBridge = {
   cancelInstall?: () => Promise<{ cancelled?: boolean } | boolean | void>;
   installUpdate: (payload?: Record<string, any>) => Promise<{ started: boolean } | boolean | void>;
   restartApp: () => Promise<void>;
+  pingUpdater?: () => Promise<{ ok?: boolean } | boolean | void>;
 };
 
 type ClientUpdatePrepareResponse = {
@@ -92,6 +93,7 @@ type DesktopUpdaterBridgeState =
   | 'ready'
   | 'not_desktop_runtime'
   | 'bridge_missing'
+  | 'invoke_unavailable'
   | 'bridge_incomplete'
   | 'capability_disabled'
   | 'version_unavailable'
@@ -115,6 +117,34 @@ const detectDesktopRuntime = (): boolean => {
   );
 };
 
+type DesktopInvokeResolution = {
+  invoke: ((command: string, payload?: Record<string, any>) => Promise<any>) | null;
+  source: string | null;
+};
+
+const resolveDesktopInvoke = (): DesktopInvokeResolution => {
+  const tauriObj = (window as any)?.__TAURI__;
+  if (typeof tauriObj?.invoke === 'function') {
+    return {
+      invoke: (command: string, payload: Record<string, any> = {}) => tauriObj.invoke(command, payload),
+      source: '__TAURI__.invoke',
+    };
+  }
+  if (typeof tauriObj?.core?.invoke === 'function') {
+    return {
+      invoke: (command: string, payload: Record<string, any> = {}) => tauriObj.core.invoke(command, payload),
+      source: '__TAURI__.core.invoke',
+    };
+  }
+  if (typeof (window as any)?.__TAURI_INVOKE__ === 'function') {
+    return {
+      invoke: (command: string, payload: Record<string, any> = {}) => (window as any).__TAURI_INVOKE__(command, payload),
+      source: '__TAURI_INVOKE__',
+    };
+  }
+  return { invoke: null, source: null };
+};
+
 const resolveDesktopUpdaterBridge = (): {
   bridge: DesktopUpdaterBridge | null;
   state: DesktopUpdaterBridgeState;
@@ -128,25 +158,43 @@ const resolveDesktopUpdaterBridge = (): {
     };
   }
 
-  const bridge = (window as any)?.__CRA_DESKTOP_UPDATER__;
-  if (!bridge) {
+  const scriptedBridge = (window as any)?.__CRA_DESKTOP_UPDATER__;
+  const hasScriptedBridge = Boolean(scriptedBridge);
+  const scriptedBridgeComplete =
+    typeof scriptedBridge?.getCurrentVersion === 'function' &&
+    typeof scriptedBridge?.installUpdate === 'function' &&
+    typeof scriptedBridge?.restartApp === 'function';
+
+  if (hasScriptedBridge && scriptedBridgeComplete) {
     return {
-      bridge: null,
-      state: 'bridge_missing',
-      detail: 'window.__CRA_DESKTOP_UPDATER__ is missing',
+      bridge: scriptedBridge as DesktopUpdaterBridge,
+      state: 'ready',
+      detail: 'bridge ready (__CRA_DESKTOP_UPDATER__)',
     };
   }
-  if (typeof bridge.getCurrentVersion !== 'function' || typeof bridge.installUpdate !== 'function' || typeof bridge.restartApp !== 'function') {
+
+  const invokeResolution = resolveDesktopInvoke();
+  if (!invokeResolution.invoke) {
     return {
       bridge: null,
-      state: 'bridge_incomplete',
-      detail: 'required bridge methods are missing',
+      state: hasScriptedBridge ? 'bridge_incomplete' : 'invoke_unavailable',
+      detail: hasScriptedBridge
+        ? 'bridge object is incomplete and invoke fallback is unavailable'
+        : 'window.__CRA_DESKTOP_UPDATER__ is missing and no tauri invoke bridge was found',
     };
   }
+
+  const invoke = invokeResolution.invoke;
+  const fallbackBridge: DesktopUpdaterBridge = {
+    getCurrentVersion: () => invoke('desktop_get_current_version'),
+    installUpdate: (payload: Record<string, any> = {}) => invoke('desktop_prepare_update_install', payload),
+    restartApp: () => invoke('desktop_apply_prepared_update'),
+  };
+
   return {
-    bridge: bridge as DesktopUpdaterBridge,
+    bridge: fallbackBridge,
     state: 'ready',
-    detail: 'bridge ready',
+    detail: `bridge adapter ready (${invokeResolution.source})`,
   };
 };
 
@@ -646,6 +694,17 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       if (prev.state === state && prev.detail === detail) {
         return prev;
       }
+      const logPayload = { state, detail };
+      if (state === 'ready') {
+        console.info('[desktop-updater] bridge_state', logPayload);
+      } else {
+        console.warn('[desktop-updater] bridge_state', logPayload);
+      }
+      (window as any).__CRA_DESKTOP_UPDATER_DIAGNOSTICS__ = {
+        state,
+        detail,
+        updatedAt: new Date().toISOString(),
+      };
       return { state, detail };
     });
   }, []);
@@ -671,6 +730,20 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     }
     const bridge = bridgeResolution.bridge;
 
+    if (typeof bridge.pingUpdater === 'function') {
+      const pingResult = await bridge.pingUpdater().catch(() => null);
+      const pingOk =
+        typeof pingResult === 'boolean'
+          ? pingResult
+          : pingResult && typeof pingResult === 'object' && 'ok' in pingResult
+            ? (pingResult as { ok?: boolean }).ok !== false
+            : pingResult !== null;
+      if (!pingOk) {
+        updateDesktopUpdaterDiagnostics('invoke_unavailable', 'desktop updater probe command failed');
+        return null;
+      }
+    }
+
     if (typeof bridge.getCapabilities === 'function') {
       const capabilities = await bridge.getCapabilities().catch(() => null);
       if (capabilities && capabilities.inAppUpdate === false) {
@@ -695,6 +768,9 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       }),
     }).catch(() => null);
     if (!prepareRes?.ok) {
+      console.warn('[desktop-updater] prepare_failed', {
+        status: prepareRes?.status ?? 'network',
+      });
       updateDesktopUpdaterDiagnostics('prepare_failed', `prepare endpoint failed (status ${prepareRes?.status ?? 'network'})`);
       return null;
     }
@@ -704,10 +780,18 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       if (prepare?.targetVersion) {
         setDesktopUpdateNotifiedVersion(prepare.targetVersion);
       }
+      console.info('[desktop-updater] prepare_success', {
+        updateAvailable: false,
+        targetVersion: prepare?.targetVersion ?? null,
+      });
       updateDesktopUpdaterDiagnostics('ready', 'in-app updater ready (no newer version for current client)');
       return null;
     }
     setDesktopUpdateNotifiedVersion(prepare.targetVersion);
+    console.info('[desktop-updater] prepare_success', {
+      updateAvailable: true,
+      targetVersion: prepare.targetVersion,
+    });
     updateDesktopUpdaterDiagnostics('ready', 'in-app updater ready');
     return prepare;
   }, [desktopRuntimeDetected, updateDesktopUpdaterDiagnostics, user]);
@@ -1237,6 +1321,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       ? t.appChrome.desktopUpdateBridgeStateReady
       : desktopUpdaterDiagnostics.state === 'not_desktop_runtime'
         ? t.appChrome.desktopUpdateBridgeStateNotDesktop
+        : desktopUpdaterDiagnostics.state === 'invoke_unavailable'
+          ? t.appChrome.desktopUpdateBridgeStateInvokeUnavailable
         : desktopUpdaterDiagnostics.state === 'bridge_missing'
           ? t.appChrome.desktopUpdateBridgeStateMissing
           : desktopUpdaterDiagnostics.state === 'bridge_incomplete'
