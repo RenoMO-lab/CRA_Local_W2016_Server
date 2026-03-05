@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
+  AlertCircle,
   Bell,
   CheckCheck,
   ChevronDown,
@@ -86,17 +87,71 @@ type DesktopUpdatePillState =
   | 'failed';
 
 type DesktopUpdateProgressPhase = 'checking' | 'downloading' | 'installing' | 'ready_to_restart' | 'failed';
+type DesktopUpdaterBridgeState =
+  | 'unknown'
+  | 'ready'
+  | 'not_desktop_runtime'
+  | 'bridge_missing'
+  | 'bridge_incomplete'
+  | 'capability_disabled'
+  | 'version_unavailable'
+  | 'prepare_failed';
+type DesktopUpdaterDiagnostics = {
+  state: DesktopUpdaterBridgeState;
+  detail: string;
+};
 
 const DESKTOP_UPDATE_PLATFORM = 'windows-x86_64';
 const DESKTOP_UPDATE_RESTART_SECONDS = 10;
 
-const getDesktopUpdaterBridge = (): DesktopUpdaterBridge | null => {
+const detectDesktopRuntime = (): boolean => {
+  const hostRuntime = String((window as any)?.__CRA_DESKTOP_HOST__?.runtime ?? '').trim().toLowerCase();
+  const userAgent = typeof navigator === 'undefined' ? '' : String(navigator.userAgent ?? '').toLowerCase();
+  return Boolean(
+    hostRuntime === 'tauri' ||
+      (window as any)?.__TAURI__ ||
+      (window as any)?.__TAURI_INTERNALS__ ||
+      userAgent.includes('tauri')
+  );
+};
+
+const resolveDesktopUpdaterBridge = (): {
+  bridge: DesktopUpdaterBridge | null;
+  state: DesktopUpdaterBridgeState;
+  detail: string;
+} => {
+  if (!detectDesktopRuntime()) {
+    return {
+      bridge: null,
+      state: 'not_desktop_runtime',
+      detail: 'desktop runtime marker not detected',
+    };
+  }
+
   const bridge = (window as any)?.__CRA_DESKTOP_UPDATER__;
-  if (!bridge) return null;
-  if (typeof bridge.getCurrentVersion !== 'function') return null;
-  if (typeof bridge.installUpdate !== 'function') return null;
-  if (typeof bridge.restartApp !== 'function') return null;
-  return bridge as DesktopUpdaterBridge;
+  if (!bridge) {
+    return {
+      bridge: null,
+      state: 'bridge_missing',
+      detail: 'window.__CRA_DESKTOP_UPDATER__ is missing',
+    };
+  }
+  if (typeof bridge.getCurrentVersion !== 'function' || typeof bridge.installUpdate !== 'function' || typeof bridge.restartApp !== 'function') {
+    return {
+      bridge: null,
+      state: 'bridge_incomplete',
+      detail: 'required bridge methods are missing',
+    };
+  }
+  return {
+    bridge: bridge as DesktopUpdaterBridge,
+    state: 'ready',
+    detail: 'bridge ready',
+  };
+};
+
+const getDesktopUpdaterBridge = (): DesktopUpdaterBridge | null => {
+  return resolveDesktopUpdaterBridge().bridge;
 };
 
 const resolveInstallPhase = (
@@ -437,12 +492,14 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   } = useAppShell();
   const { refreshRequests, lastSyncAt, syncState, syncError } = useRequests();
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const desktopRuntimeDetected = detectDesktopRuntime();
   const desktopUpdatePromptedVersionRef = useRef<string>('');
   const desktopUpdateManifestUrlRef = useRef<string>('');
   const desktopUpdateInstallBusyRef = useRef(false);
   const desktopUpdateRestartTimerRef = useRef<number | null>(null);
   const [desktopUpdatePillState, setDesktopUpdatePillState] = useState<DesktopUpdatePillState>('hidden');
   const [desktopUpdateTargetVersion, setDesktopUpdateTargetVersion] = useState<string>('');
+  const [desktopUpdateNotifiedVersion, setDesktopUpdateNotifiedVersion] = useState<string>('');
   const [desktopUpdatePrepare, setDesktopUpdatePrepare] = useState<ClientUpdatePrepareResponse | null>(null);
   const [desktopUpdateConfirmOpen, setDesktopUpdateConfirmOpen] = useState(false);
   const [desktopUpdateProgressOpen, setDesktopUpdateProgressOpen] = useState(false);
@@ -453,6 +510,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const [desktopUpdateRestartCountdown, setDesktopUpdateRestartCountdown] = useState<number | null>(null);
   const [desktopUpdateBusy, setDesktopUpdateBusy] = useState(false);
   const [desktopUpdateCanCancelInstall, setDesktopUpdateCanCancelInstall] = useState(false);
+  const [desktopUpdaterDiagnostics, setDesktopUpdaterDiagnostics] = useState<DesktopUpdaterDiagnostics>({
+    state: 'unknown',
+    detail: '',
+  });
   const [paletteQuery, setPaletteQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -580,6 +641,15 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     [user]
   );
 
+  const updateDesktopUpdaterDiagnostics = useCallback((state: DesktopUpdaterBridgeState, detail: string) => {
+    setDesktopUpdaterDiagnostics((prev) => {
+      if (prev.state === state && prev.detail === detail) {
+        return prev;
+      }
+      return { state, detail };
+    });
+  }, []);
+
   const clearDesktopUpdateRestartTimer = useCallback(() => {
     if (desktopUpdateRestartTimerRef.current) {
       window.clearInterval(desktopUpdateRestartTimerRef.current);
@@ -589,18 +659,31 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   const requestDesktopUpdatePrepare = useCallback(async (): Promise<ClientUpdatePrepareResponse | null> => {
     if (!user) return null;
-    const bridge = getDesktopUpdaterBridge();
-    if (!bridge) return null;
+    if (!desktopRuntimeDetected) {
+      updateDesktopUpdaterDiagnostics('not_desktop_runtime', 'desktop runtime marker not detected');
+      return null;
+    }
+
+    const bridgeResolution = resolveDesktopUpdaterBridge();
+    if (!bridgeResolution.bridge) {
+      updateDesktopUpdaterDiagnostics(bridgeResolution.state, bridgeResolution.detail);
+      return null;
+    }
+    const bridge = bridgeResolution.bridge;
 
     if (typeof bridge.getCapabilities === 'function') {
       const capabilities = await bridge.getCapabilities().catch(() => null);
       if (capabilities && capabilities.inAppUpdate === false) {
+        updateDesktopUpdaterDiagnostics('capability_disabled', 'bridge capability inAppUpdate=false');
         return null;
       }
     }
 
     const currentVersion = String(await bridge.getCurrentVersion().catch(() => '')).trim();
-    if (!currentVersion) return null;
+    if (!currentVersion) {
+      updateDesktopUpdaterDiagnostics('version_unavailable', 'desktop bridge returned an empty version');
+      return null;
+    }
 
     const prepareRes = await fetch('/api/client/update/prepare', {
       method: 'POST',
@@ -611,14 +694,23 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         channel: 'stable',
       }),
     }).catch(() => null);
-    if (!prepareRes?.ok) return null;
+    if (!prepareRes?.ok) {
+      updateDesktopUpdaterDiagnostics('prepare_failed', `prepare endpoint failed (status ${prepareRes?.status ?? 'network'})`);
+      return null;
+    }
 
     const prepare = (await prepareRes.json().catch(() => null)) as ClientUpdatePrepareResponse | null;
     if (!prepare?.updateAvailable || !prepare.targetVersion || !prepare.manifestUrl) {
+      if (prepare?.targetVersion) {
+        setDesktopUpdateNotifiedVersion(prepare.targetVersion);
+      }
+      updateDesktopUpdaterDiagnostics('ready', 'in-app updater ready (no newer version for current client)');
       return null;
     }
+    setDesktopUpdateNotifiedVersion(prepare.targetVersion);
+    updateDesktopUpdaterDiagnostics('ready', 'in-app updater ready');
     return prepare;
-  }, [user]);
+  }, [desktopRuntimeDetected, updateDesktopUpdaterDiagnostics, user]);
 
   const handleDesktopRestartNow = useCallback(async () => {
     clearDesktopUpdateRestartTimer();
@@ -1001,7 +1093,11 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       const res = await fetch('/api/notifications/client-update/sync', { method: 'POST' });
       if (!res.ok) return;
       const data = await res.json().catch(() => null);
-      if (getDesktopUpdaterBridge()) {
+      const syncVersion = String(data?.targetVersion ?? data?.version ?? '').trim();
+      if (syncVersion) {
+        setDesktopUpdateNotifiedVersion(syncVersion);
+      }
+      if (desktopRuntimeDetected) {
         const forcePrompt = data?.createdForCurrentUser === true;
         await checkDesktopInAppUpdate({ forcePrompt });
       }
@@ -1012,7 +1108,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     } catch {
       // ignore transient sync errors
     }
-  }, [checkDesktopInAppUpdate, fetchNotifications, fetchUnreadCount, notificationsFilter, notificationsOpen, user]);
+  }, [checkDesktopInAppUpdate, desktopRuntimeDetected, fetchNotifications, fetchUnreadCount, notificationsFilter, notificationsOpen, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -1033,7 +1129,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   useEffect(() => {
     if (!user) return;
-    if (!getDesktopUpdaterBridge()) return;
+    if (!desktopRuntimeDetected) return;
 
     let timerId: number | undefined;
     const tick = async () => {
@@ -1051,7 +1147,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     return () => {
       if (timerId) window.clearInterval(timerId);
     };
-  }, [checkDesktopInAppUpdate, user]);
+  }, [checkDesktopInAppUpdate, desktopRuntimeDetected, user]);
 
   useEffect(() => {
     if (user) return;
@@ -1064,6 +1160,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     setDesktopUpdateRestartCountdown(null);
     setDesktopUpdateBusy(false);
     setDesktopUpdateErrorMessage('');
+    setDesktopUpdateNotifiedVersion('');
+    setDesktopUpdaterDiagnostics({ state: 'unknown', detail: '' });
   }, [clearDesktopUpdateRestartTimer, user]);
 
   const handleRefresh = async () => {
@@ -1134,10 +1232,36 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   };
 
   const desktopUpdatePillVisible = desktopUpdatePillState !== 'hidden';
+  const desktopUpdaterStateLabel =
+    desktopUpdaterDiagnostics.state === 'ready'
+      ? t.appChrome.desktopUpdateBridgeStateReady
+      : desktopUpdaterDiagnostics.state === 'not_desktop_runtime'
+        ? t.appChrome.desktopUpdateBridgeStateNotDesktop
+        : desktopUpdaterDiagnostics.state === 'bridge_missing'
+          ? t.appChrome.desktopUpdateBridgeStateMissing
+          : desktopUpdaterDiagnostics.state === 'bridge_incomplete'
+            ? t.appChrome.desktopUpdateBridgeStateIncomplete
+            : desktopUpdaterDiagnostics.state === 'capability_disabled'
+              ? t.appChrome.desktopUpdateBridgeStateCapabilityDisabled
+              : desktopUpdaterDiagnostics.state === 'version_unavailable'
+                ? t.appChrome.desktopUpdateBridgeStateVersionUnavailable
+                : desktopUpdaterDiagnostics.state === 'prepare_failed'
+                  ? t.appChrome.desktopUpdateBridgeStatePrepareFailed
+                  : t.appChrome.desktopUpdateBridgeStateUnknown;
+  const desktopUpdateUnavailableVisible =
+    desktopRuntimeDetected &&
+    !desktopUpdatePillVisible &&
+    Boolean(desktopUpdateNotifiedVersion) &&
+    desktopUpdaterDiagnostics.state !== 'ready';
+  const desktopUpdateUnavailableTitle = interpolate(t.appChrome.desktopUpdateUnavailableTitle, {
+    version: desktopUpdateNotifiedVersion || '-',
+    state: desktopUpdaterStateLabel,
+  });
+  const desktopUpdaterStateDetail = desktopUpdaterDiagnostics.detail || t.appChrome.desktopUpdateBridgeStateDetailFallback;
   const desktopUpdatePillLabel =
     desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing'
       ? t.appChrome.desktopUpdatePillUpdating
-      : desktopUpdatePillState === 'restart_ready'
+      : desktopUpdatePillState === 'ready_to_restart'
         ? t.appChrome.desktopUpdatePillRestart
         : t.appChrome.desktopUpdatePillUpdate;
   const desktopUpdatePillTitle = interpolate(t.appChrome.desktopUpdatePillTitle, {
@@ -1217,6 +1341,20 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          {desktopUpdateUnavailableVisible ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-full px-3 text-xs font-semibold border-amber-500/40 text-amber-600 bg-amber-500/10 hover:bg-amber-500/15"
+              onClick={() => setNotificationsOpen(true)}
+              title={desktopUpdateUnavailableTitle}
+              aria-label={desktopUpdateUnavailableTitle}
+            >
+              <AlertCircle className="h-3.5 w-3.5" />
+              <span>{t.appChrome.desktopUpdateUnavailableIndicator}</span>
+            </Button>
+          ) : null}
           {desktopUpdatePillVisible ? (
             <Button
               type="button"
@@ -1479,6 +1617,27 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                 {t.appChrome.allTab}
               </Button>
             </div>
+
+            {desktopRuntimeDetected ? (
+              <div className="px-3 py-2 border-b border-border bg-muted/20">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {t.appChrome.desktopUpdateBridgeStateLabel}
+                  </span>
+                  <span
+                    className={cn(
+                      'text-xs font-medium',
+                      desktopUpdaterDiagnostics.state === 'ready' ? 'text-emerald-600' : 'text-amber-600'
+                    )}
+                  >
+                    {desktopUpdaterStateLabel}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {desktopUpdaterStateDetail}
+                </p>
+              </div>
+            ) : null}
 
             <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
               {notificationsLoading ? <div className="p-3 text-sm text-muted-foreground">{t.appChrome.loadingNotifications}</div> : null}
