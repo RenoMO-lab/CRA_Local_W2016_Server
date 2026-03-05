@@ -152,6 +152,12 @@ const resolveDesktopInvoke = (): DesktopInvokeResolution => {
       source: '__TAURI__.core.invoke',
     };
   }
+  if (typeof (window as any)?.__TAURI_INTERNALS__?.invoke === 'function') {
+    return {
+      invoke: (command: string, payload: Record<string, any> = {}) => (window as any).__TAURI_INTERNALS__.invoke(command, payload),
+      source: '__TAURI_INTERNALS__.invoke',
+    };
+  }
   if (typeof (window as any)?.__TAURI_INVOKE__ === 'function') {
     return {
       invoke: (command: string, payload: Record<string, any> = {}) => (window as any).__TAURI_INVOKE__(command, payload),
@@ -180,8 +186,53 @@ const resolveDesktopUpdaterBridge = (): {
     typeof scriptedBridge?.getCurrentVersion === 'function' &&
     typeof scriptedBridge?.installUpdate === 'function' &&
     typeof scriptedBridge?.restartApp === 'function';
+  const invokeResolution = resolveDesktopInvoke();
+  const invokeFallback = invokeResolution.invoke;
 
   if (hasScriptedBridge && scriptedBridgeComplete) {
+    if (invokeFallback) {
+      const scripted = scriptedBridge as DesktopUpdaterBridge;
+      const resilientBridge: DesktopUpdaterBridge = {
+        ...scripted,
+        getCurrentVersion: async () => {
+          try {
+            return await scripted.getCurrentVersion();
+          } catch {
+            return await invokeFallback('desktop_get_current_version');
+          }
+        },
+        pingUpdater: async () => {
+          if (typeof scripted.pingUpdater === 'function') {
+            try {
+              return await scripted.pingUpdater();
+            } catch {
+              // continue with direct invoke fallback
+            }
+          }
+          return await invokeFallback('desktop_ping_updater');
+        },
+        installUpdate: async (payload: Record<string, any> = {}) => {
+          try {
+            return await scripted.installUpdate(payload);
+          } catch {
+            return await invokeFallback('desktop_prepare_update_install', payload);
+          }
+        },
+        restartApp: async () => {
+          try {
+            await scripted.restartApp();
+            return;
+          } catch {
+            await invokeFallback('desktop_apply_prepared_update');
+          }
+        },
+      };
+      return {
+        bridge: resilientBridge,
+        state: 'ready',
+        detail: `bridge ready (__CRA_DESKTOP_UPDATER__ + ${invokeResolution.source} fallback)`,
+      };
+    }
     return {
       bridge: scriptedBridge as DesktopUpdaterBridge,
       state: 'ready',
@@ -189,8 +240,7 @@ const resolveDesktopUpdaterBridge = (): {
     };
   }
 
-  const invokeResolution = resolveDesktopInvoke();
-  if (!invokeResolution.invoke) {
+  if (!invokeFallback) {
     return {
       bridge: null,
       state: hasScriptedBridge ? 'legacy_updater_missing_commands' : 'invoke_unavailable',
@@ -200,11 +250,10 @@ const resolveDesktopUpdaterBridge = (): {
     };
   }
 
-  const invoke = invokeResolution.invoke;
   const fallbackBridge: DesktopUpdaterBridge = {
-    getCurrentVersion: () => invoke('desktop_get_current_version'),
-    installUpdate: (payload: Record<string, any> = {}) => invoke('desktop_prepare_update_install', payload),
-    restartApp: () => invoke('desktop_apply_prepared_update'),
+    getCurrentVersion: () => invokeFallback('desktop_get_current_version'),
+    installUpdate: (payload: Record<string, any> = {}) => invokeFallback('desktop_prepare_update_install', payload),
+    restartApp: () => invokeFallback('desktop_apply_prepared_update'),
   };
 
   return {

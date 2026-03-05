@@ -48,6 +48,9 @@ declare global {
         invoke?: (command: string, payload?: Record<string, any>) => Promise<any>;
       };
     };
+    __TAURI_INTERNALS__?: {
+      invoke?: (command: string, payload?: Record<string, any>) => Promise<any>;
+    };
     __TAURI_INVOKE__?: (command: string, payload?: Record<string, any>) => Promise<any>;
     __CRA_DESKTOP_UPDATER_DIAGNOSTICS__?: {
       state: CraDesktopUpdaterDiagnosticsState;
