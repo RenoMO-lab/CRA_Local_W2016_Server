@@ -38,6 +38,9 @@ declare global {
     __CRA_DESKTOP_HOST__?: {
       runtime?: string;
       bridgeVersion?: number;
+      version?: string;
+      appVersion?: string;
+      clientVersion?: string;
     };
     __TAURI__?: {
       invoke?: (command: string, payload?: Record<string, any>) => Promise<any>;

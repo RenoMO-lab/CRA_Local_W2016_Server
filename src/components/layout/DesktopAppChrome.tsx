@@ -107,6 +107,7 @@ type DesktopUpdaterDiagnostics = {
 
 const DESKTOP_UPDATE_PLATFORM = 'windows-x86_64';
 const DESKTOP_UPDATE_RESTART_SECONDS = 10;
+const DESKTOP_UPDATE_UNKNOWN_VERSION_FALLBACK = '0.0.0';
 
 const detectDesktopRuntime = (): boolean => {
   const hostRuntime = String((window as any)?.__CRA_DESKTOP_HOST__?.runtime ?? '').trim().toLowerCase();
@@ -126,6 +127,10 @@ type DesktopInvokeResolution = {
 
 type DesktopAboutInfoResponse = {
   version?: string | null;
+  currentVersion?: string | null;
+  appVersion?: string | null;
+  clientVersion?: string | null;
+  value?: string | null;
   title?: string | null;
   app_host?: string | null;
 };
@@ -250,6 +255,35 @@ const resolveInstallPhase = (
   }
 
   return { phase: null, message, progress };
+};
+
+const extractDesktopVersion = (rawValue: unknown): string => {
+  if (typeof rawValue === 'string') {
+    return rawValue.trim();
+  }
+  if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
+    return String(rawValue);
+  }
+  if (!rawValue || typeof rawValue !== 'object') {
+    return '';
+  }
+  const payload = rawValue as Record<string, unknown>;
+  const candidates = [
+    payload.version,
+    payload.currentVersion,
+    payload.appVersion,
+    payload.clientVersion,
+    payload.value,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      return String(candidate);
+    }
+  }
+  return '';
 };
 
 const formatTimeShort = (value?: Date | string | null) => {
@@ -560,6 +594,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const [desktopUpdateTargetVersion, setDesktopUpdateTargetVersion] = useState<string>('');
   const [desktopUpdateNotifiedVersion, setDesktopUpdateNotifiedVersion] = useState<string>('');
   const [desktopUpdateLegacyVersion, setDesktopUpdateLegacyVersion] = useState<string>('');
+  const [desktopClientVersion, setDesktopClientVersion] = useState<string>('');
   const [desktopUpdatePrepare, setDesktopUpdatePrepare] = useState<ClientUpdatePrepareResponse | null>(null);
   const [desktopUpdateConfirmOpen, setDesktopUpdateConfirmOpen] = useState(false);
   const [desktopUpdateProgressOpen, setDesktopUpdateProgressOpen] = useState(false);
@@ -766,8 +801,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
     let currentVersion = '';
     let currentVersionError = '';
+    let usedUnknownVersionFallback = false;
     try {
-      currentVersion = String(await bridge.getCurrentVersion()).trim();
+      const currentVersionRaw = await bridge.getCurrentVersion();
+      currentVersion = extractDesktopVersion(currentVersionRaw);
     } catch (error) {
       currentVersionError = String((error as any)?.message ?? error).trim();
     }
@@ -775,9 +812,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       const invokeResolution = resolveDesktopInvoke();
       if (invokeResolution.invoke) {
         const aboutPayload = (await invokeResolution.invoke('get_about_info').catch(() => null)) as DesktopAboutInfoResponse | null;
-        const legacyVersion = String(aboutPayload?.version ?? '').trim();
+        const legacyVersion = extractDesktopVersion(aboutPayload);
         if (legacyVersion) {
           setDesktopUpdateLegacyVersion(legacyVersion);
+          setDesktopClientVersion(legacyVersion);
           updateDesktopUpdaterDiagnostics(
             'legacy_version_detected',
             `legacy desktop client detected (version ${legacyVersion}); bootstrap update required`
@@ -785,8 +823,13 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
           return null;
         }
       }
+      const hostVersion = extractDesktopVersion((window as any)?.__CRA_DESKTOP_HOST__);
+      if (hostVersion) {
+        currentVersion = hostVersion;
+      }
       const normalizedVersionError = currentVersionError.toLowerCase();
       if (
+        !currentVersion &&
         normalizedVersionError.includes('desktop_get_current_version') &&
         (normalizedVersionError.includes('unknown') ||
           normalizedVersionError.includes('not found') ||
@@ -798,13 +841,19 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         );
         return null;
       }
-      const detail = currentVersionError
-        ? `desktop_get_current_version failed: ${currentVersionError}`
-        : 'desktop bridge returned an empty version';
-      updateDesktopUpdaterDiagnostics('version_unavailable', detail);
-      return null;
+      if (!currentVersion) {
+        const detail = currentVersionError
+          ? `desktop_get_current_version failed: ${currentVersionError}`
+          : 'desktop bridge returned an empty version';
+        updateDesktopUpdaterDiagnostics('version_unavailable', detail);
+        currentVersion = DESKTOP_UPDATE_UNKNOWN_VERSION_FALLBACK;
+        usedUnknownVersionFallback = true;
+      }
     }
     setDesktopUpdateLegacyVersion('');
+    if (!usedUnknownVersionFallback && currentVersion) {
+      setDesktopClientVersion(currentVersion);
+    }
 
     const prepareRes = await fetch('/api/client/update/prepare', {
       method: 'POST',
@@ -832,7 +881,11 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         updateAvailable: false,
         targetVersion: prepare?.targetVersion ?? null,
       });
-      updateDesktopUpdaterDiagnostics('ready', 'in-app updater ready (no newer version for current client)');
+      if (usedUnknownVersionFallback) {
+        updateDesktopUpdaterDiagnostics('version_unavailable', 'desktop client version unavailable; update not actionable');
+      } else {
+        updateDesktopUpdaterDiagnostics('ready', 'in-app updater ready (no newer version for current client)');
+      }
       return null;
     }
     setDesktopUpdateNotifiedVersion(prepare.targetVersion);
@@ -840,7 +893,12 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       updateAvailable: true,
       targetVersion: prepare.targetVersion,
     });
-    updateDesktopUpdaterDiagnostics('ready', 'in-app updater ready');
+    updateDesktopUpdaterDiagnostics(
+      'ready',
+      usedUnknownVersionFallback
+        ? 'in-app updater ready (fallback currentVersion=0.0.0)'
+        : 'in-app updater ready'
+    );
     return prepare;
   }, [desktopRuntimeDetected, updateDesktopUpdaterDiagnostics, user]);
 
@@ -1294,6 +1352,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     setDesktopUpdateErrorMessage('');
     setDesktopUpdateNotifiedVersion('');
     setDesktopUpdateLegacyVersion('');
+    setDesktopClientVersion('');
     setDesktopUpdaterDiagnostics({ state: 'unknown', detail: '' });
   }, [clearDesktopUpdateRestartTimer, user]);
 
@@ -1423,6 +1482,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const desktopUpdatePillTitle = interpolate(t.appChrome.desktopUpdatePillTitle, {
     version: desktopUpdateTargetVersion || '-',
   });
+  const desktopFooterVersionLabel = desktopRuntimeDetected ? t.appChrome.clientVersionLabel : t.appChrome.buildLabel;
+  const desktopFooterVersionValue = desktopRuntimeDetected
+    ? (desktopClientVersion || desktopUpdateLegacyVersion || '--')
+    : (shellStatus?.build?.hash ? shellStatus.build.hash.slice(0, 8) : '--');
 
   return (
     <>
@@ -1617,7 +1680,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                   : t.appChrome.idle}
           </span>
           <span className="truncate">{t.appChrome.userLabel}: {user?.name ?? '--'}</span>
-          <span className="truncate">{t.appChrome.buildLabel}: {shellStatus?.build?.hash ? shellStatus.build.hash.slice(0, 8) : '--'}</span>
+          <span className="truncate">{desktopFooterVersionLabel}: {desktopFooterVersionValue}</span>
           {syncError ? <span className="text-red-600 truncate">{t.appChrome.syncError}</span> : null}
           {shellStatusError ? <span className="text-red-600 truncate">{t.appChrome.statusError}</span> : null}
         </div>
@@ -1805,6 +1868,9 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                 </div>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {desktopUpdaterStateDetail}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t.appChrome.clientVersionLabel}: {desktopClientVersion || desktopUpdateLegacyVersion || '--'}
                 </p>
                 {desktopUpdateBootstrapRequiredVisible ? (
                   <div className="mt-2 flex items-center justify-between gap-2">
