@@ -828,6 +828,19 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         currentVersion = hostVersion;
       }
       const normalizedVersionError = currentVersionError.toLowerCase();
+      const ipcAccessDenied =
+        normalizedVersionError.includes('tauri api') ||
+        normalizedVersionError.includes('not allowed') ||
+        normalizedVersionError.includes('forbidden') ||
+        normalizedVersionError.includes('ipc') ||
+        normalizedVersionError.includes('remote domain');
+      if (!currentVersion && currentVersionError && ipcAccessDenied) {
+        updateDesktopUpdaterDiagnostics(
+          'invoke_unavailable',
+          `tauri remote IPC blocked for current domain: ${currentVersionError}`
+        );
+        return null;
+      }
       if (
         !currentVersion &&
         normalizedVersionError.includes('desktop_get_current_version') &&
