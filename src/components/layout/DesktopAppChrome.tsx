@@ -26,6 +26,8 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import UserHubMenu from '@/components/layout/UserHubMenu';
+import DesktopUpdateConfirmDialog from '@/components/layout/DesktopUpdateConfirmDialog';
+import DesktopUpdateProgressDialog from '@/components/layout/DesktopUpdateProgressDialog';
 import { cn } from '@/lib/utils';
 
 interface DesktopAppChromeProps {
@@ -57,6 +59,9 @@ interface AppNotification {
 type DesktopUpdaterBridge = {
   getCurrentVersion: () => Promise<string>;
   checkForUpdate?: (payload?: Record<string, any>) => Promise<{ available: boolean; current: string; target?: string }>;
+  getCapabilities?: () => Promise<{ inAppUpdate?: boolean; silentInstall?: boolean; autoRestart?: boolean }>;
+  getInstallStatus?: () => Promise<Record<string, any> | null>;
+  cancelInstall?: () => Promise<{ cancelled?: boolean } | boolean | void>;
   installUpdate: (payload?: Record<string, any>) => Promise<{ started: boolean } | boolean | void>;
   restartApp: () => Promise<void>;
 };
@@ -71,9 +76,19 @@ type ClientUpdatePrepareResponse = {
   expiresAt: string | null;
 };
 
-type DesktopUpdatePillState = 'hidden' | 'available' | 'installing' | 'restart_ready';
+type DesktopUpdatePillState =
+  | 'hidden'
+  | 'available'
+  | 'confirming'
+  | 'downloading'
+  | 'installing'
+  | 'ready_to_restart'
+  | 'failed';
+
+type DesktopUpdateProgressPhase = 'checking' | 'downloading' | 'installing' | 'ready_to_restart' | 'failed';
 
 const DESKTOP_UPDATE_PLATFORM = 'windows-x86_64';
+const DESKTOP_UPDATE_RESTART_SECONDS = 10;
 
 const getDesktopUpdaterBridge = (): DesktopUpdaterBridge | null => {
   const bridge = (window as any)?.__CRA_DESKTOP_UPDATER__;
@@ -82,6 +97,45 @@ const getDesktopUpdaterBridge = (): DesktopUpdaterBridge | null => {
   if (typeof bridge.installUpdate !== 'function') return null;
   if (typeof bridge.restartApp !== 'function') return null;
   return bridge as DesktopUpdaterBridge;
+};
+
+const resolveInstallPhase = (
+  status: Record<string, any> | null | undefined
+): {
+  phase: DesktopUpdateProgressPhase | null;
+  message: string;
+  progress: number | null;
+} => {
+  const rawState = String(status?.phase ?? status?.status ?? status?.state ?? '').trim().toLowerCase();
+  const message = String(status?.message ?? status?.detail ?? status?.error ?? '').trim();
+  const rawProgress = Number(status?.progress ?? status?.percent ?? status?.percentage ?? NaN);
+  const progress = Number.isFinite(rawProgress) ? Math.max(0, Math.min(100, rawProgress)) : null;
+
+  if (!rawState) return { phase: null, message, progress };
+  if (rawState.includes('fail') || rawState.includes('error') || rawState.includes('cancel')) {
+    return { phase: 'failed', message, progress };
+  }
+  if (
+    rawState.includes('ready') ||
+    rawState.includes('restart') ||
+    rawState.includes('complete') ||
+    rawState.includes('applied')
+  ) {
+    return { phase: 'ready_to_restart', message, progress };
+  }
+  if (rawState.includes('download') || rawState.includes('fetch')) {
+    return { phase: 'downloading', message, progress };
+  }
+  if (
+    rawState.includes('install') ||
+    rawState.includes('verify') ||
+    rawState.includes('extract') ||
+    rawState.includes('prepare')
+  ) {
+    return { phase: 'installing', message, progress };
+  }
+
+  return { phase: null, message, progress };
 };
 
 const formatTimeShort = (value?: Date | string | null) => {
@@ -132,14 +186,6 @@ const resolveContractStatusLabel = (status: string, t: any) => {
 const extractFirstInteger = (text: string) => {
   const match = String(text ?? '').match(/(\d+)/);
   return match?.[1] ?? '0';
-};
-
-const extractClientUpdateVersion = (item: AppNotification) => {
-  const payloadVersion = String(item?.payload?.version ?? '').trim();
-  if (payloadVersion) return payloadVersion;
-  const title = String(item?.title ?? '').trim();
-  const match = title.match(/(v?\d+\.\d+(?:\.\d+)?)/i);
-  return match?.[1] ? String(match[1]).trim() : '';
 };
 
 const resolveNotificationDisplay = (item: AppNotification, t: any) => {
@@ -394,9 +440,19 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const desktopUpdatePromptedVersionRef = useRef<string>('');
   const desktopUpdateManifestUrlRef = useRef<string>('');
   const desktopUpdateInstallBusyRef = useRef(false);
+  const desktopUpdateRestartTimerRef = useRef<number | null>(null);
   const [desktopUpdatePillState, setDesktopUpdatePillState] = useState<DesktopUpdatePillState>('hidden');
   const [desktopUpdateTargetVersion, setDesktopUpdateTargetVersion] = useState<string>('');
   const [desktopUpdatePrepare, setDesktopUpdatePrepare] = useState<ClientUpdatePrepareResponse | null>(null);
+  const [desktopUpdateConfirmOpen, setDesktopUpdateConfirmOpen] = useState(false);
+  const [desktopUpdateProgressOpen, setDesktopUpdateProgressOpen] = useState(false);
+  const [desktopUpdateProgressPhase, setDesktopUpdateProgressPhase] = useState<DesktopUpdateProgressPhase>('checking');
+  const [desktopUpdateProgressPercent, setDesktopUpdateProgressPercent] = useState(0);
+  const [desktopUpdateProgressMessage, setDesktopUpdateProgressMessage] = useState('');
+  const [desktopUpdateErrorMessage, setDesktopUpdateErrorMessage] = useState('');
+  const [desktopUpdateRestartCountdown, setDesktopUpdateRestartCountdown] = useState<number | null>(null);
+  const [desktopUpdateBusy, setDesktopUpdateBusy] = useState(false);
+  const [desktopUpdateCanCancelInstall, setDesktopUpdateCanCancelInstall] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -524,25 +580,132 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     [user]
   );
 
+  const clearDesktopUpdateRestartTimer = useCallback(() => {
+    if (desktopUpdateRestartTimerRef.current) {
+      window.clearInterval(desktopUpdateRestartTimerRef.current);
+      desktopUpdateRestartTimerRef.current = null;
+    }
+  }, []);
+
+  const requestDesktopUpdatePrepare = useCallback(async (): Promise<ClientUpdatePrepareResponse | null> => {
+    if (!user) return null;
+    const bridge = getDesktopUpdaterBridge();
+    if (!bridge) return null;
+
+    if (typeof bridge.getCapabilities === 'function') {
+      const capabilities = await bridge.getCapabilities().catch(() => null);
+      if (capabilities && capabilities.inAppUpdate === false) {
+        return null;
+      }
+    }
+
+    const currentVersion = String(await bridge.getCurrentVersion().catch(() => '')).trim();
+    if (!currentVersion) return null;
+
+    const prepareRes = await fetch('/api/client/update/prepare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        currentVersion,
+        platform: DESKTOP_UPDATE_PLATFORM,
+        channel: 'stable',
+      }),
+    }).catch(() => null);
+    if (!prepareRes?.ok) return null;
+
+    const prepare = (await prepareRes.json().catch(() => null)) as ClientUpdatePrepareResponse | null;
+    if (!prepare?.updateAvailable || !prepare.targetVersion || !prepare.manifestUrl) {
+      return null;
+    }
+    return prepare;
+  }, [user]);
+
+  const handleDesktopRestartNow = useCallback(async () => {
+    clearDesktopUpdateRestartTimer();
+    setDesktopUpdateRestartCountdown(null);
+    const bridge = getDesktopUpdaterBridge();
+    if (!bridge) {
+      setDesktopUpdatePillState('failed');
+      setDesktopUpdateProgressPhase('failed');
+      setDesktopUpdateErrorMessage(t.appChrome.desktopUpdateBridgeUnavailable);
+      setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateBridgeUnavailable);
+      setDesktopUpdateProgressOpen(true);
+      return;
+    }
+    await bridge.restartApp().catch(() => {
+      toast.error(t.appChrome.desktopUpdateRestartFailed);
+    });
+  }, [clearDesktopUpdateRestartTimer, t.appChrome.desktopUpdateBridgeUnavailable, t.appChrome.desktopUpdateRestartFailed]);
+
+  const startDesktopAutoRestartCountdown = useCallback(() => {
+    clearDesktopUpdateRestartTimer();
+    setDesktopUpdateRestartCountdown(DESKTOP_UPDATE_RESTART_SECONDS);
+    desktopUpdateRestartTimerRef.current = window.setInterval(() => {
+      setDesktopUpdateRestartCountdown((prev) => {
+        if (prev == null) return null;
+        if (prev <= 1) {
+          clearDesktopUpdateRestartTimer();
+          void handleDesktopRestartNow();
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [clearDesktopUpdateRestartTimer, handleDesktopRestartNow]);
+
+  const markDesktopUpdateFailure = useCallback(
+    (reason: string) => {
+      clearDesktopUpdateRestartTimer();
+      setDesktopUpdateRestartCountdown(null);
+      setDesktopUpdatePillState('failed');
+      setDesktopUpdateProgressPhase('failed');
+      setDesktopUpdateProgressPercent(0);
+      setDesktopUpdateErrorMessage(reason);
+      setDesktopUpdateProgressMessage(reason);
+      setDesktopUpdateProgressOpen(true);
+      toast.error(t.appChrome.desktopUpdateInstallFailedTitle, {
+        description: interpolate(t.appChrome.desktopUpdateInstallFailedBody, { reason: reason || '-' }),
+      });
+    },
+    [clearDesktopUpdateRestartTimer, t.appChrome.desktopUpdateInstallFailedBody, t.appChrome.desktopUpdateInstallFailedTitle]
+  );
+
   const installDesktopUpdate = useCallback(
-    async (prepare: ClientUpdatePrepareResponse) => {
+    async (prepareInput?: ClientUpdatePrepareResponse | null) => {
       const bridge = getDesktopUpdaterBridge();
       if (!bridge) {
-        navigate('/downloads');
-        return;
-      }
-      const manifestUrl = String(prepare?.manifestUrl ?? desktopUpdateManifestUrlRef.current ?? '').trim();
-      if (!manifestUrl) {
-        setDesktopUpdatePillState('available');
-        toast.error(t.appChrome.desktopUpdateManifestMissing);
-        navigate('/downloads');
+        markDesktopUpdateFailure(t.appChrome.desktopUpdateBridgeUnavailable);
         return;
       }
       if (desktopUpdateInstallBusyRef.current) return;
+
       desktopUpdateInstallBusyRef.current = true;
-      setDesktopUpdatePillState('installing');
+      setDesktopUpdateBusy(true);
+      setDesktopUpdateConfirmOpen(false);
+      setDesktopUpdateProgressOpen(true);
+      setDesktopUpdateProgressPhase('checking');
+      setDesktopUpdateProgressPercent(5);
+      setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateProgressChecking);
+      setDesktopUpdateErrorMessage('');
+      setDesktopUpdateCanCancelInstall(typeof bridge.cancelInstall === 'function');
+      setDesktopUpdatePillState('downloading');
+      clearDesktopUpdateRestartTimer();
+      setDesktopUpdateRestartCountdown(null);
+
       try {
-        const manifestRes = await fetch(manifestUrl, { cache: 'no-store' });
+        let prepare = prepareInput;
+        if (!prepare?.manifestUrl || !prepare?.targetVersion) {
+          prepare = await requestDesktopUpdatePrepare();
+        }
+        if (!prepare?.manifestUrl || !prepare?.targetVersion) {
+          throw new Error(t.appChrome.desktopUpdatePrepareFailed);
+        }
+
+        desktopUpdateManifestUrlRef.current = String(prepare.manifestUrl ?? '').trim();
+        setDesktopUpdatePrepare(prepare);
+        setDesktopUpdateTargetVersion(prepare.targetVersion);
+
+        const manifestRes = await fetch(prepare.manifestUrl, { cache: 'no-store' });
         if (!manifestRes.ok) {
           throw new Error(`Failed to load update manifest (${manifestRes.status})`);
         }
@@ -555,92 +718,119 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         if (!artifactUrl) {
           throw new Error(t.appChrome.desktopUpdateArtifactMissing);
         }
-        await bridge.installUpdate({
-          manifestUrl,
+
+        setDesktopUpdateProgressPhase('downloading');
+        setDesktopUpdateProgressPercent(20);
+        setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateProgressDownloading);
+
+        const installResult = await bridge.installUpdate({
+          manifestUrl: prepare.manifestUrl,
           artifactUrl,
-          targetVersion: prepare?.targetVersion || null,
+          targetVersion: prepare.targetVersion || null,
         });
-        setDesktopUpdatePillState('restart_ready');
+        const installStarted =
+          typeof installResult === 'boolean'
+            ? installResult
+            : typeof installResult === 'object' && installResult !== null
+              ? (installResult as { started?: boolean }).started !== false
+              : true;
+        if (!installStarted) {
+          throw new Error(t.appChrome.desktopUpdateInstallNotStarted);
+        }
+
+        if (typeof bridge.getInstallStatus === 'function') {
+          const deadline = Date.now() + 15 * 60_000;
+          while (Date.now() < deadline) {
+            const statusPayload = await bridge.getInstallStatus().catch(() => null);
+            const resolved = resolveInstallPhase(statusPayload);
+            if (resolved.progress != null) {
+              setDesktopUpdateProgressPercent(resolved.progress);
+            }
+            if (resolved.message) {
+              setDesktopUpdateProgressMessage(resolved.message);
+            }
+            if (resolved.phase === 'failed') {
+              throw new Error(resolved.message || t.appChrome.desktopUpdateInstallFailedUnknown);
+            }
+            if (resolved.phase === 'ready_to_restart') {
+              break;
+            }
+            if (resolved.phase === 'downloading') {
+              setDesktopUpdatePillState('downloading');
+              setDesktopUpdateProgressPhase('downloading');
+              if (!resolved.message) {
+                setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateProgressDownloading);
+              }
+            } else {
+              setDesktopUpdatePillState('installing');
+              setDesktopUpdateProgressPhase('installing');
+              if (resolved.progress == null) {
+                setDesktopUpdateProgressPercent((prev) => Math.max(prev, 60));
+              }
+              if (!resolved.message) {
+                setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateProgressInstalling);
+              }
+            }
+            await new Promise((resolve) => window.setTimeout(resolve, 900));
+          }
+        } else {
+          setDesktopUpdatePillState('installing');
+          setDesktopUpdateProgressPhase('installing');
+          setDesktopUpdateProgressPercent(85);
+          setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateProgressInstalling);
+          await new Promise((resolve) => window.setTimeout(resolve, 500));
+        }
+
+        setDesktopUpdatePillState('ready_to_restart');
+        setDesktopUpdateProgressPhase('ready_to_restart');
+        setDesktopUpdateProgressPercent(100);
+        setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateInstallReadyBody);
         toast.success(t.appChrome.desktopUpdateInstallReadyTitle, {
           description: t.appChrome.desktopUpdateInstallReadyBody,
-          action: {
-            label: t.appChrome.desktopUpdateRestartNow,
-            onClick: () => {
-              void bridge.restartApp().catch(() => {
-                toast.error(t.appChrome.desktopUpdateRestartFailed);
-              });
-            },
-          },
         });
+        startDesktopAutoRestartCountdown();
       } catch (error) {
-        setDesktopUpdatePillState('available');
-        const reason = String((error as any)?.message ?? error).trim();
-        toast.error(t.appChrome.desktopUpdateInstallFailedTitle, {
-          description: interpolate(t.appChrome.desktopUpdateInstallFailedBody, { reason: reason || '-' }),
-          action: {
-            label: t.downloads.openDownloads,
-            onClick: () => navigate('/downloads'),
-          },
-        });
+        const reason = String((error as any)?.message ?? error).trim() || t.appChrome.desktopUpdateInstallFailedUnknown;
+        markDesktopUpdateFailure(reason);
       } finally {
         desktopUpdateInstallBusyRef.current = false;
+        setDesktopUpdateBusy(false);
       }
     },
-    [navigate, t.appChrome, t.downloads.openDownloads]
+    [
+      clearDesktopUpdateRestartTimer,
+      markDesktopUpdateFailure,
+      requestDesktopUpdatePrepare,
+      startDesktopAutoRestartCountdown,
+      t.appChrome.desktopUpdateArtifactMissing,
+      t.appChrome.desktopUpdateBridgeUnavailable,
+      t.appChrome.desktopUpdateInstallFailedUnknown,
+      t.appChrome.desktopUpdateInstallNotStarted,
+      t.appChrome.desktopUpdateInstallReadyBody,
+      t.appChrome.desktopUpdateInstallReadyTitle,
+      t.appChrome.desktopUpdatePrepareFailed,
+      t.appChrome.desktopUpdateProgressChecking,
+      t.appChrome.desktopUpdateProgressDownloading,
+      t.appChrome.desktopUpdateProgressInstalling,
+    ]
   );
 
   const checkDesktopInAppUpdate = useCallback(
     async (opts?: { forcePrompt?: boolean }) => {
-      const bridge = getDesktopUpdaterBridge();
       if (!user) {
-        if (desktopUpdatePillState !== 'restart_ready') {
+        if (desktopUpdatePillState !== 'ready_to_restart') {
           setDesktopUpdatePillState('hidden');
         }
         return false;
       }
-      if (!bridge) {
-        return desktopUpdatePillState === 'available' && Boolean(desktopUpdateTargetVersion);
-      }
 
-      const currentVersion = String(await bridge.getCurrentVersion().catch(() => '')).trim();
-      if (!currentVersion) {
+      const prepare = await requestDesktopUpdatePrepare();
+      if (!prepare) {
         if (
-          desktopUpdateTargetVersion &&
-          desktopUpdatePillState !== 'restart_ready' &&
+          desktopUpdatePillState !== 'ready_to_restart' &&
+          desktopUpdatePillState !== 'downloading' &&
           desktopUpdatePillState !== 'installing'
         ) {
-          setDesktopUpdatePillState('available');
-        } else if (desktopUpdatePillState !== 'restart_ready') {
-          setDesktopUpdatePillState('hidden');
-        }
-        return false;
-      }
-
-      const prepareRes = await fetch('/api/client/update/prepare', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          currentVersion,
-          platform: DESKTOP_UPDATE_PLATFORM,
-          channel: 'stable',
-        }),
-      });
-      if (!prepareRes.ok) {
-        if (
-          desktopUpdateTargetVersion &&
-          desktopUpdatePillState !== 'restart_ready' &&
-          desktopUpdatePillState !== 'installing'
-        ) {
-          setDesktopUpdatePillState('available');
-        } else if (desktopUpdatePillState === 'hidden') {
-          setDesktopUpdatePillState('hidden');
-        }
-        return false;
-      }
-
-      const prepare = (await prepareRes.json().catch(() => null)) as ClientUpdatePrepareResponse | null;
-      if (!prepare?.updateAvailable || !prepare.targetVersion || !prepare.manifestUrl) {
-        if (desktopUpdatePillState !== 'restart_ready' && desktopUpdatePillState !== 'installing') {
           setDesktopUpdatePillState('hidden');
           setDesktopUpdateTargetVersion('');
           setDesktopUpdatePrepare(null);
@@ -651,7 +841,11 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       desktopUpdateManifestUrlRef.current = String(prepare.manifestUrl ?? '').trim();
       setDesktopUpdateTargetVersion(prepare.targetVersion);
       setDesktopUpdatePrepare(prepare);
-      if (desktopUpdatePillState !== 'restart_ready' && desktopUpdatePillState !== 'installing') {
+      if (
+        desktopUpdatePillState !== 'ready_to_restart' &&
+        desktopUpdatePillState !== 'downloading' &&
+        desktopUpdatePillState !== 'installing'
+      ) {
         setDesktopUpdatePillState('available');
       }
       if (
@@ -672,7 +866,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
           action: {
             label: t.appChrome.desktopUpdateNow,
             onClick: () => {
-              void installDesktopUpdate(prepare);
+              setDesktopUpdateConfirmOpen(true);
+              setDesktopUpdatePillState('confirming');
             },
           },
           cancel: {
@@ -683,34 +878,98 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       );
       return true;
     },
-    [desktopUpdatePillState, desktopUpdateTargetVersion, installDesktopUpdate, t.appChrome, user]
+    [desktopUpdatePillState, requestDesktopUpdatePrepare, t.appChrome, user]
   );
 
   const handleDesktopUpdatePillClick = useCallback(async () => {
     const bridge = getDesktopUpdaterBridge();
     if (!bridge) {
-      navigate('/downloads');
+      setDesktopUpdatePillState('hidden');
       return;
     }
 
-    if (desktopUpdatePillState === 'restart_ready') {
-      await bridge.restartApp().catch(() => {
-        toast.error(t.appChrome.desktopUpdateRestartFailed);
-      });
+    if (desktopUpdatePillState === 'ready_to_restart') {
+      setDesktopUpdateProgressOpen(true);
       return;
     }
-
-    if (desktopUpdatePillState !== 'available') return;
-
-    const prepare = desktopUpdatePrepare;
-    if (!prepare) {
-      toast.error(t.appChrome.desktopUpdateManifestMissing);
-      navigate('/downloads');
+    if (desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing') {
+      setDesktopUpdateProgressOpen(true);
       return;
     }
+    if (desktopUpdatePillState !== 'available' && desktopUpdatePillState !== 'failed') return;
 
-    await installDesktopUpdate(prepare);
-  }, [desktopUpdatePillState, desktopUpdatePrepare, installDesktopUpdate, navigate, t.appChrome.desktopUpdateManifestMissing, t.appChrome.desktopUpdateRestartFailed]);
+    if (!desktopUpdatePrepare) {
+      const available = await checkDesktopInAppUpdate({ forcePrompt: true });
+      if (!available) {
+        setDesktopUpdatePillState('failed');
+        setDesktopUpdateErrorMessage(t.appChrome.desktopUpdatePrepareFailed);
+        setDesktopUpdateProgressPhase('failed');
+        setDesktopUpdateProgressMessage(t.appChrome.desktopUpdatePrepareFailed);
+        setDesktopUpdateProgressOpen(true);
+      }
+      if (available) {
+        setDesktopUpdateConfirmOpen(true);
+        setDesktopUpdatePillState('confirming');
+      }
+      return;
+    }
+    setDesktopUpdateConfirmOpen(true);
+    setDesktopUpdatePillState('confirming');
+  }, [checkDesktopInAppUpdate, desktopUpdatePillState, desktopUpdatePrepare, t.appChrome.desktopUpdatePrepareFailed]);
+
+  const handleDesktopUpdateConfirmOpenChange = useCallback(
+    (open: boolean) => {
+      setDesktopUpdateConfirmOpen(open);
+      if (!open && desktopUpdatePillState === 'confirming') {
+        setDesktopUpdatePillState('available');
+      }
+    },
+    [desktopUpdatePillState]
+  );
+
+  const handleDesktopUpdateConfirm = useCallback(() => {
+    setDesktopUpdateConfirmOpen(false);
+    void installDesktopUpdate(desktopUpdatePrepare);
+  }, [desktopUpdatePrepare, installDesktopUpdate]);
+
+  const handleDesktopUpdateCancelInstall = useCallback(async () => {
+    const bridge = getDesktopUpdaterBridge();
+    if (!bridge || typeof bridge.cancelInstall !== 'function') return;
+    await bridge.cancelInstall().catch(() => null);
+    markDesktopUpdateFailure(t.appChrome.desktopUpdateInstallCancelled);
+  }, [markDesktopUpdateFailure, t.appChrome.desktopUpdateInstallCancelled]);
+
+  const handleDesktopUpdateRetry = useCallback(() => {
+    void installDesktopUpdate(desktopUpdatePrepare);
+  }, [desktopUpdatePrepare, installDesktopUpdate]);
+
+  const handleDesktopUpdateProgressOpenChange = useCallback(
+    (open: boolean) => {
+      if (
+        !open &&
+        (desktopUpdatePillState === 'confirming' || desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing')
+      ) {
+        return;
+      }
+      setDesktopUpdateProgressOpen(open);
+    },
+    [desktopUpdatePillState]
+  );
+
+  const handleDesktopUpdateCancelAutoRestart = useCallback(() => {
+    clearDesktopUpdateRestartTimer();
+    setDesktopUpdateRestartCountdown(null);
+  }, [clearDesktopUpdateRestartTimer]);
+
+  const handleDesktopUpdateOpenDownloads = useCallback(() => {
+    navigate('/downloads');
+  }, [navigate]);
+
+  useEffect(() => {
+    return () => {
+      clearDesktopUpdateRestartTimer();
+    };
+  }, [clearDesktopUpdateRestartTimer]);
 
   useEffect(() => {
     if (!notificationsOpen) return;
@@ -742,25 +1001,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       const res = await fetch('/api/notifications/client-update/sync', { method: 'POST' });
       if (!res.ok) return;
       const data = await res.json().catch(() => null);
-      const syncedVersion = String(data?.version ?? '').trim();
-      if (syncedVersion) {
-        setDesktopUpdateTargetVersion(syncedVersion);
-        setDesktopUpdatePrepare(null);
-        setDesktopUpdatePillState((prev) =>
-          prev === 'installing' || prev === 'restart_ready' ? prev : 'available'
-        );
-      }
       if (data?.createdForCurrentUser === true) {
-        const prompted = await checkDesktopInAppUpdate({ forcePrompt: true });
-        if (!prompted) {
-          toast.success(t.downloads.updateToastTitle, {
-            description: t.downloads.updateToastDesc,
-            action: {
-              label: t.downloads.openDownloads,
-              onClick: () => navigate('/downloads'),
-            },
-          });
-        }
+        await checkDesktopInAppUpdate({ forcePrompt: true });
       }
       await fetchUnreadCount();
       if (notificationsOpen) {
@@ -769,7 +1011,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     } catch {
       // ignore transient sync errors
     }
-  }, [checkDesktopInAppUpdate, fetchNotifications, fetchUnreadCount, navigate, notificationsFilter, notificationsOpen, t.downloads, user]);
+  }, [checkDesktopInAppUpdate, fetchNotifications, fetchUnreadCount, notificationsFilter, notificationsOpen, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -812,30 +1054,16 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   useEffect(() => {
     if (user) return;
+    clearDesktopUpdateRestartTimer();
     setDesktopUpdatePillState('hidden');
     setDesktopUpdateTargetVersion('');
     setDesktopUpdatePrepare(null);
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    if (desktopUpdatePillState === 'installing' || desktopUpdatePillState === 'restart_ready') return;
-
-    const latestUpdateNotification = notifications
-      .filter((item) => item.type === 'client_update_available')
-      .sort((left, right) => {
-        const leftMs = new Date(left.createdAt || 0).getTime();
-        const rightMs = new Date(right.createdAt || 0).getTime();
-        return rightMs - leftMs;
-      })[0];
-    if (!latestUpdateNotification) return;
-
-    const version = extractClientUpdateVersion(latestUpdateNotification);
-    if (!version) return;
-
-    setDesktopUpdateTargetVersion((prev) => prev || version);
-    setDesktopUpdatePillState('available');
-  }, [desktopUpdatePillState, notifications, user]);
+    setDesktopUpdateConfirmOpen(false);
+    setDesktopUpdateProgressOpen(false);
+    setDesktopUpdateRestartCountdown(null);
+    setDesktopUpdateBusy(false);
+    setDesktopUpdateErrorMessage('');
+  }, [clearDesktopUpdateRestartTimer, user]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -880,9 +1108,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     }
     const actionPath = typeof item.payload?.actionPath === 'string' ? item.payload.actionPath : '';
     if (item.type === 'client_update_available') {
-      const prompted = await checkDesktopInAppUpdate({ forcePrompt: true });
-      if (!prompted) {
-        navigate('/downloads');
+      const available = await checkDesktopInAppUpdate({ forcePrompt: true });
+      if (available) {
+        setDesktopUpdateConfirmOpen(true);
+        setDesktopUpdatePillState((prev) => (prev === 'available' ? 'confirming' : prev));
       }
       setNotificationsOpen(false);
       return;
@@ -905,7 +1134,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   const desktopUpdatePillVisible = desktopUpdatePillState !== 'hidden';
   const desktopUpdatePillLabel =
-    desktopUpdatePillState === 'installing'
+    desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing'
       ? t.appChrome.desktopUpdatePillUpdating
       : desktopUpdatePillState === 'restart_ready'
         ? t.appChrome.desktopUpdatePillRestart
@@ -995,17 +1224,17 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                 'h-8 rounded-full px-3.5 text-xs font-semibold text-white shadow-[0_0_10px_hsl(210_100%_60%/0.35)] transition-all',
                 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 hover:shadow-[0_0_16px_hsl(210_100%_60%/0.5)]',
                 'focus-visible:ring-blue-400/80',
-                desktopUpdatePillState === 'installing' && 'cursor-wait'
+                (desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing') && 'cursor-wait'
               )}
               onClick={() => {
                 void handleDesktopUpdatePillClick();
               }}
-              disabled={desktopUpdatePillState === 'installing'}
+              disabled={desktopUpdatePillState === 'confirming' || desktopUpdateBusy}
               aria-live="polite"
               aria-label={desktopUpdatePillTitle}
               title={desktopUpdatePillTitle}
             >
-              {desktopUpdatePillState === 'installing' ? (
+              {desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing' ? (
                 <RefreshCw className="h-3.5 w-3.5 animate-spin" />
               ) : null}
               <span>{desktopUpdatePillLabel}</span>
@@ -1084,6 +1313,35 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
           {shellStatusError ? <span className="text-red-600 truncate">{t.appChrome.statusError}</span> : null}
         </div>
       </div>
+
+      <DesktopUpdateConfirmDialog
+        open={desktopUpdateConfirmOpen}
+        onOpenChange={handleDesktopUpdateConfirmOpenChange}
+        targetVersion={desktopUpdateTargetVersion}
+        notes={desktopUpdatePrepare?.notes ?? null}
+        isSubmitting={desktopUpdateBusy}
+        onConfirm={handleDesktopUpdateConfirm}
+      />
+
+      <DesktopUpdateProgressDialog
+        open={desktopUpdateProgressOpen}
+        onOpenChange={handleDesktopUpdateProgressOpenChange}
+        phase={desktopUpdateProgressPhase}
+        progressPercent={desktopUpdateProgressPercent}
+        message={desktopUpdateProgressMessage}
+        errorMessage={desktopUpdateErrorMessage}
+        canCancelInstall={desktopUpdateCanCancelInstall}
+        restartCountdown={desktopUpdateRestartCountdown}
+        onCancelInstall={() => {
+          void handleDesktopUpdateCancelInstall();
+        }}
+        onRetry={handleDesktopUpdateRetry}
+        onRestartNow={() => {
+          void handleDesktopRestartNow();
+        }}
+        onCancelAutoRestart={handleDesktopUpdateCancelAutoRestart}
+        onOpenDownloads={handleDesktopUpdateOpenDownloads}
+      />
 
       <Dialog open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen}>
         <DialogContent hideCloseButton className="max-w-2xl p-0 gap-0">
