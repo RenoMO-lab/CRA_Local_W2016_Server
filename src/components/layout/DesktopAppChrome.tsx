@@ -1001,8 +1001,9 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       const res = await fetch('/api/notifications/client-update/sync', { method: 'POST' });
       if (!res.ok) return;
       const data = await res.json().catch(() => null);
-      if (data?.createdForCurrentUser === true) {
-        await checkDesktopInAppUpdate({ forcePrompt: true });
+      if (getDesktopUpdaterBridge()) {
+        const forcePrompt = data?.createdForCurrentUser === true;
+        await checkDesktopInAppUpdate({ forcePrompt });
       }
       await fetchUnreadCount();
       if (notificationsOpen) {

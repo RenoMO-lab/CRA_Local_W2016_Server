@@ -3879,15 +3879,25 @@ const resolveCraClientDownloadTarget = async () => {
   }
 };
 
-const buildClientUpdateNotificationPayload = (installerMeta) => {
-  const version = sanitizeDownloadText(installerMeta?.version);
+const buildClientUpdateNotificationPayload = (updateMeta) => {
+  const version = sanitizeDownloadText(updateMeta?.version);
+  const installerName = sanitizeDownloadFileName(
+    updateMeta?.installerName || updateMeta?.artifactName,
+    DEFAULT_CRA_CLIENT_INSTALLER_NAME
+  );
+  const sizeBytesRaw = Number.isFinite(Number(updateMeta?.sizeBytes))
+    ? Number(updateMeta.sizeBytes)
+    : Number.isFinite(Number(updateMeta?.artifactSizeBytes))
+      ? Number(updateMeta.artifactSizeBytes)
+      : NaN;
+  const updatedAt = sanitizeDownloadText(updateMeta?.updatedAt || updateMeta?.publishedAt);
   return {
     version: version || null,
-    installerName: sanitizeDownloadFileName(installerMeta?.installerName, DEFAULT_CRA_CLIENT_INSTALLER_NAME),
-    sizeBytes: Number.isFinite(Number(installerMeta?.sizeBytes)) ? Number(installerMeta.sizeBytes) : null,
-    updatedAt: sanitizeDownloadText(installerMeta?.updatedAt) || null,
+    installerName,
+    sizeBytes: Number.isFinite(sizeBytesRaw) ? sizeBytesRaw : null,
+    updatedAt: updatedAt || null,
     actionPath: "/downloads",
-    source: sanitizeDownloadText(installerMeta?.source) || "github",
+    source: sanitizeDownloadText(updateMeta?.source) || "github",
     updateMode: "in_app",
   };
 };
@@ -5488,12 +5498,14 @@ export const apiRouter = (() => {
 
       const pool = await getPool();
       try {
-        const installer = await resolveCraClientDownloadTarget();
-        const result = await enqueueClientUpdateNotifications(pool, installer);
+        const updateTarget = await resolveCraClientUpdateTarget();
+        const result = await enqueueClientUpdateNotifications(pool, updateTarget);
         const createdForCurrentUser = result.insertedUserIds.has(userId);
         res.json({
           createdForCurrentUser,
           version: result.version,
+          targetVersion: result.version,
+          inAppReady: Boolean(result.version),
         });
       } catch (error) {
         const key = "resolve_error";
@@ -5506,6 +5518,8 @@ export const apiRouter = (() => {
         res.json({
           createdForCurrentUser: false,
           version: null,
+          targetVersion: null,
+          inAppReady: false,
         });
       }
     })
