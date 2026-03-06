@@ -88,6 +88,7 @@ type DesktopUpdatePillState =
   | 'failed';
 
 type DesktopUpdateProgressPhase = 'checking' | 'downloading' | 'installing' | 'ready_to_restart' | 'failed';
+type DesktopUpdateFailureKind = 'scope_blocked' | 'transient';
 type DesktopUpdaterBridgeState =
   | 'unknown'
   | 'ready'
@@ -112,6 +113,7 @@ const DESKTOP_UPDATE_RESTART_SECONDS = 10;
 const DESKTOP_UPDATE_UNKNOWN_VERSION_FALLBACK = '0.0.0';
 const DESKTOP_UPDATE_TOAST_ID = 'desktop-update-available';
 const DESKTOP_UPDATE_TOAST_DEDUP_MS = 15000;
+const DESKTOP_SCOPE_RESCUE_SESSION_KEY = 'cra-desktop-scope-rescue-v1';
 
 const detectDesktopRuntime = (): boolean => {
   const hostRuntime = String((window as any)?.__CRA_DESKTOP_HOST__?.runtime ?? '').trim().toLowerCase();
@@ -137,6 +139,18 @@ type DesktopAboutInfoResponse = {
   value?: string | null;
   title?: string | null;
   app_host?: string | null;
+};
+
+type DesktopHostMetadata = {
+  runtime?: string;
+  bridgeVersion?: number;
+  version?: string | null;
+  appVersion?: string | null;
+  clientVersion?: string | null;
+  activeAppUrl?: string | null;
+  fallbackAppUrl?: string | null;
+  scopeCompatible?: boolean;
+  hostCandidates?: string[];
 };
 
 const isLegacyBootstrapState = (state: DesktopUpdaterBridgeState) =>
@@ -455,6 +469,33 @@ const extractDesktopVersion = (rawValue: unknown): string => {
 };
 
 const readDesktopHostVersion = (): string => extractDesktopVersion((window as any)?.__CRA_DESKTOP_HOST__);
+
+const readDesktopHostMetadata = (): DesktopHostMetadata | null => {
+  const payload = (window as any)?.__CRA_DESKTOP_HOST__;
+  if (!payload || typeof payload !== 'object') return null;
+  return payload as DesktopHostMetadata;
+};
+
+const isIpv4Host = (host: string): boolean => {
+  const value = String(host ?? '').trim();
+  if (!value) return false;
+  const parts = value.split('.');
+  if (parts.length !== 4) return false;
+  return parts.every((part) => {
+    if (!/^\d+$/.test(part)) return false;
+    const n = Number(part);
+    return Number.isInteger(n) && n >= 0 && n <= 255;
+  });
+};
+
+const isNonIpDomainHost = (host: string): boolean => {
+  const normalized = String(host ?? '').trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1' || normalized === 'tauri.localhost') {
+    return false;
+  }
+  return !isIpv4Host(normalized);
+};
 
 const normalizeDesktopUpdateNotes = (rawValue: string | null | undefined): string => {
   const raw = String(rawValue ?? '').replace(/\r/g, '').trim();
@@ -827,6 +868,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const [desktopUpdateProgressPercent, setDesktopUpdateProgressPercent] = useState(0);
   const [desktopUpdateProgressMessage, setDesktopUpdateProgressMessage] = useState('');
   const [desktopUpdateErrorMessage, setDesktopUpdateErrorMessage] = useState('');
+  const [desktopUpdateFailureKind, setDesktopUpdateFailureKind] = useState<DesktopUpdateFailureKind>('transient');
   const [desktopUpdateRestartCountdown, setDesktopUpdateRestartCountdown] = useState<number | null>(null);
   const [desktopUpdateBusy, setDesktopUpdateBusy] = useState(false);
   const [desktopUpdateCanCancelInstall, setDesktopUpdateCanCancelInstall] = useState(false);
@@ -988,9 +1030,77 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     }
   }, []);
 
+  const resolveDesktopScopeRescueTarget = useCallback((): string | null => {
+    if (typeof window === 'undefined') return null;
+    const hostMetadata = readDesktopHostMetadata();
+    const currentUrl = new URL(window.location.href);
+    const currentOrigin = currentUrl.origin.toLowerCase();
+    const candidateValues: string[] = [];
+    const hostCandidates = Array.isArray(hostMetadata?.hostCandidates) ? hostMetadata.hostCandidates : [];
+    for (const candidate of hostCandidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        candidateValues.push(candidate.trim());
+      }
+    }
+    for (const candidate of [hostMetadata?.activeAppUrl, hostMetadata?.fallbackAppUrl]) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        candidateValues.push(candidate.trim());
+      }
+    }
+
+    const seenOrigins = new Set<string>();
+    for (const candidateRaw of candidateValues) {
+      try {
+        const parsed = new URL(candidateRaw, currentUrl.origin);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+        const normalizedOrigin = parsed.origin.toLowerCase();
+        if (normalizedOrigin === currentOrigin) continue;
+        if (!isNonIpDomainHost(parsed.hostname)) continue;
+        if (seenOrigins.has(normalizedOrigin)) continue;
+        seenOrigins.add(normalizedOrigin);
+        return `${parsed.origin}${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+      } catch {
+        // ignore invalid host-candidate metadata
+      }
+    }
+
+    return null;
+  }, []);
+
+  const tryDesktopScopeHostRescue = useCallback((): boolean => {
+    if (typeof window === 'undefined') return false;
+    const runtimeVersion = readDesktopHostVersion() || desktopClientVersion || desktopUpdateLegacyVersion || 'unknown';
+    const markerKey = `${DESKTOP_SCOPE_RESCUE_SESSION_KEY}:${runtimeVersion}`;
+
+    try {
+      if (window.sessionStorage.getItem(markerKey)) {
+        return false;
+      }
+    } catch {
+      // ignore sessionStorage errors and continue with in-memory behavior
+    }
+
+    const target = resolveDesktopScopeRescueTarget();
+    try {
+      window.sessionStorage.setItem(markerKey, target ? `redirect:${target}` : 'exhausted');
+    } catch {
+      // ignore sessionStorage errors
+    }
+
+    if (!target) {
+      return false;
+    }
+
+    window.location.assign(target);
+    return true;
+  }, [desktopClientVersion, desktopUpdateLegacyVersion, resolveDesktopScopeRescueTarget]);
+
   const activateDesktopUpdateBootstrapFallback = useCallback(
-    (reason: string, options?: { navigateToDownloads?: boolean }) => {
+    (reason: string, options?: { navigateToDownloads?: boolean; allowHostRescue?: boolean }) => {
       const normalizedReason = String(reason ?? '').trim() || t.appChrome.desktopUpdateIpcScopeBlocked;
+      if (options?.allowHostRescue !== false && tryDesktopScopeHostRescue()) {
+        return;
+      }
       desktopUpdateScopeBlockedRef.current = true;
       setDesktopUpdatePrepare(null);
       setDesktopUpdateConfirmOpen(false);
@@ -1001,6 +1111,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       setDesktopUpdateProgressPercent(0);
       setDesktopUpdateErrorMessage(t.appChrome.desktopUpdateIpcScopeBlocked);
       setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateIpcScopeBlocked);
+      setDesktopUpdateFailureKind('scope_blocked');
       updateDesktopUpdaterDiagnostics('scope_incompatible', normalizedReason);
 
       if (!desktopUpdateScopeToastShownRef.current) {
@@ -1015,6 +1126,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       }
     },
     [
+      tryDesktopScopeHostRescue,
       location.pathname,
       navigate,
       t.appChrome.desktopUpdateIpcScopeBlocked,
@@ -1318,6 +1430,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       setDesktopUpdateProgressPhase('failed');
       setDesktopUpdateErrorMessage(t.appChrome.desktopUpdateBridgeUnavailable);
       setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateBridgeUnavailable);
+      setDesktopUpdateFailureKind('transient');
       setDesktopUpdateProgressOpen(true);
       return;
     }
@@ -1348,9 +1461,14 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       options?: {
         rawReason?: string;
         autoOpenDownloads?: boolean;
+        failureKind?: DesktopUpdateFailureKind;
       }
     ) => {
       const displayReason = String(reason ?? '').trim() || t.appChrome.desktopUpdateInstallFailedUnknown;
+      const normalizedRawReason = String(options?.rawReason ?? '').trim();
+      const failureKind =
+        options?.failureKind ??
+        (isDesktopUpdateIpcScopeFailure(normalizedRawReason || displayReason) ? 'scope_blocked' : 'transient');
       clearDesktopUpdateRestartTimer();
       setDesktopUpdateRestartCountdown(null);
       setDesktopUpdatePillState('failed');
@@ -1358,6 +1476,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       setDesktopUpdateProgressPercent(0);
       setDesktopUpdateErrorMessage(displayReason);
       setDesktopUpdateProgressMessage(displayReason);
+      setDesktopUpdateFailureKind(failureKind);
       setDesktopUpdateProgressOpen(true);
       toast.error(t.appChrome.desktopUpdateInstallFailedTitle, {
         description: interpolate(t.appChrome.desktopUpdateInstallFailedBody, { reason: displayReason || '-' }),
@@ -1415,6 +1534,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       setDesktopUpdateProgressPercent(5);
       setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateProgressChecking);
       setDesktopUpdateErrorMessage('');
+      setDesktopUpdateFailureKind('transient');
       setDesktopUpdateCanCancelInstall(typeof bridge.cancelInstall === 'function');
       setDesktopUpdatePillState('downloading');
       clearDesktopUpdateRestartTimer();
@@ -1674,6 +1794,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         setDesktopUpdateErrorMessage(t.appChrome.desktopUpdatePrepareFailed);
         setDesktopUpdateProgressPhase('failed');
         setDesktopUpdateProgressMessage(t.appChrome.desktopUpdatePrepareFailed);
+        setDesktopUpdateFailureKind('transient');
         setDesktopUpdateProgressOpen(true);
       }
       if (available) {
@@ -1869,6 +1990,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     setDesktopUpdateRestartCountdown(null);
     setDesktopUpdateBusy(false);
     setDesktopUpdateErrorMessage('');
+    setDesktopUpdateFailureKind('transient');
     setDesktopUpdateNotifiedVersion('');
     setDesktopUpdateLegacyVersion('');
     setDesktopClientVersion('');
@@ -2228,6 +2350,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         progressPercent={desktopUpdateProgressPercent}
         message={desktopUpdateProgressMessage}
         errorMessage={desktopUpdateErrorMessage}
+        failureKind={desktopUpdateFailureKind}
         canCancelInstall={desktopUpdateCanCancelInstall}
         restartCountdown={desktopUpdateRestartCountdown}
         onCancelInstall={() => {

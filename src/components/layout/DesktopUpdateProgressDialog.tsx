@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dialog';
 
 type DesktopUpdateProgressPhase = 'checking' | 'downloading' | 'installing' | 'ready_to_restart' | 'failed';
+type DesktopUpdateFailureKind = 'scope_blocked' | 'transient';
 
 interface DesktopUpdateProgressDialogProps {
   open: boolean;
@@ -21,6 +22,7 @@ interface DesktopUpdateProgressDialogProps {
   progressPercent: number;
   message: string;
   errorMessage: string;
+  failureKind: DesktopUpdateFailureKind;
   canCancelInstall: boolean;
   restartCountdown: number | null;
   onOpenChange: (open: boolean) => void;
@@ -37,6 +39,7 @@ const DesktopUpdateProgressDialog: React.FC<DesktopUpdateProgressDialogProps> = 
   progressPercent,
   message,
   errorMessage,
+  failureKind,
   canCancelInstall,
   restartCountdown,
   onOpenChange,
@@ -132,9 +135,11 @@ const DesktopUpdateProgressDialog: React.FC<DesktopUpdateProgressDialogProps> = 
               <Button type="button" onClick={onOpenDownloads}>
                 {t.downloads.openDownloads}
               </Button>
-              <Button type="button" variant="outline" onClick={onRetry}>
-                {t.appChrome.desktopUpdateRetry}
-              </Button>
+              {failureKind !== 'scope_blocked' ? (
+                <Button type="button" variant="outline" onClick={onRetry}>
+                  {t.appChrome.desktopUpdateRetry}
+                </Button>
+              ) : null}
             </>
           ) : null}
         </DialogFooter>
