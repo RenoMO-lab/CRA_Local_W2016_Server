@@ -92,6 +92,7 @@ type DesktopUpdaterBridgeState =
   | 'unknown'
   | 'ready'
   | 'probe_failed_soft'
+  | 'scope_incompatible'
   | 'not_desktop_runtime'
   | 'bridge_missing'
   | 'invoke_unavailable'
@@ -139,7 +140,7 @@ type DesktopAboutInfoResponse = {
 };
 
 const isLegacyBootstrapState = (state: DesktopUpdaterBridgeState) =>
-  state === 'legacy_updater_missing_commands' || state === 'legacy_version_detected';
+  state === 'legacy_updater_missing_commands' || state === 'legacy_version_detected' || state === 'scope_incompatible';
 
 let tauriIpcCallbackId = Math.floor(Date.now() % 1000000) * 2;
 
@@ -812,6 +813,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const desktopUpdateManifestUrlRef = useRef<string>('');
   const desktopUpdateInstallBusyRef = useRef(false);
   const desktopUpdateRestartTimerRef = useRef<number | null>(null);
+  const desktopUpdateScopeBlockedRef = useRef(false);
+  const desktopUpdateScopeToastShownRef = useRef(false);
   const [desktopUpdatePillState, setDesktopUpdatePillState] = useState<DesktopUpdatePillState>('hidden');
   const [desktopUpdateTargetVersion, setDesktopUpdateTargetVersion] = useState<string>('');
   const [desktopUpdateNotifiedVersion, setDesktopUpdateNotifiedVersion] = useState<string>('');
@@ -985,6 +988,87 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     }
   }, []);
 
+  const activateDesktopUpdateBootstrapFallback = useCallback(
+    (reason: string, options?: { navigateToDownloads?: boolean }) => {
+      const normalizedReason = String(reason ?? '').trim() || t.appChrome.desktopUpdateIpcScopeBlocked;
+      desktopUpdateScopeBlockedRef.current = true;
+      setDesktopUpdatePrepare(null);
+      setDesktopUpdateConfirmOpen(false);
+      setDesktopUpdatePillState('hidden');
+      setDesktopUpdateBusy(false);
+      setDesktopUpdateProgressOpen(false);
+      setDesktopUpdateProgressPhase('failed');
+      setDesktopUpdateProgressPercent(0);
+      setDesktopUpdateErrorMessage(t.appChrome.desktopUpdateIpcScopeBlocked);
+      setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateIpcScopeBlocked);
+      updateDesktopUpdaterDiagnostics('scope_incompatible', normalizedReason);
+
+      if (!desktopUpdateScopeToastShownRef.current) {
+        desktopUpdateScopeToastShownRef.current = true;
+        toast.message(t.appChrome.desktopUpdateIpcScopeOpenDownloads, {
+          description: t.appChrome.desktopUpdateIpcScopeBlocked,
+        });
+      }
+
+      if (options?.navigateToDownloads !== false && !location.pathname.startsWith('/downloads')) {
+        navigate('/downloads');
+      }
+    },
+    [
+      location.pathname,
+      navigate,
+      t.appChrome.desktopUpdateIpcScopeBlocked,
+      t.appChrome.desktopUpdateIpcScopeOpenDownloads,
+      updateDesktopUpdaterDiagnostics,
+    ]
+  );
+
+  const runDesktopUpdaterPreflight = useCallback(async (bridge: DesktopUpdaterBridge): Promise<{ ok: boolean; reason: string }> => {
+    const normalizePing = (payload: any): boolean => {
+      if (typeof payload === 'boolean') return payload;
+      if (payload && typeof payload === 'object' && 'ok' in payload) {
+        return (payload as { ok?: boolean }).ok !== false;
+      }
+      return true;
+    };
+
+    if (typeof bridge.pingUpdater === 'function') {
+      try {
+        const result = await bridge.pingUpdater();
+        if (normalizePing(result)) {
+          return { ok: true, reason: '' };
+        }
+        return { ok: false, reason: 'desktop_ping_updater returned not-ok result' };
+      } catch (error) {
+        return {
+          ok: false,
+          reason: String((error as any)?.message ?? error).trim() || 'desktop_ping_updater failed',
+        };
+      }
+    }
+
+    const invokeResolution = resolveDesktopInvoke();
+    if (invokeResolution.invoke) {
+      try {
+        const result = await invokeResolution.invoke('desktop_ping_updater');
+        if (normalizePing(result)) {
+          return { ok: true, reason: '' };
+        }
+        return {
+          ok: false,
+          reason: `${invokeResolution.source ?? 'invoke'} desktop_ping_updater returned not-ok result`,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          reason: String((error as any)?.message ?? error).trim() || 'desktop_ping_updater invoke failed',
+        };
+      }
+    }
+
+    return { ok: true, reason: '' };
+  }, []);
+
   const hydrateDesktopVersionFromHost = useCallback((): string => {
     const hostVersion = readDesktopHostVersion();
     if (hostVersion) {
@@ -997,6 +1081,13 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     if (!user) return null;
     if (!desktopRuntimeDetected) {
       updateDesktopUpdaterDiagnostics('not_desktop_runtime', 'desktop runtime marker not detected');
+      return null;
+    }
+    if (desktopUpdateScopeBlockedRef.current) {
+      updateDesktopUpdaterDiagnostics(
+        'scope_incompatible',
+        'in-app updater disabled for this session due to remote IPC scope mismatch; use Downloads bootstrap path'
+      );
       return null;
     }
     const hostVersion = hydrateDesktopVersionFromHost();
@@ -1019,14 +1110,29 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     let probeSoftFailureDetail = '';
 
     if (typeof bridge.pingUpdater === 'function') {
-      const pingResult = await bridge.pingUpdater().catch(() => null);
-      const pingOk =
-        typeof pingResult === 'boolean'
-          ? pingResult
-          : pingResult && typeof pingResult === 'object' && 'ok' in pingResult
-            ? (pingResult as { ok?: boolean }).ok !== false
-            : pingResult !== null;
-      if (!pingOk) {
+      try {
+        const pingResult = await bridge.pingUpdater();
+        const pingOk =
+          typeof pingResult === 'boolean'
+            ? pingResult
+            : pingResult && typeof pingResult === 'object' && 'ok' in pingResult
+              ? (pingResult as { ok?: boolean }).ok !== false
+              : pingResult !== null;
+        if (!pingOk) {
+          const directInvoke = resolveDesktopInvoke();
+          probeSoftFailureDetail = `desktop updater probe command failed via ${directInvoke.source ?? 'no invoke source'}; probes: ${describeDesktopInvokeProbes()}; ${hostVersionDetail}`;
+          updateDesktopUpdaterDiagnostics('probe_failed_soft', probeSoftFailureDetail);
+        }
+      } catch (error) {
+        const pingError = String((error as any)?.message ?? error).trim();
+        if (isDesktopUpdateIpcScopeFailure(pingError)) {
+          desktopUpdateScopeBlockedRef.current = true;
+          updateDesktopUpdaterDiagnostics(
+            'scope_incompatible',
+            `desktop updater preflight blocked by IPC scope: ${pingError}`
+          );
+          return null;
+        }
         const directInvoke = resolveDesktopInvoke();
         probeSoftFailureDetail = `desktop updater probe command failed via ${directInvoke.source ?? 'no invoke source'}; probes: ${describeDesktopInvokeProbes()}; ${hostVersionDetail}`;
         updateDesktopUpdaterDiagnostics('probe_failed_soft', probeSoftFailureDetail);
@@ -1289,6 +1395,16 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         markDesktopUpdateFailure(t.appChrome.desktopUpdateBridgeUnavailable);
         return;
       }
+      if (desktopUpdateScopeBlockedRef.current) {
+        activateDesktopUpdateBootstrapFallback(t.appChrome.desktopUpdateIpcScopeBlocked);
+        return;
+      }
+
+      const preflight = await runDesktopUpdaterPreflight(bridge);
+      if (!preflight.ok && isDesktopUpdateIpcScopeFailure(preflight.reason)) {
+        activateDesktopUpdateBootstrapFallback(preflight.reason);
+        return;
+      }
       if (desktopUpdateInstallBusyRef.current) return;
 
       desktopUpdateInstallBusyRef.current = true;
@@ -1404,6 +1520,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       } catch (error) {
         const rawReason = String((error as any)?.message ?? error).trim() || t.appChrome.desktopUpdateInstallFailedUnknown;
         const failure = resolveDesktopUpdateFailure(rawReason, t);
+        if (failure.autoOpenDownloads) {
+          activateDesktopUpdateBootstrapFallback(rawReason);
+          return;
+        }
         markDesktopUpdateFailure(failure.message, {
           rawReason,
           autoOpenDownloads: failure.autoOpenDownloads,
@@ -1415,12 +1535,15 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     },
     [
       clearDesktopUpdateRestartTimer,
+      activateDesktopUpdateBootstrapFallback,
       markDesktopUpdateFailure,
       requestDesktopUpdatePrepare,
+      runDesktopUpdaterPreflight,
       startDesktopAutoRestartCountdown,
       t.appChrome.desktopUpdateArtifactMissing,
       t.appChrome.desktopUpdateBridgeUnavailable,
       t.appChrome.desktopUpdateInstallFailedUnknown,
+      t.appChrome.desktopUpdateIpcScopeBlocked,
       t.appChrome.desktopUpdateInstallNotStarted,
       t.appChrome.desktopUpdateInstallReadyBody,
       t.appChrome.desktopUpdateInstallReadyTitle,
@@ -1529,6 +1652,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       setDesktopUpdatePillState('hidden');
       return;
     }
+    if (desktopUpdateScopeBlockedRef.current) {
+      activateDesktopUpdateBootstrapFallback(t.appChrome.desktopUpdateIpcScopeBlocked);
+      return;
+    }
 
     if (desktopUpdatePillState === 'ready_to_restart') {
       setDesktopUpdateProgressOpen(true);
@@ -1557,7 +1684,14 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     }
     setDesktopUpdateConfirmOpen(true);
     setDesktopUpdatePillState('confirming');
-  }, [checkDesktopInAppUpdate, desktopUpdatePillState, desktopUpdatePrepare, t.appChrome.desktopUpdatePrepareFailed]);
+  }, [
+    activateDesktopUpdateBootstrapFallback,
+    checkDesktopInAppUpdate,
+    desktopUpdatePillState,
+    desktopUpdatePrepare,
+    t.appChrome.desktopUpdateIpcScopeBlocked,
+    t.appChrome.desktopUpdatePrepareFailed,
+  ]);
 
   const handleDesktopUpdateConfirmOpenChange = useCallback(
     (open: boolean) => {
@@ -1570,9 +1704,13 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   );
 
   const handleDesktopUpdateConfirm = useCallback(() => {
+    if (desktopUpdateScopeBlockedRef.current) {
+      activateDesktopUpdateBootstrapFallback(t.appChrome.desktopUpdateIpcScopeBlocked);
+      return;
+    }
     setDesktopUpdateConfirmOpen(false);
     void installDesktopUpdate(desktopUpdatePrepare);
-  }, [desktopUpdatePrepare, installDesktopUpdate]);
+  }, [activateDesktopUpdateBootstrapFallback, desktopUpdatePrepare, installDesktopUpdate, t.appChrome.desktopUpdateIpcScopeBlocked]);
 
   const handleDesktopUpdateCancelInstall = useCallback(async () => {
     const bridge = getDesktopUpdaterBridge();
@@ -1582,8 +1720,12 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   }, [markDesktopUpdateFailure, t.appChrome.desktopUpdateInstallCancelled]);
 
   const handleDesktopUpdateRetry = useCallback(() => {
+    if (desktopUpdateScopeBlockedRef.current) {
+      activateDesktopUpdateBootstrapFallback(t.appChrome.desktopUpdateIpcScopeBlocked);
+      return;
+    }
     void installDesktopUpdate(desktopUpdatePrepare);
-  }, [desktopUpdatePrepare, installDesktopUpdate]);
+  }, [activateDesktopUpdateBootstrapFallback, desktopUpdatePrepare, installDesktopUpdate, t.appChrome.desktopUpdateIpcScopeBlocked]);
 
   const handleDesktopUpdateProgressOpenChange = useCallback(
     (open: boolean) => {
@@ -1730,6 +1872,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     setDesktopUpdateNotifiedVersion('');
     setDesktopUpdateLegacyVersion('');
     setDesktopClientVersion('');
+    desktopUpdateScopeBlockedRef.current = false;
+    desktopUpdateScopeToastShownRef.current = false;
     setDesktopUpdaterDiagnostics({ state: 'unknown', detail: '' });
   }, [clearDesktopUpdateRestartTimer, user]);
 
@@ -1809,6 +1953,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const desktopUpdaterStateLabel =
     desktopUpdaterDiagnostics.state === 'ready'
       ? t.appChrome.desktopUpdateBridgeStateReady
+      : desktopUpdaterDiagnostics.state === 'scope_incompatible'
+        ? t.appChrome.desktopUpdateBridgeStateInvokeUnavailable
       : desktopUpdaterDiagnostics.state === 'not_desktop_runtime'
         ? t.appChrome.desktopUpdateBridgeStateNotDesktop
         : desktopUpdaterDiagnostics.state === 'invoke_unavailable'
