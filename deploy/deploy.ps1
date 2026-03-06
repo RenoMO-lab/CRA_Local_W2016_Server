@@ -111,7 +111,8 @@ function Wait-ForHttpHealthy {
 $selfHealInstaller = Join-Path $AppPath "deploy\install-self-heal-task.ps1"
 if (Test-Path $selfHealInstaller) {
   try {
-    & $selfHealInstaller -AppPath $AppPath -ServiceName $ServiceName
+    $selfHealTaskName = ("{0}_SelfHeal" -f ($ServiceName -replace "\s+", "_"))
+    & $selfHealInstaller -TaskName $selfHealTaskName -AppPath $AppPath -ServiceName $ServiceName
   } catch {
     Write-Warning ("Failed to install/update self-heal task: {0}" -f $_.Exception.Message)
   }

@@ -257,7 +257,8 @@ if ($InstallService) {
   $selfHealInstaller = Join-Path $AppPath "deploy\install-self-heal-task.ps1"
   if (Test-Path $selfHealInstaller) {
     try {
-      & $selfHealInstaller -AppPath $AppPath -ServiceName $ServiceName
+      $selfHealTaskName = ("{0}_SelfHeal" -f ($ServiceName -replace "\s+", "_"))
+      & $selfHealInstaller -TaskName $selfHealTaskName -AppPath $AppPath -ServiceName $ServiceName
       Write-Step "Installed/updated self-heal scheduled task."
     } catch {
       Write-Step ("Failed to install self-heal scheduled task: {0}" -f $_.Exception.Message)

@@ -3276,6 +3276,8 @@ const DEFAULT_CRA_CLIENT_GITHUB_UPDATE_ASSET_PATTERN = "windows-x64.exe";
 const DEFAULT_CRA_CLIENT_GITHUB_UPDATE_SIG_PATTERN = ".sha256";
 const DEFAULT_CRA_CLIENT_RELEASE_CACHE_SECONDS = 300;
 const DEFAULT_CRA_CLIENT_NEGATIVE_CACHE_SECONDS = 30;
+const DEFAULT_CRA_CLIENT_STALE_CACHE_SECONDS = 3600;
+const DEFAULT_CRA_CLIENT_GITHUB_FETCH_TIMEOUT_MS = 15000;
 const DEFAULT_CLIENT_UPDATE_SYNC_THROTTLE_SECONDS = 300;
 const DEFAULT_CLIENT_UPDATE_TOKEN_TTL_SECONDS = 600;
 const DEFAULT_CLIENT_UPDATE_CHANNEL = "stable";
@@ -3533,6 +3535,12 @@ const getCraClientNegativeCacheTtlMs = () =>
   parsePositiveInt(process.env.CRA_CLIENT_RELEASE_NEGATIVE_CACHE_SECONDS, DEFAULT_CRA_CLIENT_NEGATIVE_CACHE_SECONDS) *
   1000;
 
+const getCraClientStaleCacheTtlMs = () =>
+  parsePositiveInt(process.env.CRA_CLIENT_RELEASE_STALE_CACHE_SECONDS, DEFAULT_CRA_CLIENT_STALE_CACHE_SECONDS) * 1000;
+
+const getCraClientGitHubFetchTimeoutMs = () =>
+  parsePositiveInt(process.env.CRA_CLIENT_GITHUB_FETCH_TIMEOUT_MS, DEFAULT_CRA_CLIENT_GITHUB_FETCH_TIMEOUT_MS);
+
 const getClientUpdateSyncThrottleMs = () =>
   parsePositiveInt(process.env.CRA_CLIENT_UPDATE_SYNC_THROTTLE_SECONDS, DEFAULT_CLIENT_UPDATE_SYNC_THROTTLE_SECONDS) *
   1000;
@@ -3667,6 +3675,15 @@ const parseContentDispositionFileName = (headerValue) => {
   return fallbackMatch?.[1] ? fallbackMatch[1].trim() : "";
 };
 
+const extractGitHubSha256Digest = (rawValue) => {
+  const value = String(rawValue ?? "").trim();
+  const digestMatch = value.match(/^sha256:([a-f0-9]{64})$/i);
+  if (digestMatch?.[1]) return digestMatch[1].toLowerCase();
+  const hexMatch = value.match(/^([a-f0-9]{64})$/i);
+  if (hexMatch?.[1]) return hexMatch[1].toLowerCase();
+  return "";
+};
+
 const selectGitHubReleaseAsset = (assets, pattern) => {
   const list = Array.isArray(assets) ? assets : [];
   const needle = String(pattern ?? "").trim().toLowerCase();
@@ -3682,14 +3699,31 @@ const selectGitHubReleaseAsset = (assets, pattern) => {
   );
 };
 
+const getStaleCachedValue = (cached, now) => {
+  if (!cached?.value) return null;
+  const staleUntil = Number(cached?.staleUntil ?? 0);
+  if (!Number.isFinite(staleUntil) || staleUntil <= now) return null;
+  return cached.value;
+};
+
+const fetchWithTimeout = (url, options = {}) =>
+  fetch(url, {
+    ...options,
+    signal: AbortSignal.timeout(getCraClientGitHubFetchTimeoutMs()),
+  });
+
 const fetchCraClientGitHubRelease = async () => {
   const cfg = getCraClientGitHubConfig();
   const cacheKey = `${cfg.owner}/${cfg.repo}|${cfg.assetPattern}`;
   const now = Date.now();
   const cached = craClientReleaseCache.get(cacheKey);
+  const staleValue = getStaleCachedValue(cached, now);
   if (cached) {
     if (cached.value && cached.expiresAt > now) return cached.value;
-    if (cached.error && cached.errorExpiresAt > now) throw cached.error;
+    if (cached.error && cached.errorExpiresAt > now) {
+      if (staleValue) return { ...staleValue, stale: true };
+      throw cached.error;
+    }
   }
 
   const headers = {
@@ -3701,7 +3735,21 @@ const fetchCraClientGitHubRelease = async () => {
   }
 
   const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}/releases/latest`;
-  const response = await fetch(url, { headers });
+  let response;
+  try {
+    response = await fetchWithTimeout(url, { headers });
+  } catch {
+    const error = createHttpError(502, "GitHub release API request failed", "client_release_github_fetch_failed");
+    if (staleValue) return { ...staleValue, stale: true };
+    craClientReleaseCache.set(cacheKey, {
+      error,
+      errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+      value: cached?.value,
+      staleUntil: Number(cached?.staleUntil ?? 0),
+      expiresAt: Number(cached?.expiresAt ?? 0),
+    });
+    throw error;
+  }
   if (!response.ok) {
     let message = `GitHub release API failed with status ${response.status}`;
     if (response.status === 403 || response.status === 429) {
@@ -3716,9 +3764,13 @@ const fetchCraClientGitHubRelease = async () => {
           ? "client_release_github_not_found"
           : "client_release_github_api_failed";
     const error = createHttpError(502, message, reasonCode);
+    if (staleValue) return { ...staleValue, stale: true };
     craClientReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+      value: cached?.value,
+      staleUntil: Number(cached?.staleUntil ?? 0),
+      expiresAt: Number(cached?.expiresAt ?? 0),
     });
     throw error;
   }
@@ -3727,9 +3779,13 @@ const fetchCraClientGitHubRelease = async () => {
   const asset = selectGitHubReleaseAsset(payload?.assets, cfg.assetPattern);
   if (!asset?.browser_download_url) {
     const error = createHttpError(502, "No matching CRA client release asset found", "client_release_asset_missing");
+    if (staleValue) return { ...staleValue, stale: true };
     craClientReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+      value: cached?.value,
+      staleUntil: Number(cached?.staleUntil ?? 0),
+      expiresAt: Number(cached?.expiresAt ?? 0),
     });
     throw error;
   }
@@ -3748,6 +3804,7 @@ const fetchCraClientGitHubRelease = async () => {
   craClientReleaseCache.set(cacheKey, {
     value: release,
     expiresAt: now + getCraClientReleaseCacheTtlMs(),
+    staleUntil: now + getCraClientStaleCacheTtlMs(),
   });
   return release;
 };
@@ -3760,7 +3817,12 @@ const fetchGitHubAssetText = async (downloadUrl, cfg) => {
   if (cfg.token) {
     headers.Authorization = `Bearer ${cfg.token}`;
   }
-  const response = await fetch(downloadUrl, { headers, redirect: "follow" });
+  let response;
+  try {
+    response = await fetchWithTimeout(downloadUrl, { headers, redirect: "follow" });
+  } catch {
+    throw createHttpError(502, "Failed to fetch update signature asset", "client_update_signature_fetch_failed");
+  }
   if (!response.ok) {
     throw createHttpError(
       502,
@@ -3794,9 +3856,13 @@ const fetchCraClientGitHubUpdateRelease = async () => {
   const cacheKey = `${ghCfg.owner}/${ghCfg.repo}|${updateCfg.assetPattern}|${updateCfg.signaturePattern}`;
   const now = Date.now();
   const cached = craClientUpdateReleaseCache.get(cacheKey);
+  const staleValue = getStaleCachedValue(cached, now);
   if (cached) {
     if (cached.value && cached.expiresAt > now) return cached.value;
-    if (cached.error && cached.errorExpiresAt > now) throw cached.error;
+    if (cached.error && cached.errorExpiresAt > now) {
+      if (staleValue) return { ...staleValue, stale: true };
+      throw cached.error;
+    }
   }
 
   const headers = {
@@ -3808,7 +3874,21 @@ const fetchCraClientGitHubUpdateRelease = async () => {
   }
 
   const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(ghCfg.owner)}/${encodeURIComponent(ghCfg.repo)}/releases/latest`;
-  const response = await fetch(url, { headers });
+  let response;
+  try {
+    response = await fetchWithTimeout(url, { headers });
+  } catch {
+    const error = createHttpError(502, "GitHub update API request failed", "client_update_github_fetch_failed");
+    if (staleValue) return { ...staleValue, stale: true };
+    craClientUpdateReleaseCache.set(cacheKey, {
+      error,
+      errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+      value: cached?.value,
+      staleUntil: Number(cached?.staleUntil ?? 0),
+      expiresAt: Number(cached?.expiresAt ?? 0),
+    });
+    throw error;
+  }
   if (!response.ok) {
     const reasonCode =
       response.status === 403 || response.status === 429
@@ -3817,9 +3897,13 @@ const fetchCraClientGitHubUpdateRelease = async () => {
           ? "client_update_github_not_found"
           : "client_update_github_api_failed";
     const error = createHttpError(502, `GitHub release API failed with status ${response.status}`, reasonCode);
+    if (staleValue) return { ...staleValue, stale: true };
     craClientUpdateReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+      value: cached?.value,
+      staleUntil: Number(cached?.staleUntil ?? 0),
+      expiresAt: Number(cached?.expiresAt ?? 0),
     });
     throw error;
   }
@@ -3828,9 +3912,13 @@ const fetchCraClientGitHubUpdateRelease = async () => {
   const asset = selectGitHubReleaseAsset(payload?.assets, updateCfg.assetPattern);
   if (!asset?.browser_download_url) {
     const error = createHttpError(502, "No matching CRA client update artifact found", "client_update_artifact_missing");
+    if (staleValue) return { ...staleValue, stale: true };
     craClientUpdateReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+      value: cached?.value,
+      staleUntil: Number(cached?.staleUntil ?? 0),
+      expiresAt: Number(cached?.expiresAt ?? 0),
     });
     throw error;
   }
@@ -3842,19 +3930,42 @@ const fetchCraClientGitHubUpdateRelease = async () => {
       "No matching CRA client update signature asset found",
       "client_update_signature_asset_missing"
     );
+    if (staleValue) return { ...staleValue, stale: true };
     craClientUpdateReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+      value: cached?.value,
+      staleUntil: Number(cached?.staleUntil ?? 0),
+      expiresAt: Number(cached?.expiresAt ?? 0),
     });
     throw error;
   }
 
-  const signature = await fetchGitHubAssetText(sigAsset.browser_download_url, ghCfg);
+  let signature = extractGitHubSha256Digest(asset?.digest);
+  if (!signature) {
+    try {
+      signature = await fetchGitHubAssetText(sigAsset.browser_download_url, ghCfg);
+    } catch (error) {
+      if (staleValue) return { ...staleValue, stale: true };
+      craClientUpdateReleaseCache.set(cacheKey, {
+        error,
+        errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+        value: cached?.value,
+        staleUntil: Number(cached?.staleUntil ?? 0),
+        expiresAt: Number(cached?.expiresAt ?? 0),
+      });
+      throw error;
+    }
+  }
   if (!signature) {
     const error = createHttpError(502, "CRA client update signature asset is empty", "client_update_signature_empty");
+    if (staleValue) return { ...staleValue, stale: true };
     craClientUpdateReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
+      value: cached?.value,
+      staleUntil: Number(cached?.staleUntil ?? 0),
+      expiresAt: Number(cached?.expiresAt ?? 0),
     });
     throw error;
   }
@@ -3875,6 +3986,7 @@ const fetchCraClientGitHubUpdateRelease = async () => {
   craClientUpdateReleaseCache.set(cacheKey, {
     value: release,
     expiresAt: now + getCraClientReleaseCacheTtlMs(),
+    staleUntil: now + getCraClientStaleCacheTtlMs(),
   });
   return release;
 };
@@ -3992,6 +4104,7 @@ const toClientReleaseHealthSummary = (release) => ({
   installerName: sanitizeDownloadFileName(release?.installerName, DEFAULT_CRA_CLIENT_INSTALLER_NAME),
   sizeBytes: Number.isFinite(Number(release?.sizeBytes)) ? Number(release.sizeBytes) : 0,
   updatedAt: sanitizeDownloadText(release?.updatedAt) || null,
+  stale: Boolean(release?.stale),
 });
 
 const toClientUpdateHealthSummary = (update) => ({
@@ -4003,6 +4116,7 @@ const toClientUpdateHealthSummary = (update) => ({
   artifactSizeBytes: Number.isFinite(Number(update?.artifactSizeBytes)) ? Number(update.artifactSizeBytes) : 0,
   publishedAt: sanitizeDownloadText(update?.publishedAt) || null,
   signatureAvailable: Boolean(String(update?.signature ?? "").trim()),
+  stale: Boolean(update?.stale),
 });
 
 const FEEDBACK_EMAIL_STRINGS = {
