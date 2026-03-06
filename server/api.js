@@ -5742,6 +5742,7 @@ export const apiRouter = (() => {
     requireAuth,
     asyncHandler(async (req, res) => {
       const userId = String(req.authUser?.id ?? "").trim();
+      const currentVersion = sanitizeDownloadText(req.body?.currentVersion || "");
       if (!userId) {
         res.status(401).json({ error: "Authentication required" });
         return;
@@ -5752,11 +5753,16 @@ export const apiRouter = (() => {
         const updateTarget = await resolveCraClientUpdateTarget();
         const result = await enqueueClientUpdateNotifications(pool, updateTarget);
         const createdForCurrentUser = result.insertedUserIds.has(userId);
+        const targetVersion = sanitizeDownloadText(result.version || "");
+        const updateAvailable = Boolean(
+          targetVersion && currentVersion && compareVersionsLoose(targetVersion, currentVersion) > 0
+        );
         res.json({
           createdForCurrentUser,
           version: result.version,
           targetVersion: result.version,
-          inAppReady: Boolean(result.version),
+          inAppReady: updateAvailable,
+          updateAvailable,
         });
       } catch (error) {
         const key = "resolve_error";
@@ -5771,6 +5777,7 @@ export const apiRouter = (() => {
           version: null,
           targetVersion: null,
           inAppReady: false,
+          updateAvailable: false,
         });
       }
     })

@@ -78,6 +78,14 @@ type ClientUpdatePrepareResponse = {
   expiresAt: string | null;
 };
 
+type ClientUpdateSyncResponse = {
+  createdForCurrentUser?: boolean;
+  version?: string | null;
+  targetVersion?: string | null;
+  inAppReady?: boolean | null;
+  updateAvailable?: boolean | null;
+};
+
 type DesktopUpdatePillState =
   | 'hidden'
   | 'available'
@@ -859,6 +867,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const [desktopUpdatePillState, setDesktopUpdatePillState] = useState<DesktopUpdatePillState>('hidden');
   const [desktopUpdateTargetVersion, setDesktopUpdateTargetVersion] = useState<string>('');
   const [desktopUpdateNotifiedVersion, setDesktopUpdateNotifiedVersion] = useState<string>('');
+  const [desktopUpdateActionableVersion, setDesktopUpdateActionableVersion] = useState<string>('');
   const [desktopUpdateLegacyVersion, setDesktopUpdateLegacyVersion] = useState<string>('');
   const [desktopClientVersion, setDesktopClientVersion] = useState<string>('');
   const [desktopUpdatePrepare, setDesktopUpdatePrepare] = useState<ClientUpdatePrepareResponse | null>(null);
@@ -1384,6 +1393,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
     const prepare = (await prepareRes.json().catch(() => null)) as ClientUpdatePrepareResponse | null;
     if (!prepare?.updateAvailable || !prepare.targetVersion || !prepare.manifestUrl) {
+      setDesktopUpdateActionableVersion('');
       if (prepare?.targetVersion) {
         setDesktopUpdateNotifiedVersion(prepare.targetVersion);
       }
@@ -1404,6 +1414,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       return null;
     }
     setDesktopUpdateNotifiedVersion(prepare.targetVersion);
+    setDesktopUpdateActionableVersion(prepare.targetVersion);
     console.info('[desktop-updater] prepare_success', {
       updateAvailable: true,
       targetVersion: prepare.targetVersion,
@@ -1903,12 +1914,26 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const syncClientUpdateNotification = useCallback(async () => {
     if (!user) return;
     try {
-      const res = await fetch('/api/notifications/client-update/sync', { method: 'POST' });
+      const currentVersion = readDesktopHostVersion() || desktopClientVersion || desktopUpdateLegacyVersion || '';
+      const res = await fetch('/api/notifications/client-update/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentVersion: currentVersion || null,
+        }),
+      });
       if (!res.ok) return;
-      const data = await res.json().catch(() => null);
+      const data = (await res.json().catch(() => null)) as ClientUpdateSyncResponse | null;
       const syncVersion = String(data?.targetVersion ?? data?.version ?? '').trim();
       if (syncVersion) {
         setDesktopUpdateNotifiedVersion(syncVersion);
+      }
+      if (desktopRuntimeDetected) {
+        if (data?.updateAvailable === true && syncVersion) {
+          setDesktopUpdateActionableVersion(syncVersion);
+        } else if (data?.updateAvailable === false) {
+          setDesktopUpdateActionableVersion('');
+        }
       }
       if (desktopRuntimeDetected) {
         const forcePrompt = data?.createdForCurrentUser === true;
@@ -1921,7 +1946,17 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     } catch {
       // ignore transient sync errors
     }
-  }, [checkDesktopInAppUpdate, desktopRuntimeDetected, fetchNotifications, fetchUnreadCount, notificationsFilter, notificationsOpen, user]);
+  }, [
+    checkDesktopInAppUpdate,
+    desktopClientVersion,
+    desktopRuntimeDetected,
+    desktopUpdateLegacyVersion,
+    fetchNotifications,
+    fetchUnreadCount,
+    notificationsFilter,
+    notificationsOpen,
+    user,
+  ]);
 
   useEffect(() => {
     if (!user) return;
@@ -1992,6 +2027,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     setDesktopUpdateErrorMessage('');
     setDesktopUpdateFailureKind('transient');
     setDesktopUpdateNotifiedVersion('');
+    setDesktopUpdateActionableVersion('');
     setDesktopUpdateLegacyVersion('');
     setDesktopClientVersion('');
     desktopUpdateScopeBlockedRef.current = false;
@@ -2101,21 +2137,21 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const desktopUpdateBootstrapRequiredVisible =
     desktopRuntimeDetected &&
     !desktopUpdatePillVisible &&
-    Boolean(desktopUpdateNotifiedVersion) &&
+    Boolean(desktopUpdateActionableVersion) &&
     isLegacyBootstrapState(desktopUpdaterDiagnostics.state);
   const desktopUpdateUnavailableVisible =
     desktopRuntimeDetected &&
     !desktopUpdatePillVisible &&
-    Boolean(desktopUpdateNotifiedVersion) &&
+    Boolean(desktopUpdateActionableVersion) &&
     desktopUpdaterDiagnostics.state !== 'ready' &&
     desktopUpdaterDiagnostics.state !== 'probe_failed_soft' &&
     !desktopUpdateBootstrapRequiredVisible;
   const desktopUpdateUnavailableTitle = interpolate(t.appChrome.desktopUpdateUnavailableTitle, {
-    version: desktopUpdateNotifiedVersion || '-',
+    version: desktopUpdateActionableVersion || desktopUpdateNotifiedVersion || '-',
     state: desktopUpdaterStateLabel,
   });
   const desktopUpdateBootstrapRequiredTitle = interpolate(t.appChrome.desktopUpdateBootstrapRequiredTitle, {
-    version: desktopUpdateNotifiedVersion || '-',
+    version: desktopUpdateActionableVersion || desktopUpdateNotifiedVersion || '-',
   });
   const desktopUpdateBootstrapRequiredBody = interpolate(t.appChrome.desktopUpdateBootstrapRequiredBody, {
     version: desktopUpdateLegacyVersion || '-',
