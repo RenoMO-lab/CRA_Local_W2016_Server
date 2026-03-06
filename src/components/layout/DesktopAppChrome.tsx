@@ -1247,11 +1247,9 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       } catch (error) {
         const pingError = String((error as any)?.message ?? error).trim();
         if (isDesktopUpdateIpcScopeFailure(pingError)) {
-          desktopUpdateScopeBlockedRef.current = true;
-          updateDesktopUpdaterDiagnostics(
-            'scope_incompatible',
-            `desktop updater preflight blocked by IPC scope: ${pingError}`
-          );
+          activateDesktopUpdateBootstrapFallback(`desktop updater preflight blocked by IPC scope: ${pingError}`, {
+            navigateToDownloads: false,
+          });
           return null;
         }
         const directInvoke = resolveDesktopInvoke();
@@ -1430,7 +1428,13 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
           : 'in-app updater ready'
     );
     return prepare;
-  }, [desktopRuntimeDetected, hydrateDesktopVersionFromHost, updateDesktopUpdaterDiagnostics, user]);
+  }, [
+    activateDesktopUpdateBootstrapFallback,
+    desktopRuntimeDetected,
+    hydrateDesktopVersionFromHost,
+    updateDesktopUpdaterDiagnostics,
+    user,
+  ]);
 
   const handleDesktopRestartNow = useCallback(async () => {
     clearDesktopUpdateRestartTimer();
@@ -2153,9 +2157,12 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const desktopUpdateBootstrapRequiredTitle = interpolate(t.appChrome.desktopUpdateBootstrapRequiredTitle, {
     version: desktopUpdateActionableVersion || desktopUpdateNotifiedVersion || '-',
   });
-  const desktopUpdateBootstrapRequiredBody = interpolate(t.appChrome.desktopUpdateBootstrapRequiredBody, {
-    version: desktopUpdateLegacyVersion || '-',
-  });
+  const desktopUpdateBootstrapRequiredBody =
+    desktopUpdaterDiagnostics.state === 'scope_incompatible'
+      ? t.appChrome.desktopUpdateIpcScopeBlocked
+      : interpolate(t.appChrome.desktopUpdateBootstrapRequiredBody, {
+          version: desktopUpdateLegacyVersion || '-',
+        });
   const desktopUpdaterStateDetail = desktopUpdaterDiagnostics.detail || t.appChrome.desktopUpdateBridgeStateDetailFallback;
   const desktopUpdatePillLabel =
     desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing'
