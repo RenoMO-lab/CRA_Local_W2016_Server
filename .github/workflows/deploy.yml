@@ -26,6 +26,8 @@ jobs:
               $candidateScripts += $overrideScriptPath
             }
             $candidateScripts += @(
+              "C:\CRA_Local_Main\app\deploy\deploy.ps1",
+              "C:\CRA_Local_Main\deploy\deploy.ps1",
               "C:\apps\CRA_Local\deploy\deploy.ps1",
               "C:\apps\CRA_Local_W2016_Main\app\deploy\deploy.ps1",
               "C:\apps\CRA_Local_W2016\deploy\deploy.ps1",
