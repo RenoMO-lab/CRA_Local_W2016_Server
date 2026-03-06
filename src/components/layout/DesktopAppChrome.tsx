@@ -292,6 +292,10 @@ const resolveDesktopInvoke = (): DesktopInvokeResolution => {
   return { invoke: null, source: null };
 };
 
+const asTauriPayloadArg = (payload: Record<string, any> = {}): Record<string, any> => ({
+  payload,
+});
+
 const resolveDesktopUpdaterBridge = (): {
   bridge: DesktopUpdaterBridge | null;
   state: DesktopUpdaterBridgeState;
@@ -356,7 +360,7 @@ const resolveDesktopUpdaterBridge = (): {
           try {
             return await scripted.installUpdate(payload);
           } catch {
-            return await invokeFallback('desktop_prepare_update_install', payload);
+            return await invokeFallback('desktop_prepare_update_install', asTauriPayloadArg(payload));
           }
         },
         restartApp: async () => {
@@ -393,7 +397,8 @@ const resolveDesktopUpdaterBridge = (): {
 
   const fallbackBridge: DesktopUpdaterBridge = {
     getCurrentVersion: () => invokeFallback('desktop_get_current_version'),
-    installUpdate: (payload: Record<string, any> = {}) => invokeFallback('desktop_prepare_update_install', payload),
+    installUpdate: (payload: Record<string, any> = {}) =>
+      invokeFallback('desktop_prepare_update_install', asTauriPayloadArg(payload)),
     restartApp: () => invokeFallback('desktop_apply_prepared_update'),
   };
 
