@@ -4,6 +4,7 @@ declare global {
   type CraDesktopUpdaterDiagnosticsState =
     | 'unknown'
     | 'ready'
+    | 'probe_failed_soft'
     | 'not_desktop_runtime'
     | 'bridge_missing'
     | 'invoke_unavailable'
@@ -52,6 +53,12 @@ declare global {
       invoke?: (command: string, payload?: Record<string, any>) => Promise<any>;
     };
     __TAURI_INVOKE__?: (command: string, payload?: Record<string, any>) => Promise<any>;
+    __TAURI_IPC__?: (message: {
+      cmd: string;
+      callback: number;
+      error: number;
+      [key: string]: any;
+    }) => void;
     __CRA_DESKTOP_UPDATER_DIAGNOSTICS__?: {
       state: CraDesktopUpdaterDiagnosticsState;
       detail: string;

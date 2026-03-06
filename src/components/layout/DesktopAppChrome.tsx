@@ -91,6 +91,7 @@ type DesktopUpdateProgressPhase = 'checking' | 'downloading' | 'installing' | 'r
 type DesktopUpdaterBridgeState =
   | 'unknown'
   | 'ready'
+  | 'probe_failed_soft'
   | 'not_desktop_runtime'
   | 'bridge_missing'
   | 'invoke_unavailable'
@@ -138,6 +139,74 @@ type DesktopAboutInfoResponse = {
 const isLegacyBootstrapState = (state: DesktopUpdaterBridgeState) =>
   state === 'legacy_updater_missing_commands' || state === 'legacy_version_detected';
 
+let tauriIpcCallbackId = Math.floor(Date.now() % 1000000) * 2;
+
+const invokeViaTauriIpc = (
+  ipc: (message: { cmd: string; callback: number; error: number; [key: string]: any }) => void,
+  command: string,
+  payload: Record<string, any> = {}
+) =>
+  new Promise<any>((resolve, reject) => {
+    tauriIpcCallbackId += 2;
+    const callback = tauriIpcCallbackId;
+    const error = tauriIpcCallbackId + 1;
+    const callbackKey = `_${callback}`;
+    const errorKey = `_${error}`;
+    const cleanup = () => {
+      try {
+        delete (window as any)[callbackKey];
+      } catch {
+        // ignore cleanup failures
+      }
+      try {
+        delete (window as any)[errorKey];
+      } catch {
+        // ignore cleanup failures
+      }
+    };
+
+    Object.defineProperty(window, callbackKey, {
+      configurable: true,
+      writable: false,
+      value: (result: any) => {
+        cleanup();
+        resolve(result);
+      },
+    });
+    Object.defineProperty(window, errorKey, {
+      configurable: true,
+      writable: false,
+      value: (result: any) => {
+        cleanup();
+        reject(result);
+      },
+    });
+
+    try {
+      ipc({
+        cmd: command,
+        callback,
+        error,
+        ...payload,
+      });
+    } catch (invokeError) {
+      cleanup();
+      reject(invokeError);
+    }
+  });
+
+const describeDesktopInvokeProbes = (): string => {
+  const tauriObj = (window as any)?.__TAURI__;
+  return [
+    `scripted=${typeof (window as any)?.__CRA_DESKTOP_UPDATER__ === 'object'}`,
+    `tauri.invoke=${typeof tauriObj?.invoke === 'function'}`,
+    `tauri.core.invoke=${typeof tauriObj?.core?.invoke === 'function'}`,
+    `tauriInternals.invoke=${typeof (window as any)?.__TAURI_INTERNALS__?.invoke === 'function'}`,
+    `tauriInvoke=${typeof (window as any)?.__TAURI_INVOKE__ === 'function'}`,
+    `tauriIPC=${typeof (window as any)?.__TAURI_IPC__ === 'function'}`,
+  ].join(', ');
+};
+
 const resolveDesktopInvoke = (): DesktopInvokeResolution => {
   const tauriObj = (window as any)?.__TAURI__;
   if (typeof tauriObj?.invoke === 'function') {
@@ -164,6 +233,13 @@ const resolveDesktopInvoke = (): DesktopInvokeResolution => {
       source: '__TAURI_INVOKE__',
     };
   }
+  if (typeof (window as any)?.__TAURI_IPC__ === 'function') {
+    const ipc = (window as any).__TAURI_IPC__;
+    return {
+      invoke: (command: string, payload: Record<string, any> = {}) => invokeViaTauriIpc(ipc, command, payload),
+      source: '__TAURI_IPC__',
+    };
+  }
   return { invoke: null, source: null };
 };
 
@@ -188,6 +264,7 @@ const resolveDesktopUpdaterBridge = (): {
     typeof scriptedBridge?.restartApp === 'function';
   const invokeResolution = resolveDesktopInvoke();
   const invokeFallback = invokeResolution.invoke;
+  const probeSnapshot = describeDesktopInvokeProbes();
 
   if (hasScriptedBridge && scriptedBridgeComplete) {
     if (invokeFallback) {
@@ -245,13 +322,13 @@ const resolveDesktopUpdaterBridge = (): {
       return {
         bridge: resilientBridge,
         state: 'ready',
-        detail: `bridge ready (__CRA_DESKTOP_UPDATER__ + ${invokeResolution.source} fallback)`,
+        detail: `bridge ready (__CRA_DESKTOP_UPDATER__ + ${invokeResolution.source} fallback); probes: ${probeSnapshot}`,
       };
     }
     return {
       bridge: scriptedBridge as DesktopUpdaterBridge,
       state: 'ready',
-      detail: 'bridge ready (__CRA_DESKTOP_UPDATER__)',
+      detail: `bridge ready (__CRA_DESKTOP_UPDATER__); probes: ${probeSnapshot}`,
     };
   }
 
@@ -260,8 +337,8 @@ const resolveDesktopUpdaterBridge = (): {
       bridge: null,
       state: hasScriptedBridge ? 'legacy_updater_missing_commands' : 'invoke_unavailable',
       detail: hasScriptedBridge
-        ? 'legacy desktop updater bridge is missing required methods and invoke fallback is unavailable'
-        : 'window.__CRA_DESKTOP_UPDATER__ is missing and no tauri invoke bridge was found',
+        ? `legacy desktop updater bridge is missing required methods and invoke fallback is unavailable; probes: ${probeSnapshot}`
+        : `window.__CRA_DESKTOP_UPDATER__ is missing and no tauri invoke bridge was found; probes: ${probeSnapshot}`,
     };
   }
 
@@ -274,7 +351,7 @@ const resolveDesktopUpdaterBridge = (): {
   return {
     bridge: fallbackBridge,
     state: 'ready',
-    detail: `bridge adapter ready (${invokeResolution.source})`,
+    detail: `bridge adapter ready (${invokeResolution.source}); probes: ${probeSnapshot}`,
   };
 };
 
@@ -349,6 +426,8 @@ const extractDesktopVersion = (rawValue: unknown): string => {
   }
   return '';
 };
+
+const readDesktopHostVersion = (): string => extractDesktopVersion((window as any)?.__CRA_DESKTOP_HOST__);
 
 const formatTimeShort = (value?: Date | string | null) => {
   if (!value) return '--';
@@ -827,19 +906,38 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     }
   }, []);
 
+  const hydrateDesktopVersionFromHost = useCallback((): string => {
+    const hostVersion = readDesktopHostVersion();
+    if (hostVersion) {
+      setDesktopClientVersion((prev) => (prev ? prev : hostVersion));
+    }
+    return hostVersion;
+  }, []);
+
   const requestDesktopUpdatePrepare = useCallback(async (): Promise<ClientUpdatePrepareResponse | null> => {
     if (!user) return null;
     if (!desktopRuntimeDetected) {
       updateDesktopUpdaterDiagnostics('not_desktop_runtime', 'desktop runtime marker not detected');
       return null;
     }
+    const hostVersion = hydrateDesktopVersionFromHost();
+    const hostVersionDetail = `hostVersion=${hostVersion || 'empty'}`;
 
     const bridgeResolution = resolveDesktopUpdaterBridge();
     if (!bridgeResolution.bridge) {
-      updateDesktopUpdaterDiagnostics(bridgeResolution.state, bridgeResolution.detail);
+      updateDesktopUpdaterDiagnostics(bridgeResolution.state, `${bridgeResolution.detail}; ${hostVersionDetail}`);
       return null;
     }
     const bridge = bridgeResolution.bridge;
+    if (typeof bridge.installUpdate !== 'function' || typeof bridge.restartApp !== 'function') {
+      updateDesktopUpdaterDiagnostics(
+        'bridge_incomplete',
+        `desktop updater bridge missing install/restart commands; ${hostVersionDetail}`
+      );
+      return null;
+    }
+
+    let probeSoftFailureDetail = '';
 
     if (typeof bridge.pingUpdater === 'function') {
       const pingResult = await bridge.pingUpdater().catch(() => null);
@@ -850,15 +948,16 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
             ? (pingResult as { ok?: boolean }).ok !== false
             : pingResult !== null;
       if (!pingOk) {
-        updateDesktopUpdaterDiagnostics('invoke_unavailable', 'desktop updater probe command failed');
-        return null;
+        const directInvoke = resolveDesktopInvoke();
+        probeSoftFailureDetail = `desktop updater probe command failed via ${directInvoke.source ?? 'no invoke source'}; probes: ${describeDesktopInvokeProbes()}; ${hostVersionDetail}`;
+        updateDesktopUpdaterDiagnostics('probe_failed_soft', probeSoftFailureDetail);
       }
     }
 
     if (typeof bridge.getCapabilities === 'function') {
       const capabilities = await bridge.getCapabilities().catch(() => null);
       if (capabilities && capabilities.inAppUpdate === false) {
-        updateDesktopUpdaterDiagnostics('capability_disabled', 'bridge capability inAppUpdate=false');
+        updateDesktopUpdaterDiagnostics('capability_disabled', `bridge capability inAppUpdate=false; ${hostVersionDetail}`);
         return null;
       }
     }
@@ -882,19 +981,22 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     if (!currentVersion) {
       const invokeResolution = resolveDesktopInvoke();
       let directVersionError = '';
+      const directSource = invokeResolution.source ?? 'no invoke bridge';
       if (invokeResolution.invoke) {
         try {
           const directVersionRaw = await invokeResolution.invoke('desktop_get_current_version');
           const directVersion = extractDesktopVersion(directVersionRaw);
           if (directVersion) {
             currentVersion = directVersion;
-            versionResolutionChain.push(`direct desktop_get_current_version resolved (${directVersion})`);
+            versionResolutionChain.push(`${directSource} desktop_get_current_version resolved (${directVersion})`);
           } else {
-            versionResolutionChain.push('direct desktop_get_current_version returned empty');
+            versionResolutionChain.push(`${directSource} desktop_get_current_version returned empty`);
           }
         } catch (error) {
           directVersionError = String((error as any)?.message ?? error).trim();
-          versionResolutionChain.push(`direct desktop_get_current_version error: ${directVersionError || 'unknown error'}`);
+          versionResolutionChain.push(
+            `${directSource} desktop_get_current_version error: ${directVersionError || 'unknown error'}`
+          );
         }
       } else {
         versionResolutionChain.push('direct desktop_get_current_version unavailable (no invoke bridge)');
@@ -954,8 +1056,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       }
       if (!currentVersion) {
         const detail = combinedVersionError
-          ? `desktop_get_current_version failed (${combinedVersionError}); probes=${versionResolutionChain.join(' -> ')}`
-          : `desktop bridge returned an empty version; probes=${versionResolutionChain.join(' -> ')}`;
+          ? `desktop_get_current_version failed (${combinedVersionError}); chain=${versionResolutionChain.join(' -> ')}; probes=${describeDesktopInvokeProbes()}; ${hostVersionDetail}`
+          : `desktop bridge returned an empty version; chain=${versionResolutionChain.join(' -> ')}; probes=${describeDesktopInvokeProbes()}; ${hostVersionDetail}`;
         updateDesktopUpdaterDiagnostics('version_unavailable', detail);
         currentVersion = DESKTOP_UPDATE_UNKNOWN_VERSION_FALLBACK;
         usedUnknownVersionFallback = true;
@@ -995,7 +1097,12 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       if (usedUnknownVersionFallback) {
         updateDesktopUpdaterDiagnostics('version_unavailable', 'desktop client version unavailable; update not actionable');
       } else {
-        updateDesktopUpdaterDiagnostics('ready', 'in-app updater ready (no newer version for current client)');
+        updateDesktopUpdaterDiagnostics(
+          probeSoftFailureDetail ? 'probe_failed_soft' : 'ready',
+          probeSoftFailureDetail
+            ? `in-app updater ready despite probe warning; ${probeSoftFailureDetail}`
+            : 'in-app updater ready (no newer version for current client)'
+        );
       }
       return null;
     }
@@ -1005,13 +1112,17 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       targetVersion: prepare.targetVersion,
     });
     updateDesktopUpdaterDiagnostics(
-      'ready',
+      probeSoftFailureDetail ? 'probe_failed_soft' : 'ready',
       usedUnknownVersionFallback
-        ? 'in-app updater ready (fallback currentVersion=0.0.0)'
-        : 'in-app updater ready'
+        ? probeSoftFailureDetail
+          ? `in-app updater ready (fallback currentVersion=0.0.0) despite probe warning; ${probeSoftFailureDetail}`
+          : 'in-app updater ready (fallback currentVersion=0.0.0)'
+        : probeSoftFailureDetail
+          ? `in-app updater ready despite probe warning; ${probeSoftFailureDetail}`
+          : 'in-app updater ready'
     );
     return prepare;
-  }, [desktopRuntimeDetected, updateDesktopUpdaterDiagnostics, user]);
+  }, [desktopRuntimeDetected, hydrateDesktopVersionFromHost, updateDesktopUpdaterDiagnostics, user]);
 
   const handleDesktopRestartNow = useCallback(async () => {
     clearDesktopUpdateRestartTimer();
@@ -1431,6 +1542,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   useEffect(() => {
     if (!user) return;
     if (!desktopRuntimeDetected) return;
+    hydrateDesktopVersionFromHost();
 
     let timerId: number | undefined;
     const tick = async () => {
@@ -1448,7 +1560,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     return () => {
       if (timerId) window.clearInterval(timerId);
     };
-  }, [checkDesktopInAppUpdate, desktopRuntimeDetected, user]);
+  }, [checkDesktopInAppUpdate, desktopRuntimeDetected, hydrateDesktopVersionFromHost, user]);
 
   useEffect(() => {
     if (user) return;
@@ -1547,6 +1659,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         ? t.appChrome.desktopUpdateBridgeStateNotDesktop
         : desktopUpdaterDiagnostics.state === 'invoke_unavailable'
           ? t.appChrome.desktopUpdateBridgeStateInvokeUnavailable
+        : desktopUpdaterDiagnostics.state === 'probe_failed_soft'
+          ? t.appChrome.desktopUpdateBridgeStateProbeSoftFailed
         : desktopUpdaterDiagnostics.state === 'legacy_updater_missing_commands'
           ? t.appChrome.desktopUpdateBridgeStateLegacyMissingCommands
         : desktopUpdaterDiagnostics.state === 'legacy_version_detected'
@@ -1572,6 +1686,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     !desktopUpdatePillVisible &&
     Boolean(desktopUpdateNotifiedVersion) &&
     desktopUpdaterDiagnostics.state !== 'ready' &&
+    desktopUpdaterDiagnostics.state !== 'probe_failed_soft' &&
     !desktopUpdateBootstrapRequiredVisible;
   const desktopUpdateUnavailableTitle = interpolate(t.appChrome.desktopUpdateUnavailableTitle, {
     version: desktopUpdateNotifiedVersion || '-',
