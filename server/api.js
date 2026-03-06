@@ -5545,7 +5545,11 @@ export const apiRouter = (() => {
       const base = getClientUpdateOrigin(req);
       const artifactPath = `/api/client/update/artifact?token=${encodeURIComponent(token)}`;
       const signaturePath = `/api/client/update/signature?token=${encodeURIComponent(token)}`;
-      const artifactUrl = base ? `${base}${artifactPath}` : artifactPath;
+      const directArtifactUrl = String(payload?.au ?? "").trim();
+      const useDirectGithubArtifact = payload?.src === "github" && /^https?:\/\//i.test(directArtifactUrl);
+      const artifactUrl = useDirectGithubArtifact
+        ? directArtifactUrl
+        : (base ? `${base}${artifactPath}` : artifactPath);
       const signatureUrl = base ? `${base}${signaturePath}` : signaturePath;
 
       res.json({
