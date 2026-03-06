@@ -109,6 +109,8 @@ type DesktopUpdaterDiagnostics = {
 const DESKTOP_UPDATE_PLATFORM = 'windows-x86_64';
 const DESKTOP_UPDATE_RESTART_SECONDS = 10;
 const DESKTOP_UPDATE_UNKNOWN_VERSION_FALLBACK = '0.0.0';
+const DESKTOP_UPDATE_TOAST_ID = 'desktop-update-available';
+const DESKTOP_UPDATE_TOAST_DEDUP_MS = 15000;
 
 const detectDesktopRuntime = (): boolean => {
   const hostRuntime = String((window as any)?.__CRA_DESKTOP_HOST__?.runtime ?? '').trim().toLowerCase();
@@ -209,37 +211,61 @@ const describeDesktopInvokeProbes = (): string => {
 
 const resolveDesktopInvoke = (): DesktopInvokeResolution => {
   const tauriObj = (window as any)?.__TAURI__;
+  const invokeCandidates: Array<{
+    source: string;
+    run: (command: string, payload?: Record<string, any>) => Promise<any>;
+  }> = [];
+
   if (typeof tauriObj?.invoke === 'function') {
-    return {
-      invoke: (command: string, payload: Record<string, any> = {}) => tauriObj.invoke(command, payload),
+    invokeCandidates.push({
       source: '__TAURI__.invoke',
-    };
+      run: (command: string, payload: Record<string, any> = {}) => tauriObj.invoke(command, payload),
+    });
   }
   if (typeof tauriObj?.core?.invoke === 'function') {
-    return {
-      invoke: (command: string, payload: Record<string, any> = {}) => tauriObj.core.invoke(command, payload),
+    invokeCandidates.push({
       source: '__TAURI__.core.invoke',
-    };
+      run: (command: string, payload: Record<string, any> = {}) => tauriObj.core.invoke(command, payload),
+    });
   }
   if (typeof (window as any)?.__TAURI_INTERNALS__?.invoke === 'function') {
-    return {
-      invoke: (command: string, payload: Record<string, any> = {}) => (window as any).__TAURI_INTERNALS__.invoke(command, payload),
+    invokeCandidates.push({
       source: '__TAURI_INTERNALS__.invoke',
-    };
+      run: (command: string, payload: Record<string, any> = {}) => (window as any).__TAURI_INTERNALS__.invoke(command, payload),
+    });
   }
   if (typeof (window as any)?.__TAURI_INVOKE__ === 'function') {
-    return {
-      invoke: (command: string, payload: Record<string, any> = {}) => (window as any).__TAURI_INVOKE__(command, payload),
+    invokeCandidates.push({
       source: '__TAURI_INVOKE__',
-    };
+      run: (command: string, payload: Record<string, any> = {}) => (window as any).__TAURI_INVOKE__(command, payload),
+    });
   }
   if (typeof (window as any)?.__TAURI_IPC__ === 'function') {
     const ipc = (window as any).__TAURI_IPC__;
-    return {
-      invoke: (command: string, payload: Record<string, any> = {}) => invokeViaTauriIpc(ipc, command, payload),
+    invokeCandidates.push({
       source: '__TAURI_IPC__',
+      run: (command: string, payload: Record<string, any> = {}) => invokeViaTauriIpc(ipc, command, payload),
+    });
+  }
+
+  if (invokeCandidates.length > 0) {
+    return {
+      invoke: async (command: string, payload: Record<string, any> = {}) => {
+        const errors: string[] = [];
+        for (const candidate of invokeCandidates) {
+          try {
+            return await candidate.run(command, payload);
+          } catch (error) {
+            const detail = String((error as any)?.message ?? error).trim() || 'unknown error';
+            errors.push(`${candidate.source}: ${detail}`);
+          }
+        }
+        throw new Error(`all invoke paths failed for ${command}: ${errors.join(' | ')}`);
+      },
+      source: invokeCandidates.map((candidate) => candidate.source).join(' -> '),
     };
   }
+
   return { invoke: null, source: null };
 };
 
@@ -428,6 +454,28 @@ const extractDesktopVersion = (rawValue: unknown): string => {
 };
 
 const readDesktopHostVersion = (): string => extractDesktopVersion((window as any)?.__CRA_DESKTOP_HOST__);
+
+const normalizeDesktopUpdateNotes = (rawValue: string | null | undefined): string => {
+  const raw = String(rawValue ?? '').replace(/\r/g, '').trim();
+  if (!raw) return '';
+  const cleaned = raw
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, '$1: $2')
+    .replace(/`([^`]+)`/g, '$1')
+    .split('\n')
+    .map((line) => line.replace(/^\s*[-*]\s+/, '').trim())
+    .reduce<string[]>((lines, line) => {
+      if (!line && lines[lines.length - 1] === '') return lines;
+      lines.push(line);
+      return lines;
+    }, [])
+    .filter((line) => line !== '');
+  return cleaned
+    .slice(0, 6)
+    .map((line) => (line.length > 160 ? `${line.slice(0, 157)}...` : line))
+    .join('\n')
+    .trim();
+};
 
 const formatTimeShort = (value?: Date | string | null) => {
   if (!value) return '--';
@@ -730,6 +778,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const desktopRuntimeDetected = detectDesktopRuntime();
   const desktopUpdatePromptedVersionRef = useRef<string>('');
+  const desktopUpdateToastVersionRef = useRef<string>('');
+  const desktopUpdateToastAtRef = useRef<number>(0);
   const desktopUpdateManifestUrlRef = useRef<string>('');
   const desktopUpdateInstallBusyRef = useRef(false);
   const desktopUpdateRestartTimerRef = useRef<number | null>(null);
@@ -1352,6 +1402,21 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       ) {
         setDesktopUpdatePillState('available');
       }
+      const normalizedNotes = normalizeDesktopUpdateNotes(prepare.notes);
+      const now = Date.now();
+      const sameToastVersion = desktopUpdateToastVersionRef.current === prepare.targetVersion;
+      const recentlyPrompted = now - desktopUpdateToastAtRef.current < DESKTOP_UPDATE_TOAST_DEDUP_MS;
+      const updateDialogBusy =
+        desktopUpdateConfirmOpen ||
+        desktopUpdateProgressOpen ||
+        desktopUpdateBusy ||
+        desktopUpdatePillState === 'confirming' ||
+        desktopUpdatePillState === 'downloading' ||
+        desktopUpdatePillState === 'installing';
+
+      if (sameToastVersion && (recentlyPrompted || updateDialogBusy)) {
+        return true;
+      }
       if (
         !opts?.forcePrompt &&
         desktopUpdatePromptedVersionRef.current &&
@@ -1360,13 +1425,16 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         return true;
       }
       desktopUpdatePromptedVersionRef.current = prepare.targetVersion;
+      desktopUpdateToastVersionRef.current = prepare.targetVersion;
+      desktopUpdateToastAtRef.current = now;
 
       toast.message(
         interpolate(t.appChrome.desktopUpdateAvailableTitle, {
           version: prepare.targetVersion,
         }),
         {
-          description: prepare.notes || t.appChrome.desktopUpdateAvailableBody,
+          id: DESKTOP_UPDATE_TOAST_ID,
+          description: normalizedNotes || t.appChrome.desktopUpdateAvailableBody,
           action: {
             label: t.appChrome.desktopUpdateNow,
             onClick: () => {
@@ -1382,7 +1450,15 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       );
       return true;
     },
-    [desktopUpdatePillState, requestDesktopUpdatePrepare, t.appChrome, user]
+    [
+      desktopUpdateBusy,
+      desktopUpdateConfirmOpen,
+      desktopUpdatePillState,
+      desktopUpdateProgressOpen,
+      requestDesktopUpdatePrepare,
+      t.appChrome,
+      user,
+    ]
   );
 
   const handleDesktopUpdatePillClick = useCallback(async () => {
@@ -1916,7 +1992,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         open={desktopUpdateConfirmOpen}
         onOpenChange={handleDesktopUpdateConfirmOpenChange}
         targetVersion={desktopUpdateTargetVersion}
-        notes={desktopUpdatePrepare?.notes ?? null}
+        notes={normalizeDesktopUpdateNotes(desktopUpdatePrepare?.notes) || null}
         isSubmitting={desktopUpdateBusy}
         onConfirm={handleDesktopUpdateConfirm}
       />
