@@ -71,4 +71,63 @@ function Restart-AppService {
   Restart-Service -Name $Name -Force
 }
 
+function Invoke-HttpHealthCheck {
+  param(
+    [string]$Url,
+    [int]$ExpectedStatus = 200
+  )
+  $resp = Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 20
+  if ([int]$resp.StatusCode -ne $ExpectedStatus) {
+    throw "Health check failed for $Url (status $($resp.StatusCode), expected $ExpectedStatus)"
+  }
+}
+
+function Wait-ForHttpHealthy {
+  param(
+    [string]$Url,
+    [int]$ExpectedStatus = 200,
+    [int]$MaxAttempts = 15,
+    [int]$DelaySeconds = 4
+  )
+
+  $lastError = ""
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    try {
+      Invoke-HttpHealthCheck -Url $Url -ExpectedStatus $ExpectedStatus
+      Write-Host "Health check passed: $Url (attempt $attempt/$MaxAttempts)"
+      return
+    } catch {
+      $lastError = $_.Exception.Message
+      Write-Warning "Health check attempt $attempt/$MaxAttempts failed for ${Url}: $lastError"
+      if ($attempt -lt $MaxAttempts) {
+        Start-Sleep -Seconds $DelaySeconds
+      }
+    }
+  }
+
+  throw "Health check failed for $Url after $MaxAttempts attempts: $lastError"
+}
+
+$selfHealInstaller = Join-Path $AppPath "deploy\install-self-heal-task.ps1"
+if (Test-Path $selfHealInstaller) {
+  try {
+    & $selfHealInstaller -AppPath $AppPath -ServiceName $ServiceName
+  } catch {
+    Write-Warning ("Failed to install/update self-heal task: {0}" -f $_.Exception.Message)
+  }
+} else {
+  Write-Warning "install-self-heal-task.ps1 not found. Skipping self-heal task install."
+}
+
 Restart-AppService -Name $ServiceName
+
+$svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+if (-not $svc) {
+  throw "Service '$ServiceName' not found after restart."
+}
+if ($svc.Status -ne "Running") {
+  throw "Service '$ServiceName' is not running after restart (status: $($svc.Status))."
+}
+
+Wait-ForHttpHealthy -Url "http://localhost:3000/" -ExpectedStatus 200 -MaxAttempts 20 -DelaySeconds 3
+Wait-ForHttpHealthy -Url "http://localhost:3000/api/admin/client-update-health" -ExpectedStatus 200 -MaxAttempts 10 -DelaySeconds 3

@@ -254,6 +254,17 @@ Npm-CiBuild -DoMigrate:$RunMigrate
 
 if ($InstallService) {
   Ensure-Service
+  $selfHealInstaller = Join-Path $AppPath "deploy\install-self-heal-task.ps1"
+  if (Test-Path $selfHealInstaller) {
+    try {
+      & $selfHealInstaller -AppPath $AppPath -ServiceName $ServiceName
+      Write-Step "Installed/updated self-heal scheduled task."
+    } catch {
+      Write-Step ("Failed to install self-heal scheduled task: {0}" -f $_.Exception.Message)
+    }
+  } else {
+    Write-Step "Self-heal task installer not found; skipping."
+  }
 } else {
   Write-Step "Skipping service install/start (InstallService=false)."
 }

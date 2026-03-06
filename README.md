@@ -65,9 +65,9 @@ SESSION_TTL_HOURS=24
 # CRA desktop client in-app download
 # Source: github (default) or local
 CRA_CLIENT_RELEASE_SOURCE=github
-CRA_CLIENT_RELEASE_ALLOW_LOCAL_FALLBACK=true
-CRA_CLIENT_RELEASE_CACHE_SECONDS=300
-CRA_CLIENT_RELEASE_NEGATIVE_CACHE_SECONDS=30
+CRA_CLIENT_RELEASE_ALLOW_LOCAL_FALLBACK=false
+CRA_CLIENT_RELEASE_CACHE_SECONDS=60
+CRA_CLIENT_RELEASE_NEGATIVE_CACHE_SECONDS=10
 
 # GitHub source configuration
 CRA_CLIENT_GITHUB_OWNER=RenoMO-lab
@@ -86,8 +86,11 @@ CRA_CLIENT_UPDATE_SOURCE=github
 CRA_CLIENT_UPDATE_CHANNEL=stable
 CRA_CLIENT_UPDATE_TOKEN_TTL_SECONDS=600
 CRA_CLIENT_UPDATE_TOKEN_SECRET=
-CRA_CLIENT_GITHUB_UPDATE_ASSET_PATTERN=windows-x86_64
-CRA_CLIENT_GITHUB_UPDATE_SIG_PATTERN=.sig
+CRA_CLIENT_GITHUB_UPDATE_ASSET_PATTERN=windows-x64.exe
+CRA_CLIENT_GITHUB_UPDATE_SIG_PATTERN=.sha256
+# Optional fixed external base URL used in update manifest links.
+# If omitted, request host headers are used.
+CRA_CLIENT_UPDATE_PUBLIC_BASE_URL=http://192.168.50.55:3000
 CRA_CLIENT_LOCAL_UPDATE_ARTIFACT_PATH=C:\CRA_Local_Main\artifacts\CRA-Client-updater.exe
 CRA_CLIENT_LOCAL_UPDATE_SIG_PATH=C:\CRA_Local_Main\artifacts\CRA-Client-updater.exe.sig
 CRA_CLIENT_LOCAL_UPDATE_VERSION=v0.1.20
@@ -120,11 +123,23 @@ CRA Client download notes:
   - `GET /api/client/update/manifest?token=...`
   - `GET /api/client/update/artifact?token=...`
   - `GET /api/client/update/signature?token=...`
+  - Failure responses now include `reasonCode` for automation/debugging.
+- Desktop runtime URL policy (canonical):
+  - `APP_URL=http://192.168.50.55:3000`
+  - `ALLOWED_HOSTS=192.168.50.55,cra-local`
+  - `.nip.io` hostnames are compatibility-only, not the default runtime target.
+- Proxy caveat:
+  - Hostname URLs (for example `*.nip.io`) may be intercepted by local proxy tools and fail with `502`.
+  - Use the raw LAN IP URL (`192.168.50.55`) as the canonical desktop runtime target.
+- Desktop updater fallback policy:
+  - If in-app updater fails due desktop IPC/security scope, route users to **Downloads** and perform a one-time manual installer update.
 - Default mode (`CRA_CLIENT_RELEASE_SOURCE=github`) auto-tracks latest GitHub release from `RenoMO-lab/CRA_client`.
 - Users still download from your server endpoint (`/api/client/download`), but bytes are streamed from latest GitHub asset.
-- Local fallback mode stays available:
-  - set `CRA_CLIENT_RELEASE_SOURCE=local`, or
-  - keep `CRA_CLIENT_RELEASE_ALLOW_LOCAL_FALLBACK=true` to use local file when GitHub is unavailable.
+- Local mode remains available by explicit opt-in:
+  - set `CRA_CLIENT_RELEASE_SOURCE=local`, and provide local installer/update artifact paths.
+  - keep `CRA_CLIENT_RELEASE_ALLOW_LOCAL_FALLBACK=false` during rollout validation to avoid stale artifact fallback.
+- Admin diagnostics endpoint for release/update health:
+  - `GET /api/admin/client-update-health`
 
 ## Local development
 
@@ -222,6 +237,11 @@ Server setup:
 - Install Git, Node 20 LTS, NSSM
 
 Deploy script: `CRA_Local/deploy/deploy.ps1`
+- Deploy script now performs post-restart health gates automatically:
+  - Windows service state is `Running`
+  - `http://localhost:3000/` returns `200`
+  - `http://localhost:3000/api/admin/client-update-health` returns `200`
+- Deploy script also installs/updates self-heal scheduled task `CRA_Local_SelfHeal` (SYSTEM, every 2 minutes).
 
 ### Status Integrity Gate (recommended before/after deploy)
 

@@ -3272,8 +3272,8 @@ const DEFAULT_CRA_CLIENT_UPDATE_SOURCE = "github";
 const DEFAULT_CRA_CLIENT_GITHUB_OWNER = "RenoMO-lab";
 const DEFAULT_CRA_CLIENT_GITHUB_REPO = "CRA_client";
 const DEFAULT_CRA_CLIENT_GITHUB_ASSET_PATTERN = "windows-x64.exe";
-const DEFAULT_CRA_CLIENT_GITHUB_UPDATE_ASSET_PATTERN = "windows-x86_64";
-const DEFAULT_CRA_CLIENT_GITHUB_UPDATE_SIG_PATTERN = ".sig";
+const DEFAULT_CRA_CLIENT_GITHUB_UPDATE_ASSET_PATTERN = "windows-x64.exe";
+const DEFAULT_CRA_CLIENT_GITHUB_UPDATE_SIG_PATTERN = ".sha256";
 const DEFAULT_CRA_CLIENT_RELEASE_CACHE_SECONDS = 300;
 const DEFAULT_CRA_CLIENT_NEGATIVE_CACHE_SECONDS = 30;
 const DEFAULT_CLIENT_UPDATE_SYNC_THROTTLE_SECONDS = 300;
@@ -3289,6 +3289,7 @@ const craClientUpdateReleaseCache = new Map();
 const clientUpdateSyncCache = new Map();
 const clientUpdateErrorLogCache = new Map();
 const runtimeClientUpdateTokenSecret = randomBytes(32).toString("hex");
+let lastClientUpdateHealthError = null;
 
 const clampLineCount = (value) => {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -3405,10 +3406,62 @@ const parsePositiveInt = (value, fallback) => {
   return parsed;
 };
 
-const createHttpError = (status, message) => {
+const createHttpError = (status, message, reasonCode = "") => {
   const error = new Error(message);
   error.status = status;
+  if (reasonCode) {
+    error.reasonCode = String(reasonCode).trim();
+  }
   return error;
+};
+
+const sanitizePublicOrigin = (value) => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "";
+    }
+    parsed.hash = "";
+    parsed.search = "";
+    parsed.pathname = "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+};
+
+const getClientUpdatePublicBaseUrl = () => sanitizePublicOrigin(process.env.CRA_CLIENT_UPDATE_PUBLIC_BASE_URL);
+
+const resolveClientUpdateError = (error, fallbackCode, fallbackMessage) => {
+  const status = Number(error?.status ?? 502);
+  const code = String(error?.reasonCode ?? error?.code ?? fallbackCode ?? "client_update_error")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]/g, "_");
+  const message = String(error?.message ?? fallbackMessage ?? "Client update operation failed").trim();
+  return {
+    status: Number.isFinite(status) && status >= 100 && status < 600 ? status : 502,
+    reasonCode: code || "client_update_error",
+    error: message || "Client update operation failed",
+  };
+};
+
+const setClientUpdateHealthError = (context, error) => {
+  const resolved = resolveClientUpdateError(error, `${context}_failed`, `${context} failed`);
+  lastClientUpdateHealthError = {
+    context: String(context ?? "unknown"),
+    reasonCode: resolved.reasonCode,
+    error: resolved.error,
+    status: resolved.status,
+    at: new Date().toISOString(),
+  };
+  return resolved;
+};
+
+const clearClientUpdateHealthError = () => {
+  lastClientUpdateHealthError = null;
 };
 
 const inferInstallerVersion = (installerName) => {
@@ -3598,6 +3651,8 @@ const getRequestOrigin = (req) => {
   return `${proto}://${host}`;
 };
 
+const getClientUpdateOrigin = (req) => getClientUpdatePublicBaseUrl() || getRequestOrigin(req);
+
 const parseContentDispositionFileName = (headerValue) => {
   const value = String(headerValue ?? "");
   const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
@@ -3617,6 +3672,10 @@ const selectGitHubReleaseAsset = (assets, pattern) => {
   const needle = String(pattern ?? "").trim().toLowerCase();
   if (!needle) return null;
   return (
+    list.find((asset) => {
+      const name = String(asset?.name ?? "").toLowerCase();
+      return name.includes(needle) && name.endsWith(".exe");
+    }) ||
     list.find((asset) => String(asset?.name ?? "").toLowerCase().includes(needle)) ||
     list.find((asset) => String(asset?.name ?? "").toLowerCase().endsWith(".exe")) ||
     null
@@ -3650,7 +3709,13 @@ const fetchCraClientGitHubRelease = async () => {
     } else if (response.status === 404) {
       message = "GitHub release repository or latest release not found";
     }
-    const error = createHttpError(502, message);
+    const reasonCode =
+      response.status === 403 || response.status === 429
+        ? "client_release_github_rate_limited"
+        : response.status === 404
+          ? "client_release_github_not_found"
+          : "client_release_github_api_failed";
+    const error = createHttpError(502, message, reasonCode);
     craClientReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
@@ -3661,7 +3726,7 @@ const fetchCraClientGitHubRelease = async () => {
   const payload = await response.json();
   const asset = selectGitHubReleaseAsset(payload?.assets, cfg.assetPattern);
   if (!asset?.browser_download_url) {
-    const error = createHttpError(502, "No matching CRA client release asset found");
+    const error = createHttpError(502, "No matching CRA client release asset found", "client_release_asset_missing");
     craClientReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
@@ -3697,7 +3762,11 @@ const fetchGitHubAssetText = async (downloadUrl, cfg) => {
   }
   const response = await fetch(downloadUrl, { headers, redirect: "follow" });
   if (!response.ok) {
-    throw createHttpError(502, `Failed to fetch update signature asset (status ${response.status})`);
+    throw createHttpError(
+      502,
+      `Failed to fetch update signature asset (status ${response.status})`,
+      "client_update_signature_fetch_failed"
+    );
   }
   const raw = await response.text();
   return String(raw ?? "").trim();
@@ -3741,7 +3810,13 @@ const fetchCraClientGitHubUpdateRelease = async () => {
   const url = `${GITHUB_API_BASE}/repos/${encodeURIComponent(ghCfg.owner)}/${encodeURIComponent(ghCfg.repo)}/releases/latest`;
   const response = await fetch(url, { headers });
   if (!response.ok) {
-    const error = createHttpError(502, `GitHub release API failed with status ${response.status}`);
+    const reasonCode =
+      response.status === 403 || response.status === 429
+        ? "client_update_github_rate_limited"
+        : response.status === 404
+          ? "client_update_github_not_found"
+          : "client_update_github_api_failed";
+    const error = createHttpError(502, `GitHub release API failed with status ${response.status}`, reasonCode);
     craClientUpdateReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
@@ -3752,7 +3827,7 @@ const fetchCraClientGitHubUpdateRelease = async () => {
   const payload = await response.json();
   const asset = selectGitHubReleaseAsset(payload?.assets, updateCfg.assetPattern);
   if (!asset?.browser_download_url) {
-    const error = createHttpError(502, "No matching CRA client update artifact found");
+    const error = createHttpError(502, "No matching CRA client update artifact found", "client_update_artifact_missing");
     craClientUpdateReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
@@ -3762,7 +3837,11 @@ const fetchCraClientGitHubUpdateRelease = async () => {
 
   const sigAsset = selectGitHubSignatureAsset(payload?.assets, updateCfg.signaturePattern, asset?.name);
   if (!sigAsset?.browser_download_url) {
-    const error = createHttpError(502, "No matching CRA client update signature asset found");
+    const error = createHttpError(
+      502,
+      "No matching CRA client update signature asset found",
+      "client_update_signature_asset_missing"
+    );
     craClientUpdateReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
@@ -3772,7 +3851,7 @@ const fetchCraClientGitHubUpdateRelease = async () => {
 
   const signature = await fetchGitHubAssetText(sigAsset.browser_download_url, ghCfg);
   if (!signature) {
-    const error = createHttpError(502, "CRA client update signature asset is empty");
+    const error = createHttpError(502, "CRA client update signature asset is empty", "client_update_signature_empty");
     craClientUpdateReleaseCache.set(cacheKey, {
       error,
       errorExpiresAt: now + getCraClientNegativeCacheTtlMs(),
@@ -3804,7 +3883,11 @@ const resolveCraClientLocalUpdateRelease = async () => {
   const cfg = getCraClientUpdateConfig();
   const configuredArtifact = cfg.localArtifactPath;
   if (!configuredArtifact) {
-    throw createHttpError(404, "CRA client local update artifact path is not configured");
+    throw createHttpError(
+      404,
+      "CRA client local update artifact path is not configured",
+      "client_update_local_artifact_path_missing"
+    );
   }
   const artifactPath = path.isAbsolute(configuredArtifact)
     ? configuredArtifact
@@ -3821,11 +3904,11 @@ const resolveCraClientLocalUpdateRelease = async () => {
     fs.readFile(signaturePath, "utf8").catch(() => ""),
   ]);
   if (!artifactStat?.isFile()) {
-    throw createHttpError(404, "CRA client local update artifact not found");
+    throw createHttpError(404, "CRA client local update artifact not found", "client_update_local_artifact_missing");
   }
   const signature = String(signatureRaw ?? "").trim();
   if (!signature) {
-    throw createHttpError(404, "CRA client local update signature not found");
+    throw createHttpError(404, "CRA client local update signature not found", "client_update_local_signature_missing");
   }
   const artifactName = sanitizeDownloadFileName(path.basename(artifactPath), DEFAULT_CRA_CLIENT_INSTALLER_NAME);
   const version = sanitizeDownloadText(cfg.localVersion) || inferInstallerVersion(artifactName);
@@ -3865,7 +3948,7 @@ const resolveCraClientDownloadTarget = async () => {
 
   if (source === "local") {
     const local = await resolveCraClientInstaller();
-    if (!local.exists) throw createHttpError(404, "CRA client installer not found");
+    if (!local.exists) throw createHttpError(404, "CRA client installer not found", "client_release_local_installer_missing");
     return { ...local, source: "local" };
   }
 
@@ -3901,6 +3984,26 @@ const buildClientUpdateNotificationPayload = (updateMeta) => {
     updateMode: "in_app",
   };
 };
+
+const toClientReleaseHealthSummary = (release) => ({
+  ok: true,
+  source: sanitizeDownloadText(release?.source) || null,
+  version: sanitizeDownloadText(release?.version) || null,
+  installerName: sanitizeDownloadFileName(release?.installerName, DEFAULT_CRA_CLIENT_INSTALLER_NAME),
+  sizeBytes: Number.isFinite(Number(release?.sizeBytes)) ? Number(release.sizeBytes) : 0,
+  updatedAt: sanitizeDownloadText(release?.updatedAt) || null,
+});
+
+const toClientUpdateHealthSummary = (update) => ({
+  ok: true,
+  source: sanitizeDownloadText(update?.source) || null,
+  channel: sanitizeDownloadText(update?.channel) || getClientUpdateChannel(),
+  version: sanitizeDownloadText(update?.version) || null,
+  artifactName: sanitizeDownloadFileName(update?.artifactName, DEFAULT_CRA_CLIENT_INSTALLER_NAME),
+  artifactSizeBytes: Number.isFinite(Number(update?.artifactSizeBytes)) ? Number(update.artifactSizeBytes) : 0,
+  publishedAt: sanitizeDownloadText(update?.publishedAt) || null,
+  signatureAvailable: Boolean(String(update?.signature ?? "").trim()),
+});
 
 const FEEDBACK_EMAIL_STRINGS = {
   en: {
@@ -5237,23 +5340,29 @@ export const apiRouter = (() => {
         publishedAt: null,
         manifestUrl: null,
         expiresAt: null,
+        reasonCode: null,
       };
 
       let target;
       try {
         target = await resolveCraClientUpdateTarget();
       } catch (error) {
+        const resolved = setClientUpdateHealthError("client.update.prepare", error);
         await writeAuditLogBestEffort(await getPool(), req, {
           action: "client.update.prepare",
           targetType: "client_update",
           targetId: currentVersion || "unknown",
           result: "error",
-          errorMessage: String(error?.message ?? error),
-          metadata: { channel, platform, currentVersion },
+          errorMessage: resolved.error,
+          metadata: { channel, platform, currentVersion, reasonCode: resolved.reasonCode },
         });
-        res.json(emptyResponse);
+        res.json({
+          ...emptyResponse,
+          reasonCode: resolved.reasonCode,
+        });
         return;
       }
+      clearClientUpdateHealthError();
 
       const targetVersion = sanitizeDownloadText(target?.version);
       if (!targetVersion || compareVersionsLoose(targetVersion, currentVersion) <= 0) {
@@ -5290,7 +5399,7 @@ export const apiRouter = (() => {
       };
 
       const token = createClientUpdateToken(tokenPayload);
-      const base = getRequestOrigin(req);
+      const base = getClientUpdateOrigin(req);
       const manifestPath = `/api/client/update/manifest?token=${encodeURIComponent(token)}`;
       const manifestUrl = base ? `${base}${manifestPath}` : manifestPath;
       const expiresAt = new Date(exp * 1000).toISOString();
@@ -5319,7 +5428,7 @@ export const apiRouter = (() => {
     asyncHandler(async (req, res) => {
       const token = String(req.query.token ?? "").trim();
       const payload = verifyClientUpdateToken(token);
-      const base = getRequestOrigin(req);
+      const base = getClientUpdateOrigin(req);
       const artifactPath = `/api/client/update/artifact?token=${encodeURIComponent(token)}`;
       const signaturePath = `/api/client/update/signature?token=${encodeURIComponent(token)}`;
       const artifactUrl = base ? `${base}${artifactPath}` : artifactPath;
@@ -5365,14 +5474,23 @@ export const apiRouter = (() => {
       if (payload?.src === "local") {
         const artifactPath = String(payload?.ap ?? "").trim();
         if (!artifactPath) {
-          res.status(404).json({ error: "Update artifact not found" });
+          const resolved = setClientUpdateHealthError(
+            "client.update.artifact",
+            createHttpError(404, "Update artifact not found", "client_update_artifact_path_missing")
+          );
+          res.status(resolved.status).json({ error: resolved.error, reasonCode: resolved.reasonCode });
           return;
         }
         const st = await fs.stat(artifactPath).catch(() => null);
         if (!st?.isFile()) {
-          res.status(404).json({ error: "Update artifact not found" });
+          const resolved = setClientUpdateHealthError(
+            "client.update.artifact",
+            createHttpError(404, "Update artifact not found", "client_update_artifact_missing")
+          );
+          res.status(resolved.status).json({ error: resolved.error, reasonCode: resolved.reasonCode });
           return;
         }
+        clearClientUpdateHealthError();
         res.setHeader("Content-Type", "application/octet-stream");
         res.setHeader("Content-Length", String(st.size));
         setContentDispositionSafe(res, "attachment", fileName);
@@ -5382,7 +5500,11 @@ export const apiRouter = (() => {
 
       const downloadUrl = String(payload?.au ?? "").trim();
       if (!downloadUrl) {
-        res.status(404).json({ error: "Update artifact URL is missing" });
+        const resolved = setClientUpdateHealthError(
+          "client.update.artifact",
+          createHttpError(404, "Update artifact URL is missing", "client_update_artifact_url_missing")
+        );
+        res.status(resolved.status).json({ error: resolved.error, reasonCode: resolved.reasonCode });
         return;
       }
 
@@ -5400,9 +5522,16 @@ export const apiRouter = (() => {
         redirect: "follow",
       });
       if (!assetResponse.ok || !assetResponse.body) {
-        res.status(502).json({ error: `Failed to fetch update artifact (status ${assetResponse.status})` });
+        const upstreamError = createHttpError(
+          502,
+          `Failed to fetch update artifact (status ${assetResponse.status})`,
+          "client_update_artifact_fetch_failed"
+        );
+        const resolved = setClientUpdateHealthError("client.update.artifact", upstreamError);
+        res.status(resolved.status).json({ error: resolved.error, reasonCode: resolved.reasonCode });
         return;
       }
+      clearClientUpdateHealthError();
       const contentType = assetResponse.headers.get("content-type") || "application/octet-stream";
       const contentLength = assetResponse.headers.get("content-length");
       res.setHeader("Content-Type", contentType);
@@ -5420,6 +5549,7 @@ export const apiRouter = (() => {
     asyncHandler(async (req, res) => {
       try {
         const installer = await resolveCraClientDownloadTarget();
+        clearClientUpdateHealthError();
         res.json({
           name: installer.installerName,
           version: installer.version || null,
@@ -5428,9 +5558,10 @@ export const apiRouter = (() => {
           updatedAt: installer.updatedAt ?? null,
         });
       } catch (error) {
-        const status = Number(error?.status ?? 502);
-        res.status(Number.isFinite(status) ? status : 502).json({
-          error: String(error?.message ?? "CRA client installer not available"),
+        const resolved = setClientUpdateHealthError("client.download.info", error);
+        res.status(resolved.status).json({
+          error: resolved.error,
+          reasonCode: resolved.reasonCode,
         });
       }
     })
@@ -5444,12 +5575,14 @@ export const apiRouter = (() => {
       try {
         installer = await resolveCraClientDownloadTarget();
       } catch (error) {
-        const status = Number(error?.status ?? 502);
-        res.status(Number.isFinite(status) ? status : 502).json({
-          error: String(error?.message ?? "CRA client installer not available"),
+        const resolved = setClientUpdateHealthError("client.download", error);
+        res.status(resolved.status).json({
+          error: resolved.error,
+          reasonCode: resolved.reasonCode,
         });
         return;
       }
+      clearClientUpdateHealthError();
 
       if (installer.source === "local") {
         res.download(installer.installerPath, installer.installerName);
@@ -5471,7 +5604,11 @@ export const apiRouter = (() => {
       });
 
       if (!assetResponse.ok || !assetResponse.body) {
-        res.status(502).json({ error: `Failed to fetch installer asset (status ${assetResponse.status})` });
+        const resolved = setClientUpdateHealthError(
+          "client.download.asset",
+          createHttpError(502, `Failed to fetch installer asset (status ${assetResponse.status})`, "client_release_asset_fetch_failed")
+        );
+        res.status(resolved.status).json({ error: resolved.error, reasonCode: resolved.reasonCode });
         return;
       }
 
@@ -7100,6 +7237,78 @@ export const apiRouter = (() => {
           })),
         },
       });
+    })
+  );
+
+  router.get(
+    "/admin/client-update-health",
+    asyncHandler(async (req, res) => {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+
+      const status = {
+        checkedAt: new Date().toISOString(),
+        source: {
+          release: getCraClientReleaseSource(),
+          update: getCraClientUpdateSource(),
+          allowLocalFallback: shouldAllowCraClientFallback(),
+        },
+        publicBaseUrl: getClientUpdatePublicBaseUrl() || null,
+        release: {
+          ok: false,
+          error: null,
+          reasonCode: null,
+        },
+        update: {
+          ok: false,
+          error: null,
+          reasonCode: null,
+          signatureAvailable: false,
+        },
+        lastError: lastClientUpdateHealthError,
+      };
+
+      try {
+        const releaseTarget = await resolveCraClientDownloadTarget();
+        status.release = {
+          ...status.release,
+          ...toClientReleaseHealthSummary(releaseTarget),
+        };
+      } catch (error) {
+        const resolved = setClientUpdateHealthError("client.update.health.release", error);
+        status.release = {
+          ok: false,
+          error: resolved.error,
+          reasonCode: resolved.reasonCode,
+        };
+      }
+
+      try {
+        const updateTarget = await resolveCraClientUpdateTarget();
+        status.update = {
+          ...status.update,
+          ...toClientUpdateHealthSummary(updateTarget),
+        };
+      } catch (error) {
+        const resolved = setClientUpdateHealthError("client.update.health.update", error);
+        status.update = {
+          ok: false,
+          error: resolved.error,
+          reasonCode: resolved.reasonCode,
+          signatureAvailable: false,
+        };
+      }
+
+      status.lastError = lastClientUpdateHealthError;
+      status.healthy = Boolean(status.release.ok && status.update.ok && status.update.signatureAvailable);
+
+      if (status.healthy) {
+        clearClientUpdateHealthError();
+        status.lastError = null;
+      }
+
+      res.status(status.healthy ? 200 : 503).json(status);
     })
   );
 
