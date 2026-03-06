@@ -510,6 +510,35 @@ const interpolate = (template: string, values: Record<string, string>) => {
   return Object.entries(values).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, value), template);
 };
 
+const isDesktopUpdateIpcScopeFailure = (reason: string) => {
+  const normalized = String(reason ?? '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('scope not defined for url') ||
+    normalized.includes('dangerousremotedomainipcaccess') ||
+    normalized.includes('configure_remote_access')
+  );
+};
+
+const resolveDesktopUpdateFailure = (
+  reason: string,
+  t: any
+): {
+  message: string;
+  autoOpenDownloads: boolean;
+} => {
+  if (isDesktopUpdateIpcScopeFailure(reason)) {
+    return {
+      message: t.appChrome.desktopUpdateIpcScopeBlocked,
+      autoOpenDownloads: true,
+    };
+  }
+  return {
+    message: reason,
+    autoOpenDownloads: false,
+  };
+};
+
 const resolveRequestStatusLabel = (status: string, t: any) => {
   const key = String(status ?? '').trim();
   if (!key) return '';
@@ -1208,20 +1237,49 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   }, [clearDesktopUpdateRestartTimer, handleDesktopRestartNow]);
 
   const markDesktopUpdateFailure = useCallback(
-    (reason: string) => {
+    (
+      reason: string,
+      options?: {
+        rawReason?: string;
+        autoOpenDownloads?: boolean;
+      }
+    ) => {
+      const displayReason = String(reason ?? '').trim() || t.appChrome.desktopUpdateInstallFailedUnknown;
       clearDesktopUpdateRestartTimer();
       setDesktopUpdateRestartCountdown(null);
       setDesktopUpdatePillState('failed');
       setDesktopUpdateProgressPhase('failed');
       setDesktopUpdateProgressPercent(0);
-      setDesktopUpdateErrorMessage(reason);
-      setDesktopUpdateProgressMessage(reason);
+      setDesktopUpdateErrorMessage(displayReason);
+      setDesktopUpdateProgressMessage(displayReason);
       setDesktopUpdateProgressOpen(true);
       toast.error(t.appChrome.desktopUpdateInstallFailedTitle, {
-        description: interpolate(t.appChrome.desktopUpdateInstallFailedBody, { reason: reason || '-' }),
+        description: interpolate(t.appChrome.desktopUpdateInstallFailedBody, { reason: displayReason || '-' }),
       });
+
+      if (options?.rawReason && options.rawReason !== displayReason) {
+        console.warn('[desktop-updater] install_failed_sanitized', {
+          displayReason,
+          rawReason: options.rawReason,
+        });
+      }
+
+      if (options?.autoOpenDownloads) {
+        toast.message(t.appChrome.desktopUpdateIpcScopeOpenDownloads);
+        if (!location.pathname.startsWith('/downloads')) {
+          navigate('/downloads');
+        }
+      }
     },
-    [clearDesktopUpdateRestartTimer, t.appChrome.desktopUpdateInstallFailedBody, t.appChrome.desktopUpdateInstallFailedTitle]
+    [
+      clearDesktopUpdateRestartTimer,
+      location.pathname,
+      navigate,
+      t.appChrome.desktopUpdateInstallFailedBody,
+      t.appChrome.desktopUpdateInstallFailedTitle,
+      t.appChrome.desktopUpdateInstallFailedUnknown,
+      t.appChrome.desktopUpdateIpcScopeOpenDownloads,
+    ]
   );
 
   const installDesktopUpdate = useCallback(
@@ -1344,8 +1402,12 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         });
         startDesktopAutoRestartCountdown();
       } catch (error) {
-        const reason = String((error as any)?.message ?? error).trim() || t.appChrome.desktopUpdateInstallFailedUnknown;
-        markDesktopUpdateFailure(reason);
+        const rawReason = String((error as any)?.message ?? error).trim() || t.appChrome.desktopUpdateInstallFailedUnknown;
+        const failure = resolveDesktopUpdateFailure(rawReason, t);
+        markDesktopUpdateFailure(failure.message, {
+          rawReason,
+          autoOpenDownloads: failure.autoOpenDownloads,
+        });
       } finally {
         desktopUpdateInstallBusyRef.current = false;
         setDesktopUpdateBusy(false);
@@ -1602,16 +1664,24 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     if (!user) return;
 
     let timerId: number | undefined;
-    const tick = async () => {
-      if (document.visibilityState !== 'visible') return;
+    const tick = async (allowHidden = false) => {
+      if (!allowHidden && document.visibilityState !== 'visible') return;
       await syncClientUpdateNotification();
     };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void tick(true);
+      }
+    };
 
-    void tick();
-    timerId = window.setInterval(tick, 10 * 60_000);
+    // Run immediately even if the webview visibility state is stale during bootstrap.
+    void tick(true);
+    timerId = window.setInterval(() => void tick(), 10 * 60_000);
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       if (timerId) window.clearInterval(timerId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [syncClientUpdateNotification, user]);
 
@@ -1621,20 +1691,28 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     hydrateDesktopVersionFromHost();
 
     let timerId: number | undefined;
-    const tick = async () => {
-      if (document.visibilityState !== 'visible') return;
+    const tick = async (allowHidden = false) => {
+      if (!allowHidden && document.visibilityState !== 'visible') return;
       try {
         await checkDesktopInAppUpdate();
       } catch {
         // Best effort only; do not interrupt user flow.
       }
     };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void tick(true);
+      }
+    };
 
-    void tick();
-    timerId = window.setInterval(tick, 6 * 60 * 60 * 1000);
+    // Run immediately even if the webview visibility state is stale during bootstrap.
+    void tick(true);
+    timerId = window.setInterval(() => void tick(), 6 * 60 * 60 * 1000);
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
       if (timerId) window.clearInterval(timerId);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [checkDesktopInAppUpdate, desktopRuntimeDetected, hydrateDesktopVersionFromHost, user]);
 

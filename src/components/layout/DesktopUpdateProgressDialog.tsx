@@ -129,10 +129,10 @@ const DesktopUpdateProgressDialog: React.FC<DesktopUpdateProgressDialogProps> = 
 
           {phase === 'failed' ? (
             <>
-              <Button type="button" variant="outline" onClick={onOpenDownloads}>
+              <Button type="button" onClick={onOpenDownloads}>
                 {t.downloads.openDownloads}
               </Button>
-              <Button type="button" onClick={onRetry}>
+              <Button type="button" variant="outline" onClick={onRetry}>
                 {t.appChrome.desktopUpdateRetry}
               </Button>
             </>
@@ -144,4 +144,3 @@ const DesktopUpdateProgressDialog: React.FC<DesktopUpdateProgressDialogProps> = 
 };
 
 export default DesktopUpdateProgressDialog;
-
