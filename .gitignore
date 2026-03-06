@@ -36,3 +36,6 @@ deploy/fix-dbmonitor-pg-stat-statements.ps1
 
 # Local temp artifacts
 .tmp/
+
+# Local DB backup artifacts
+backups/
