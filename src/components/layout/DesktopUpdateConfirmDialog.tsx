@@ -29,6 +29,7 @@ const DesktopUpdateConfirmDialog: React.FC<DesktopUpdateConfirmDialogProps> = ({
   onConfirm,
 }) => {
   const { t } = useLanguage();
+  const hasNotes = Boolean(String(notes ?? '').trim());
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -42,7 +43,9 @@ const DesktopUpdateConfirmDialog: React.FC<DesktopUpdateConfirmDialogProps> = ({
             <div className="font-medium text-foreground">
               {t.appChrome.desktopUpdateConfirmVersion}: {targetVersion || '-'}
             </div>
-            {notes ? <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{notes}</p> : null}
+            {hasNotes ? (
+              <p className="mt-1 text-xs text-muted-foreground">{t.appChrome.desktopUpdateConfirmNotesAvailable}</p>
+            ) : null}
           </div>
           <p className="text-xs text-muted-foreground">{t.appChrome.desktopUpdateConfirmRestartHint}</p>
         </div>

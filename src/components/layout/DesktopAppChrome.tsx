@@ -2222,7 +2222,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const desktopUpdaterStateDetail = desktopUpdaterDiagnostics.detail || t.appChrome.desktopUpdateBridgeStateDetailFallback;
   const desktopBridgeDiagnosticsVisible =
     desktopRuntimeDetected &&
-    desktopUpdaterDiagnostics.state !== 'ready';
+    desktopUpdaterDiagnostics.state !== 'ready' &&
+    desktopUpdaterDiagnostics.state !== 'unknown';
   const desktopUpdatePillLabel =
     desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing'
       ? t.appChrome.desktopUpdatePillUpdating
@@ -2573,7 +2574,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       <Sheet open={notificationsOpen} onOpenChange={setNotificationsOpen}>
         <SheetContent side="right" className="w-[420px] sm:max-w-[420px] p-0">
           <div className="h-full flex flex-col">
-            <SheetHeader className="px-4 py-3 border-b border-border">
+            <SheetHeader className="px-4 py-3 pr-12 border-b border-border">
               <div className="flex items-center justify-between gap-2">
                 <SheetTitle className="text-base">{t.appChrome.notifications}</SheetTitle>
                 <div className="flex items-center gap-2">
@@ -2643,7 +2644,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
               </div>
             ) : null}
 
-            <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
+            <div className="flex-1 overflow-y-scroll [scrollbar-gutter:stable] scrollbar-thin p-2">
               {notificationsLoading ? <div className="p-3 text-sm text-muted-foreground">{t.appChrome.loadingNotifications}</div> : null}
               {notificationsError ? <div className="p-3 text-sm text-red-600">{t.appChrome.failedLoadNotifications}</div> : null}
               {!notificationsLoading && !notificationsError && notificationItems.length === 0 ? (
