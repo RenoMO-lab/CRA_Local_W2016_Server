@@ -101,6 +101,7 @@ type DesktopUpdaterBridgeState =
   | 'unknown'
   | 'ready'
   | 'probe_failed_soft'
+  | 'warning_ipv4_host'
   | 'scope_incompatible'
   | 'not_desktop_runtime'
   | 'bridge_missing'
@@ -1233,6 +1234,23 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     }
     const hostVersion = hydrateDesktopVersionFromHost();
     const hostVersionDetail = `hostVersion=${hostVersion || 'empty'}`;
+    const hostMetadata = readDesktopHostMetadata();
+    const ipv4HostWarning = hostMetadata?.scopeCompatible === false;
+    const hostWarningDetail = ipv4HostWarning
+      ? `host metadata warning: active_app_url=${String(hostMetadata?.activeAppUrl ?? '-')} scope_compatible=false`
+      : '';
+    const resolveReadyState = (): DesktopUpdaterBridgeState => {
+      if (probeSoftFailureDetail) return 'probe_failed_soft';
+      if (ipv4HostWarning) return 'warning_ipv4_host';
+      return 'ready';
+    };
+    const withWarningDetail = (baseDetail: string): string => {
+      if (hostWarningDetail && baseDetail) {
+        return `${baseDetail}; ${hostWarningDetail}`;
+      }
+      if (hostWarningDetail) return hostWarningDetail;
+      return baseDetail;
+    };
 
     const bridgeResolution = resolveDesktopUpdaterBridge();
     if (!bridgeResolution.bridge) {
@@ -1427,10 +1445,12 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         updateDesktopUpdaterDiagnostics('version_unavailable', 'desktop client version unavailable; update not actionable');
       } else {
         updateDesktopUpdaterDiagnostics(
-          probeSoftFailureDetail ? 'probe_failed_soft' : 'ready',
-          probeSoftFailureDetail
-            ? `in-app updater ready despite probe warning; ${probeSoftFailureDetail}`
-            : 'in-app updater ready (no newer version for current client)'
+          resolveReadyState(),
+          withWarningDetail(
+            probeSoftFailureDetail
+              ? `in-app updater ready despite probe warning; ${probeSoftFailureDetail}`
+              : 'in-app updater ready (no newer version for current client)'
+          )
         );
       }
       return null;
@@ -1442,14 +1462,16 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       targetVersion: prepare.targetVersion,
     });
     updateDesktopUpdaterDiagnostics(
-      probeSoftFailureDetail ? 'probe_failed_soft' : 'ready',
-      usedUnknownVersionFallback
-        ? probeSoftFailureDetail
-          ? `in-app updater ready (fallback currentVersion=0.0.0) despite probe warning; ${probeSoftFailureDetail}`
-          : 'in-app updater ready (fallback currentVersion=0.0.0)'
-        : probeSoftFailureDetail
-          ? `in-app updater ready despite probe warning; ${probeSoftFailureDetail}`
-          : 'in-app updater ready'
+      resolveReadyState(),
+      withWarningDetail(
+        usedUnknownVersionFallback
+          ? probeSoftFailureDetail
+            ? `in-app updater ready (fallback currentVersion=0.0.0) despite probe warning; ${probeSoftFailureDetail}`
+            : 'in-app updater ready (fallback currentVersion=0.0.0)'
+          : probeSoftFailureDetail
+            ? `in-app updater ready despite probe warning; ${probeSoftFailureDetail}`
+            : 'in-app updater ready'
+      )
     );
     return prepare;
   }, [
@@ -2130,6 +2152,8 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const desktopUpdaterStateLabel =
     desktopUpdaterDiagnostics.state === 'ready'
       ? t.appChrome.desktopUpdateBridgeStateReady
+      : desktopUpdaterDiagnostics.state === 'warning_ipv4_host'
+        ? t.appChrome.desktopUpdateBridgeStateIpv4Warning
       : desktopUpdaterDiagnostics.state === 'scope_incompatible'
         ? t.appChrome.desktopUpdateBridgeStateInvokeUnavailable
       : desktopUpdaterDiagnostics.state === 'not_desktop_runtime'
@@ -2164,6 +2188,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     Boolean(desktopUpdateActionableVersion) &&
     desktopUpdaterDiagnostics.state !== 'ready' &&
     desktopUpdaterDiagnostics.state !== 'probe_failed_soft' &&
+    desktopUpdaterDiagnostics.state !== 'warning_ipv4_host' &&
     !desktopUpdateBootstrapRequiredVisible;
   const desktopUpdateUnavailableTitle = interpolate(t.appChrome.desktopUpdateUnavailableTitle, {
     version: desktopUpdateActionableVersion || desktopUpdateNotifiedVersion || '-',
@@ -2626,7 +2651,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                         const isClientUpdateNotification = notificationType === 'client_update_available';
                         if (!isClientUpdateNotification) return null;
 
-                        if (desktopRuntimeDetected && desktopUpdatePillVisible) {
+                        const desktopUpdateCanUseInApp =
+                          desktopRuntimeDetected &&
+                          (desktopUpdatePillVisible || (!desktopUpdateBootstrapRequiredVisible && !desktopUpdateUnavailableVisible));
+                        if (desktopUpdateCanUseInApp) {
                           return (
                             <Button
                               type="button"
@@ -2635,7 +2663,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
                               className="h-6 px-2 text-xs"
                               onClick={() => {
                                 setNotificationsOpen(false);
-                                void handleDesktopUpdatePillClick();
+                                void handleOpenNotification(item);
                               }}
                             >
                               {t.appChrome.desktopUpdatePillUpdate}

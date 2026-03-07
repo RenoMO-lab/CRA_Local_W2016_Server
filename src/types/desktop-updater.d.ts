@@ -5,6 +5,8 @@ declare global {
     | 'unknown'
     | 'ready'
     | 'probe_failed_soft'
+    | 'warning_ipv4_host'
+    | 'scope_incompatible'
     | 'not_desktop_runtime'
     | 'bridge_missing'
     | 'invoke_unavailable'
