@@ -593,6 +593,31 @@ const resolveDesktopUpdateFailure = (
   };
 };
 
+const extractManifestPath = (rawUrl: string) => {
+  const value = String(rawUrl ?? '').trim();
+  if (!value) return '';
+  if (value.startsWith('/api/client/update/manifest')) return value;
+  try {
+    const parsed = new URL(value);
+    if (parsed.pathname.startsWith('/api/client/update/manifest')) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+  } catch {
+    // ignore parse error and return empty path
+  }
+  return '';
+};
+
+const normalizeManifestUrlForDesktopFetch = (rawUrl: string) => {
+  const value = String(rawUrl ?? '').trim();
+  if (!value) return '';
+  const path = extractManifestPath(value);
+  if (!path) return value;
+  const origin = String(window.location?.origin ?? '').trim();
+  if (!origin) return path;
+  return `${origin}${path}`;
+};
+
 const resolveRequestStatusLabel = (status: string, t: any) => {
   const key = String(status ?? '').trim();
   if (!key) return '';
@@ -1385,6 +1410,10 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     }
 
     const prepare = (await prepareRes.json().catch(() => null)) as ClientUpdatePrepareResponse | null;
+    const normalizedManifestUrl = normalizeManifestUrlForDesktopFetch(String(prepare?.manifestUrl ?? ''));
+    if (prepare) {
+      prepare.manifestUrl = normalizedManifestUrl || null;
+    }
     if (!prepare?.updateAvailable || !prepare.targetVersion || !prepare.manifestUrl) {
       setDesktopUpdateActionableVersion('');
       if (prepare?.targetVersion) {
@@ -1544,11 +1573,31 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
           throw new Error(t.appChrome.desktopUpdatePrepareFailed);
         }
 
-        desktopUpdateManifestUrlRef.current = String(prepare.manifestUrl ?? '').trim();
+        const manifestUrl = normalizeManifestUrlForDesktopFetch(String(prepare.manifestUrl ?? ''));
+        if (!manifestUrl) {
+          throw new Error(t.appChrome.desktopUpdatePrepareFailed);
+        }
+        desktopUpdateManifestUrlRef.current = manifestUrl;
         setDesktopUpdatePrepare(prepare);
         setDesktopUpdateTargetVersion(prepare.targetVersion);
 
-        const manifestRes = await fetch(prepare.manifestUrl, { cache: 'no-store' });
+        let manifestRes: Response;
+        try {
+          manifestRes = await fetch(manifestUrl, {
+            cache: 'no-store',
+            credentials: 'include',
+          });
+        } catch (manifestFetchError) {
+          const manifestPath = extractManifestPath(String(prepare.manifestUrl ?? ''));
+          if (!manifestPath) {
+            const detail = String((manifestFetchError as any)?.message ?? manifestFetchError).trim() || 'network_error';
+            throw new Error(`Failed to load update manifest: ${detail}`);
+          }
+          manifestRes = await fetch(manifestPath, {
+            cache: 'no-store',
+            credentials: 'include',
+          });
+        }
         if (!manifestRes.ok) {
           throw new Error(`Failed to load update manifest (${manifestRes.status})`);
         }
@@ -1567,7 +1616,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         setDesktopUpdateProgressMessage(t.appChrome.desktopUpdateProgressDownloading);
 
         const installResult = await bridge.installUpdate({
-          manifestUrl: prepare.manifestUrl,
+          manifestUrl,
           artifactUrl,
           targetVersion: prepare.targetVersion || null,
         });
@@ -1691,7 +1740,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         return false;
       }
 
-      desktopUpdateManifestUrlRef.current = String(prepare.manifestUrl ?? '').trim();
+      desktopUpdateManifestUrlRef.current = normalizeManifestUrlForDesktopFetch(String(prepare.manifestUrl ?? ''));
       setDesktopUpdateTargetVersion(prepare.targetVersion);
       setDesktopUpdatePrepare(prepare);
       if (
