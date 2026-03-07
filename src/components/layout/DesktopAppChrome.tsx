@@ -121,7 +121,7 @@ const DESKTOP_UPDATE_PLATFORM = 'windows-x86_64';
 const DESKTOP_UPDATE_UNKNOWN_VERSION_FALLBACK = '0.0.0';
 const DESKTOP_UPDATE_TOAST_ID = 'desktop-update-available';
 const DESKTOP_UPDATE_TOAST_DEDUP_MS = 15000;
-const DESKTOP_SCOPE_RESCUE_SESSION_KEY = 'cra-desktop-scope-rescue-v1';
+const DESKTOP_SCOPE_RESCUE_SESSION_KEY = 'cra-desktop-scope-rescue-v2';
 
 const detectDesktopRuntime = (): boolean => {
   const hostRuntime = String((window as any)?.__CRA_DESKTOP_HOST__?.runtime ?? '').trim().toLowerCase();
@@ -1100,7 +1100,14 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const tryDesktopScopeHostRescue = useCallback((): boolean => {
     if (typeof window === 'undefined') return false;
     const runtimeVersion = readDesktopHostVersion() || desktopClientVersion || desktopUpdateLegacyVersion || 'unknown';
-    const markerKey = `${DESKTOP_SCOPE_RESCUE_SESSION_KEY}:${runtimeVersion}`;
+    const currentOrigin = (() => {
+      try {
+        return new URL(window.location.href).origin.toLowerCase();
+      } catch {
+        return 'unknown-origin';
+      }
+    })();
+    const markerKey = `${DESKTOP_SCOPE_RESCUE_SESSION_KEY}:${runtimeVersion}:${currentOrigin}`;
 
     try {
       if (window.sessionStorage.getItem(markerKey)) {
@@ -1287,6 +1294,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         if (isDesktopUpdateIpcScopeFailure(pingError)) {
           activateDesktopUpdateBootstrapFallback(`desktop updater preflight blocked by IPC scope: ${pingError}`, {
             navigateToDownloads: false,
+            allowHostRescue: true,
           });
           return null;
         }
@@ -2029,6 +2037,14 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   useEffect(() => {
     if (!user) return;
     if (!desktopRuntimeDetected) return;
+    const hostMetadata = readDesktopHostMetadata();
+    const shouldTryRescue = hostMetadata?.scopeCompatible === false && !desktopUpdateScopeBlockedRef.current;
+    if (shouldTryRescue) {
+      const redirected = tryDesktopScopeHostRescue();
+      if (redirected) {
+        return;
+      }
+    }
     hydrateDesktopVersionFromHost();
 
     let timerId: number | undefined;
@@ -2055,7 +2071,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       if (timerId) window.clearInterval(timerId);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [checkDesktopInAppUpdate, desktopRuntimeDetected, hydrateDesktopVersionFromHost, user]);
+  }, [checkDesktopInAppUpdate, desktopRuntimeDetected, hydrateDesktopVersionFromHost, tryDesktopScopeHostRescue, user]);
 
   useEffect(() => {
     if (user) return;
