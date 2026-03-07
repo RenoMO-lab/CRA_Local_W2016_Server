@@ -2229,6 +2229,9 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       : desktopUpdatePillState === 'ready_to_restart'
         ? t.appChrome.desktopUpdatePillRestart
         : t.appChrome.desktopUpdatePillUpdate;
+  const desktopUpdatePillBusy =
+    desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing';
+  const desktopUpdatePillRestartReady = desktopUpdatePillState === 'ready_to_restart';
   const desktopUpdatePillTitle = interpolate(t.appChrome.desktopUpdatePillTitle, {
     version: desktopUpdateTargetVersion || '-',
   });
@@ -2343,10 +2346,12 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
               type="button"
               size="sm"
               className={cn(
-                'h-8 rounded-full px-3.5 text-xs font-semibold text-white shadow-[0_0_10px_hsl(210_100%_60%/0.35)] transition-all',
-                'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 hover:shadow-[0_0_16px_hsl(210_100%_60%/0.5)]',
-                'focus-visible:ring-blue-400/80',
-                (desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing') && 'cursor-wait'
+                'h-8 rounded-full px-3.5 text-xs font-semibold border border-blue-400/45 bg-blue-500/10 text-blue-600 dark:text-blue-200',
+                'backdrop-blur transition-all hover:bg-blue-500/15 hover:border-blue-300/55 hover:shadow-[0_0_12px_hsl(210_100%_60%/0.28)]',
+                'shadow-[0_0_10px_hsl(210_100%_60%/0.25)] focus-visible:ring-blue-400/70',
+                desktopUpdatePillRestartReady &&
+                  'border-blue-300/65 bg-blue-500/14 shadow-[0_0_14px_hsl(210_100%_60%/0.32)]',
+                desktopUpdatePillBusy && 'cursor-wait opacity-90'
               )}
               onClick={() => {
                 void handleDesktopUpdatePillClick();
@@ -2356,7 +2361,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
               aria-label={desktopUpdatePillTitle}
               title={desktopUpdatePillTitle}
             >
-              {desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing' ? (
+              {desktopUpdatePillBusy ? (
                 <RefreshCw className="h-3.5 w-3.5 animate-spin" />
               ) : null}
               <span>{desktopUpdatePillLabel}</span>
