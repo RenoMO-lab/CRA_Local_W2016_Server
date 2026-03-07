@@ -4054,6 +4054,18 @@ const resolveCraClientUpdateTarget = async () => {
   }
 };
 
+const mapUpdateReleaseToDownloadTarget = (updateRelease) => ({
+  exists: true,
+  source: "github",
+  installerName: sanitizeDownloadFileName(updateRelease?.artifactName, DEFAULT_CRA_CLIENT_INSTALLER_NAME),
+  version: sanitizeDownloadText(updateRelease?.version) || null,
+  sizeBytes: Number.isFinite(Number(updateRelease?.artifactSizeBytes)) ? Number(updateRelease.artifactSizeBytes) : 0,
+  updatedAt: sanitizeDownloadText(updateRelease?.publishedAt) || null,
+  sha256: sanitizeDownloadText(updateRelease?.signature) || null,
+  downloadUrl: String(updateRelease?.artifactDownloadUrl ?? "").trim(),
+  stale: Boolean(updateRelease?.stale),
+});
+
 const resolveCraClientDownloadTarget = async () => {
   const source = getCraClientReleaseSource();
   const allowFallback = shouldAllowCraClientFallback();
@@ -4064,9 +4076,40 @@ const resolveCraClientDownloadTarget = async () => {
     return { ...local, source: "local" };
   }
 
+  let updateTarget = null;
+  // Keep download and in-app update on the same GitHub artifact/version whenever available.
+  if (getCraClientUpdateSource() === "github") {
+    try {
+      updateTarget = await fetchCraClientGitHubUpdateRelease();
+    } catch {
+      updateTarget = null;
+    }
+  }
+
   try {
-    return await fetchCraClientGitHubRelease();
+    const releaseTarget = await fetchCraClientGitHubRelease();
+    if (!updateTarget?.artifactDownloadUrl) {
+      return releaseTarget;
+    }
+
+    const mappedUpdateTarget = mapUpdateReleaseToDownloadTarget(updateTarget);
+    if (!releaseTarget?.downloadUrl) {
+      return mappedUpdateTarget;
+    }
+
+    const releaseVersion = sanitizeDownloadText(releaseTarget?.version);
+    const updateVersion = sanitizeDownloadText(updateTarget?.version);
+    const updateIsNewer = Boolean(updateVersion && compareVersionsLoose(updateVersion, releaseVersion) > 0);
+    const releaseIsStale = Boolean(releaseTarget?.stale);
+    if (updateIsNewer || releaseIsStale) {
+      return mappedUpdateTarget;
+    }
+
+    return releaseTarget;
   } catch (error) {
+    if (updateTarget?.artifactDownloadUrl) {
+      return mapUpdateReleaseToDownloadTarget(updateTarget);
+    }
     if (!allowFallback) throw error;
     const local = await resolveCraClientInstaller();
     if (local.exists) return { ...local, source: "local" };
