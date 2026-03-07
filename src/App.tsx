@@ -2,9 +2,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import React, { Suspense } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider } from "./context/AuthContext";
+import React, { Suspense, useEffect, useRef } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 import { RequestProvider } from "./context/RequestContext";
 import { ContractApprovalProvider } from "./context/ContractApprovalContext";
 import { AdminSettingsProvider } from "./context/AdminSettingsContext";
@@ -24,6 +24,118 @@ const ContractApprovalForm = React.lazy(() => import("./pages/ContractApprovalFo
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
+
+const detectDesktopRuntime = (): boolean => {
+  const hostRuntime = String((window as any)?.__CRA_DESKTOP_HOST__?.runtime ?? "").trim().toLowerCase();
+  const userAgent = typeof navigator === "undefined" ? "" : String(navigator.userAgent ?? "").toLowerCase();
+  return Boolean(
+    hostRuntime === "tauri" ||
+    (window as any)?.__TAURI__ ||
+    (window as any)?.__TAURI_INTERNALS__ ||
+    (window as any)?.__TAURI_INVOKE__ ||
+    (window as any)?.__TAURI_IPC__ ||
+    userAgent.includes("tauri")
+  );
+};
+
+let desktopReadyCallbackId = Math.floor(Date.now() % 1000000) * 2;
+
+const invokeViaTauriIpc = (
+  ipc: (message: { cmd: string; callback: number; error: number; [key: string]: any }) => void,
+  command: string,
+  payload: Record<string, any> = {}
+) =>
+  new Promise<void>((resolve, reject) => {
+    desktopReadyCallbackId += 2;
+    const callback = desktopReadyCallbackId;
+    const error = desktopReadyCallbackId + 1;
+    const callbackKey = `_${callback}`;
+    const errorKey = `_${error}`;
+
+    const cleanup = () => {
+      try { delete (window as any)[callbackKey]; } catch {}
+      try { delete (window as any)[errorKey]; } catch {}
+    };
+
+    Object.defineProperty(window, callbackKey, {
+      configurable: true,
+      writable: false,
+      value: () => {
+        cleanup();
+        resolve();
+      },
+    });
+    Object.defineProperty(window, errorKey, {
+      configurable: true,
+      writable: false,
+      value: (result: any) => {
+        cleanup();
+        reject(result);
+      },
+    });
+
+    try {
+      ipc({
+        cmd: command,
+        callback,
+        error,
+        ...payload,
+      });
+    } catch (invokeError) {
+      cleanup();
+      reject(invokeError);
+    }
+  });
+
+const invokeDesktopCommand = async (command: string, payload: Record<string, any> = {}): Promise<void> => {
+  const tauriObj = (window as any)?.__TAURI__;
+  if (typeof tauriObj?.invoke === "function") {
+    await tauriObj.invoke(command, payload);
+    return;
+  }
+  if (typeof tauriObj?.core?.invoke === "function") {
+    await tauriObj.core.invoke(command, payload);
+    return;
+  }
+  if (typeof (window as any)?.__TAURI_INTERNALS__?.invoke === "function") {
+    await (window as any).__TAURI_INTERNALS__.invoke(command, payload);
+    return;
+  }
+  if (typeof (window as any)?.__TAURI_INVOKE__ === "function") {
+    await (window as any).__TAURI_INVOKE__(command, payload);
+    return;
+  }
+  if (typeof (window as any)?.__TAURI_IPC__ === "function") {
+    await invokeViaTauriIpc((window as any).__TAURI_IPC__, command, payload);
+    return;
+  }
+};
+
+const DesktopReadyNotifier = () => {
+  const { isLoading } = useAuth();
+  const location = useLocation();
+  const sentRef = useRef(false);
+
+  useEffect(() => {
+    if (sentRef.current || isLoading) return;
+    sentRef.current = true;
+
+    if (!detectDesktopRuntime()) {
+      return;
+    }
+
+    const payload = {
+      route: location.pathname,
+      timestamp: new Date().toISOString(),
+    };
+
+    void invokeDesktopCommand("desktop_webview_ready", { payload }).catch(() => {
+      // Best effort only. Browser and legacy clients may not expose this command.
+    });
+  }, [isLoading, location.pathname]);
+
+  return null;
+};
 
 const AppLoadingFallback = () => {
   const { t } = useLanguage();
@@ -49,6 +161,7 @@ const App = () => (
                 <Sonner />
                 <BrowserRouter>
                   <AppShellProvider>
+                    <DesktopReadyNotifier />
                     <Suspense
                       fallback={<AppLoadingFallback />}
                     >
