@@ -2220,6 +2220,9 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
           version: desktopUpdateLegacyVersion || '-',
         });
   const desktopUpdaterStateDetail = desktopUpdaterDiagnostics.detail || t.appChrome.desktopUpdateBridgeStateDetailFallback;
+  const desktopBridgeDiagnosticsVisible =
+    desktopRuntimeDetected &&
+    desktopUpdaterDiagnostics.state !== 'ready';
   const desktopUpdatePillLabel =
     desktopUpdatePillState === 'downloading' || desktopUpdatePillState === 'installing'
       ? t.appChrome.desktopUpdatePillUpdating
@@ -2597,7 +2600,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
               </Button>
             </div>
 
-            {desktopRuntimeDetected ? (
+            {desktopBridgeDiagnosticsVisible ? (
               <div className="px-3 py-2 border-b border-border bg-muted/20">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
