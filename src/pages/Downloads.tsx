@@ -39,6 +39,7 @@ const Downloads: React.FC = () => {
       const res = await fetch("/api/client/download-info", {
         method: "GET",
         credentials: "include",
+        cache: "no-store",
       });
       if (!res.ok) {
         let rawMessage = `Request failed with status ${res.status}`;

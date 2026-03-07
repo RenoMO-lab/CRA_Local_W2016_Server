@@ -4054,67 +4054,41 @@ const resolveCraClientUpdateTarget = async () => {
   }
 };
 
-const mapUpdateReleaseToDownloadTarget = (updateRelease) => ({
-  exists: true,
-  source: "github",
-  installerName: sanitizeDownloadFileName(updateRelease?.artifactName, DEFAULT_CRA_CLIENT_INSTALLER_NAME),
-  version: sanitizeDownloadText(updateRelease?.version) || null,
-  sizeBytes: Number.isFinite(Number(updateRelease?.artifactSizeBytes)) ? Number(updateRelease.artifactSizeBytes) : 0,
-  updatedAt: sanitizeDownloadText(updateRelease?.publishedAt) || null,
-  sha256: sanitizeDownloadText(updateRelease?.signature) || null,
-  downloadUrl: String(updateRelease?.artifactDownloadUrl ?? "").trim(),
-  stale: Boolean(updateRelease?.stale),
-});
+const mapUpdateReleaseToDownloadTarget = (updateRelease) => {
+  const source = sanitizeDownloadText(updateRelease?.source).toLowerCase() === "local" ? "local" : "github";
+  const installerName = sanitizeDownloadFileName(updateRelease?.artifactName, DEFAULT_CRA_CLIENT_INSTALLER_NAME);
+  const artifactPathRaw = sanitizeDownloadText(updateRelease?.artifactPath);
+  const artifactPath = artifactPathRaw
+    ? (path.isAbsolute(artifactPathRaw) ? artifactPathRaw : path.resolve(REPO_ROOT, artifactPathRaw))
+    : "";
+  const downloadUrl = String(updateRelease?.artifactDownloadUrl ?? "").trim();
+
+  return {
+    exists: true,
+    source,
+    installerName,
+    version: sanitizeDownloadText(updateRelease?.version) || null,
+    sizeBytes: Number.isFinite(Number(updateRelease?.artifactSizeBytes)) ? Number(updateRelease.artifactSizeBytes) : 0,
+    updatedAt: sanitizeDownloadText(updateRelease?.publishedAt) || null,
+    sha256: sanitizeDownloadText(updateRelease?.signature) || null,
+    installerPath: source === "local" ? artifactPath : "",
+    downloadUrl: source === "github" ? downloadUrl : "",
+    stale: Boolean(updateRelease?.stale),
+  };
+};
 
 const resolveCraClientDownloadTarget = async () => {
-  const source = getCraClientReleaseSource();
-  const allowFallback = shouldAllowCraClientFallback();
+  const updateTarget = await resolveCraClientUpdateTarget();
+  const mapped = mapUpdateReleaseToDownloadTarget(updateTarget);
 
-  if (source === "local") {
-    const local = await resolveCraClientInstaller();
-    if (!local.exists) throw createHttpError(404, "CRA client installer not found", "client_release_local_installer_missing");
-    return { ...local, source: "local" };
+  if (mapped.source === "local" && !mapped.installerPath) {
+    throw createHttpError(404, "CRA client local update artifact not found", "client_release_local_installer_missing");
+  }
+  if (mapped.source === "github" && !mapped.downloadUrl) {
+    throw createHttpError(404, "CRA client release artifact URL is missing", "client_release_asset_missing");
   }
 
-  let updateTarget = null;
-  // Keep download and in-app update on the same GitHub artifact/version whenever available.
-  if (getCraClientUpdateSource() === "github") {
-    try {
-      updateTarget = await fetchCraClientGitHubUpdateRelease();
-    } catch {
-      updateTarget = null;
-    }
-  }
-
-  try {
-    const releaseTarget = await fetchCraClientGitHubRelease();
-    if (!updateTarget?.artifactDownloadUrl) {
-      return releaseTarget;
-    }
-
-    const mappedUpdateTarget = mapUpdateReleaseToDownloadTarget(updateTarget);
-    if (!releaseTarget?.downloadUrl) {
-      return mappedUpdateTarget;
-    }
-
-    const releaseVersion = sanitizeDownloadText(releaseTarget?.version);
-    const updateVersion = sanitizeDownloadText(updateTarget?.version);
-    const updateIsNewer = Boolean(updateVersion && compareVersionsLoose(updateVersion, releaseVersion) > 0);
-    const releaseIsStale = Boolean(releaseTarget?.stale);
-    if (updateIsNewer || releaseIsStale) {
-      return mappedUpdateTarget;
-    }
-
-    return releaseTarget;
-  } catch (error) {
-    if (updateTarget?.artifactDownloadUrl) {
-      return mapUpdateReleaseToDownloadTarget(updateTarget);
-    }
-    if (!allowFallback) throw error;
-    const local = await resolveCraClientInstaller();
-    if (local.exists) return { ...local, source: "local" };
-    throw error;
-  }
+  return mapped;
 };
 
 const buildClientUpdateNotificationPayload = (updateMeta) => {
@@ -5708,6 +5682,9 @@ export const apiRouter = (() => {
     "/client/download-info",
     requireAuth,
     asyncHandler(async (req, res) => {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
       try {
         const installer = await resolveCraClientDownloadTarget();
         clearClientUpdateHealthError();
@@ -5732,6 +5709,9 @@ export const apiRouter = (() => {
     "/client/download",
     requireAuth,
     asyncHandler(async (req, res) => {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
       let installer;
       try {
         installer = await resolveCraClientDownloadTarget();
