@@ -24,12 +24,10 @@ interface DesktopUpdateProgressDialogProps {
   errorMessage: string;
   failureKind: DesktopUpdateFailureKind;
   canCancelInstall: boolean;
-  restartCountdown: number | null;
   onOpenChange: (open: boolean) => void;
   onCancelInstall: () => void;
   onRetry: () => void;
   onRestartNow: () => void;
-  onCancelAutoRestart: () => void;
   onOpenDownloads: () => void;
 }
 
@@ -41,12 +39,10 @@ const DesktopUpdateProgressDialog: React.FC<DesktopUpdateProgressDialogProps> = 
   errorMessage,
   failureKind,
   canCancelInstall,
-  restartCountdown,
   onOpenChange,
   onCancelInstall,
   onRetry,
   onRestartNow,
-  onCancelAutoRestart,
   onOpenDownloads,
 }) => {
   const { t } = useLanguage();
@@ -97,12 +93,6 @@ const DesktopUpdateProgressDialog: React.FC<DesktopUpdateProgressDialogProps> = 
             </div>
           ) : null}
 
-          {phase === 'ready_to_restart' && typeof restartCountdown === 'number' ? (
-            <p className="text-xs text-muted-foreground">
-              {t.appChrome.desktopUpdateRestartCountdown.replace('{seconds}', String(restartCountdown))}
-            </p>
-          ) : null}
-
           {phase === 'failed' ? (
             <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               {errorMessage || t.appChrome.desktopUpdateInstallFailedTitle}
@@ -119,11 +109,6 @@ const DesktopUpdateProgressDialog: React.FC<DesktopUpdateProgressDialogProps> = 
 
           {phase === 'ready_to_restart' ? (
             <>
-              {typeof restartCountdown === 'number' ? (
-                <Button type="button" variant="outline" onClick={onCancelAutoRestart}>
-                  {t.appChrome.desktopUpdateCancelAutoRestart}
-                </Button>
-              ) : null}
               <Button type="button" onClick={onRestartNow}>
                 {t.appChrome.desktopUpdateRestartNow}
               </Button>

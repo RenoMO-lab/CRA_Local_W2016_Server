@@ -117,7 +117,6 @@ type DesktopUpdaterDiagnostics = {
 };
 
 const DESKTOP_UPDATE_PLATFORM = 'windows-x86_64';
-const DESKTOP_UPDATE_RESTART_SECONDS = 10;
 const DESKTOP_UPDATE_UNKNOWN_VERSION_FALLBACK = '0.0.0';
 const DESKTOP_UPDATE_TOAST_ID = 'desktop-update-available';
 const DESKTOP_UPDATE_TOAST_DEDUP_MS = 15000;
@@ -866,7 +865,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const desktopUpdateToastAtRef = useRef<number>(0);
   const desktopUpdateManifestUrlRef = useRef<string>('');
   const desktopUpdateInstallBusyRef = useRef(false);
-  const desktopUpdateRestartTimerRef = useRef<number | null>(null);
   const desktopUpdateScopeBlockedRef = useRef(false);
   const desktopUpdateScopeToastShownRef = useRef(false);
   const [desktopUpdatePillState, setDesktopUpdatePillState] = useState<DesktopUpdatePillState>('hidden');
@@ -883,7 +881,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const [desktopUpdateProgressMessage, setDesktopUpdateProgressMessage] = useState('');
   const [desktopUpdateErrorMessage, setDesktopUpdateErrorMessage] = useState('');
   const [desktopUpdateFailureKind, setDesktopUpdateFailureKind] = useState<DesktopUpdateFailureKind>('transient');
-  const [desktopUpdateRestartCountdown, setDesktopUpdateRestartCountdown] = useState<number | null>(null);
   const [desktopUpdateBusy, setDesktopUpdateBusy] = useState(false);
   const [desktopUpdateCanCancelInstall, setDesktopUpdateCanCancelInstall] = useState(false);
   const [desktopUpdaterDiagnostics, setDesktopUpdaterDiagnostics] = useState<DesktopUpdaterDiagnostics>({
@@ -1037,13 +1034,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     });
   }, []);
 
-  const clearDesktopUpdateRestartTimer = useCallback(() => {
-    if (desktopUpdateRestartTimerRef.current) {
-      window.clearInterval(desktopUpdateRestartTimerRef.current);
-      desktopUpdateRestartTimerRef.current = null;
-    }
-  }, []);
-
   const resolveDesktopScopeRescueTarget = useCallback((): string | null => {
     if (typeof window === 'undefined') return null;
     const hostMetadata = readDesktopHostMetadata();
@@ -1112,7 +1102,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const activateDesktopUpdateBootstrapFallback = useCallback(
     (reason: string, options?: { navigateToDownloads?: boolean; allowHostRescue?: boolean }) => {
       const normalizedReason = String(reason ?? '').trim() || t.appChrome.desktopUpdateIpcScopeBlocked;
-      if (options?.allowHostRescue !== false && tryDesktopScopeHostRescue()) {
+      if (options?.allowHostRescue === true && tryDesktopScopeHostRescue()) {
         return;
       }
       desktopUpdateScopeBlockedRef.current = true;
@@ -1442,8 +1432,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   ]);
 
   const handleDesktopRestartNow = useCallback(async () => {
-    clearDesktopUpdateRestartTimer();
-    setDesktopUpdateRestartCountdown(null);
     const bridge = getDesktopUpdaterBridge();
     if (!bridge) {
       setDesktopUpdatePillState('failed');
@@ -1454,26 +1442,18 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       setDesktopUpdateProgressOpen(true);
       return;
     }
-    await bridge.restartApp().catch(() => {
+    await bridge.restartApp().catch((error) => {
+      const reason = String((error as any)?.message ?? error).trim() || t.appChrome.desktopUpdateRestartFailed;
+      setDesktopUpdatePillState('failed');
+      setDesktopUpdateProgressPhase('failed');
+      setDesktopUpdateProgressPercent(0);
+      setDesktopUpdateErrorMessage(reason);
+      setDesktopUpdateProgressMessage(reason);
+      setDesktopUpdateFailureKind('transient');
+      setDesktopUpdateProgressOpen(true);
       toast.error(t.appChrome.desktopUpdateRestartFailed);
     });
-  }, [clearDesktopUpdateRestartTimer, t.appChrome.desktopUpdateBridgeUnavailable, t.appChrome.desktopUpdateRestartFailed]);
-
-  const startDesktopAutoRestartCountdown = useCallback(() => {
-    clearDesktopUpdateRestartTimer();
-    setDesktopUpdateRestartCountdown(DESKTOP_UPDATE_RESTART_SECONDS);
-    desktopUpdateRestartTimerRef.current = window.setInterval(() => {
-      setDesktopUpdateRestartCountdown((prev) => {
-        if (prev == null) return null;
-        if (prev <= 1) {
-          clearDesktopUpdateRestartTimer();
-          void handleDesktopRestartNow();
-          return null;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }, [clearDesktopUpdateRestartTimer, handleDesktopRestartNow]);
+  }, [t.appChrome.desktopUpdateBridgeUnavailable, t.appChrome.desktopUpdateRestartFailed]);
 
   const markDesktopUpdateFailure = useCallback(
     (
@@ -1489,8 +1469,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       const failureKind =
         options?.failureKind ??
         (isDesktopUpdateIpcScopeFailure(normalizedRawReason || displayReason) ? 'scope_blocked' : 'transient');
-      clearDesktopUpdateRestartTimer();
-      setDesktopUpdateRestartCountdown(null);
       setDesktopUpdatePillState('failed');
       setDesktopUpdateProgressPhase('failed');
       setDesktopUpdateProgressPercent(0);
@@ -1517,7 +1495,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       }
     },
     [
-      clearDesktopUpdateRestartTimer,
       location.pathname,
       navigate,
       t.appChrome.desktopUpdateInstallFailedBody,
@@ -1535,13 +1512,13 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         return;
       }
       if (desktopUpdateScopeBlockedRef.current) {
-        activateDesktopUpdateBootstrapFallback(t.appChrome.desktopUpdateIpcScopeBlocked);
+        activateDesktopUpdateBootstrapFallback(t.appChrome.desktopUpdateIpcScopeBlocked, { allowHostRescue: true });
         return;
       }
 
       const preflight = await runDesktopUpdaterPreflight(bridge);
       if (!preflight.ok && isDesktopUpdateIpcScopeFailure(preflight.reason)) {
-        activateDesktopUpdateBootstrapFallback(preflight.reason);
+        activateDesktopUpdateBootstrapFallback(preflight.reason, { allowHostRescue: true });
         return;
       }
       if (desktopUpdateInstallBusyRef.current) return;
@@ -1557,8 +1534,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       setDesktopUpdateFailureKind('transient');
       setDesktopUpdateCanCancelInstall(typeof bridge.cancelInstall === 'function');
       setDesktopUpdatePillState('downloading');
-      clearDesktopUpdateRestartTimer();
-      setDesktopUpdateRestartCountdown(null);
 
       try {
         let prepare = prepareInput;
@@ -1656,12 +1631,12 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         toast.success(t.appChrome.desktopUpdateInstallReadyTitle, {
           description: t.appChrome.desktopUpdateInstallReadyBody,
         });
-        startDesktopAutoRestartCountdown();
+        await handleDesktopRestartNow();
       } catch (error) {
         const rawReason = String((error as any)?.message ?? error).trim() || t.appChrome.desktopUpdateInstallFailedUnknown;
         const failure = resolveDesktopUpdateFailure(rawReason, t);
         if (failure.autoOpenDownloads) {
-          activateDesktopUpdateBootstrapFallback(rawReason);
+          activateDesktopUpdateBootstrapFallback(rawReason, { allowHostRescue: true });
           return;
         }
         markDesktopUpdateFailure(failure.message, {
@@ -1674,12 +1649,11 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       }
     },
     [
-      clearDesktopUpdateRestartTimer,
       activateDesktopUpdateBootstrapFallback,
+      handleDesktopRestartNow,
       markDesktopUpdateFailure,
       requestDesktopUpdatePrepare,
       runDesktopUpdaterPreflight,
-      startDesktopAutoRestartCountdown,
       t.appChrome.desktopUpdateArtifactMissing,
       t.appChrome.desktopUpdateBridgeUnavailable,
       t.appChrome.desktopUpdateInstallFailedUnknown,
@@ -1846,7 +1820,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   const handleDesktopUpdateConfirm = useCallback(() => {
     if (desktopUpdateScopeBlockedRef.current) {
-      activateDesktopUpdateBootstrapFallback(t.appChrome.desktopUpdateIpcScopeBlocked);
+      activateDesktopUpdateBootstrapFallback(t.appChrome.desktopUpdateIpcScopeBlocked, { allowHostRescue: true });
       return;
     }
     setDesktopUpdateConfirmOpen(false);
@@ -1862,7 +1836,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   const handleDesktopUpdateRetry = useCallback(() => {
     if (desktopUpdateScopeBlockedRef.current) {
-      activateDesktopUpdateBootstrapFallback(t.appChrome.desktopUpdateIpcScopeBlocked);
+      activateDesktopUpdateBootstrapFallback(t.appChrome.desktopUpdateIpcScopeBlocked, { allowHostRescue: true });
       return;
     }
     void installDesktopUpdate(desktopUpdatePrepare);
@@ -1881,20 +1855,9 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     [desktopUpdatePillState]
   );
 
-  const handleDesktopUpdateCancelAutoRestart = useCallback(() => {
-    clearDesktopUpdateRestartTimer();
-    setDesktopUpdateRestartCountdown(null);
-  }, [clearDesktopUpdateRestartTimer]);
-
   const handleDesktopUpdateOpenDownloads = useCallback(() => {
     navigate('/downloads');
   }, [navigate]);
-
-  useEffect(() => {
-    return () => {
-      clearDesktopUpdateRestartTimer();
-    };
-  }, [clearDesktopUpdateRestartTimer]);
 
   useEffect(() => {
     if (!notificationsOpen) return;
@@ -2025,13 +1988,11 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
 
   useEffect(() => {
     if (user) return;
-    clearDesktopUpdateRestartTimer();
     setDesktopUpdatePillState('hidden');
     setDesktopUpdateTargetVersion('');
     setDesktopUpdatePrepare(null);
     setDesktopUpdateConfirmOpen(false);
     setDesktopUpdateProgressOpen(false);
-    setDesktopUpdateRestartCountdown(null);
     setDesktopUpdateBusy(false);
     setDesktopUpdateErrorMessage('');
     setDesktopUpdateFailureKind('transient');
@@ -2042,7 +2003,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
     desktopUpdateScopeBlockedRef.current = false;
     desktopUpdateScopeToastShownRef.current = false;
     setDesktopUpdaterDiagnostics({ state: 'unknown', detail: '' });
-  }, [clearDesktopUpdateRestartTimer, user]);
+  }, [user]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -2400,7 +2361,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         errorMessage={desktopUpdateErrorMessage}
         failureKind={desktopUpdateFailureKind}
         canCancelInstall={desktopUpdateCanCancelInstall}
-        restartCountdown={desktopUpdateRestartCountdown}
         onCancelInstall={() => {
           void handleDesktopUpdateCancelInstall();
         }}
@@ -2408,7 +2368,6 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         onRestartNow={() => {
           void handleDesktopRestartNow();
         }}
-        onCancelAutoRestart={handleDesktopUpdateCancelAutoRestart}
         onOpenDownloads={handleDesktopUpdateOpenDownloads}
       />
 
