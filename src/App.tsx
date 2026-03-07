@@ -118,20 +118,40 @@ const DesktopReadyNotifier = () => {
 
   useEffect(() => {
     if (sentRef.current || isLoading) return;
-    sentRef.current = true;
 
-    if (!detectDesktopRuntime()) {
-      return;
-    }
+    let cancelled = false;
+    const startedAt = Date.now();
+    const deadline = startedAt + 20_000;
 
-    const payload = {
-      route: location.pathname,
-      timestamp: new Date().toISOString(),
+    const trySignalReady = () => {
+      if (cancelled || sentRef.current) return;
+      if (Date.now() > deadline) return;
+
+      if (!detectDesktopRuntime()) {
+        window.setTimeout(trySignalReady, 350);
+        return;
+      }
+
+      const payload = {
+        route: location.pathname,
+        timestamp: new Date().toISOString(),
+      };
+
+      void invokeDesktopCommand("desktop_webview_ready", { payload })
+        .then(() => {
+          sentRef.current = true;
+        })
+        .catch(() => {
+          // Best effort only. Browser and legacy clients may not expose this command.
+          window.setTimeout(trySignalReady, 500);
+        });
     };
 
-    void invokeDesktopCommand("desktop_webview_ready", { payload }).catch(() => {
-      // Best effort only. Browser and legacy clients may not expose this command.
-    });
+    trySignalReady();
+
+    return () => {
+      cancelled = true;
+    };
   }, [isLoading, location.pathname]);
 
   return null;
