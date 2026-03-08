@@ -922,11 +922,17 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   const [notificationsError, setNotificationsError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
+  const notificationsFetchSeqRef = useRef(0);
+  const notificationsHasDataRef = useRef(false);
   const context = useMemo(() => routeContext(location.pathname, t), [location.pathname, t]);
   const notificationItems = useMemo(
     () => notifications.map((item) => ({ ...item, display: resolveNotificationDisplay(item, t) })),
     [notifications, t]
   );
+
+  useEffect(() => {
+    notificationsHasDataRef.current = notifications.length > 0;
+  }, [notifications.length]);
 
   const navigationCommands = useMemo(
     () => {
@@ -1015,12 +1021,17 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
   }, [user]);
 
   const fetchNotifications = useCallback(
-    async (filter: 'unread' | 'all') => {
+    async (filter: 'unread' | 'all', options?: { silent?: boolean }) => {
       if (!user) {
         setNotifications([]);
         return;
       }
-      setNotificationsLoading(true);
+      const requestSeq = notificationsFetchSeqRef.current + 1;
+      notificationsFetchSeqRef.current = requestSeq;
+      const showLoading = !options?.silent && !notificationsHasDataRef.current;
+      if (showLoading) {
+        setNotificationsLoading(true);
+      }
       setNotificationsError(null);
       try {
         const unreadOnly = filter === 'unread';
@@ -1030,11 +1041,15 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
         }
         const data = await res.json().catch(() => null);
         const items = Array.isArray(data?.items) ? (data.items as AppNotification[]) : [];
+        if (requestSeq !== notificationsFetchSeqRef.current) return;
         setNotifications(items);
       } catch (error) {
+        if (requestSeq !== notificationsFetchSeqRef.current) return;
         setNotificationsError(String((error as any)?.message ?? error));
       } finally {
-        setNotificationsLoading(false);
+        if (requestSeq === notificationsFetchSeqRef.current) {
+          setNotificationsLoading(false);
+        }
       }
     },
     [user]
@@ -1950,7 +1965,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       if (document.visibilityState !== 'visible') return;
       await fetchUnreadCount();
       if (notificationsOpen) {
-        await fetchNotifications(notificationsFilter);
+        await fetchNotifications(notificationsFilter, { silent: true });
       }
     };
 
@@ -1992,7 +2007,7 @@ const DesktopAppChrome: React.FC<DesktopAppChromeProps> = ({ sidebarCollapsed, o
       }
       await fetchUnreadCount();
       if (notificationsOpen) {
-        await fetchNotifications(notificationsFilter);
+        await fetchNotifications(notificationsFilter, { silent: true });
       }
     } catch {
       // ignore transient sync errors
